@@ -20,3 +20,5 @@ temp-plot.html
 data*
 *libTracyClient.*
 .cache/
+/.vs
+/env

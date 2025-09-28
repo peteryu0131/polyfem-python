@@ -1,4 +1,4 @@
-from .polyfempy import *
+from .polyfempy import * 
 
 # from .Settings import Settings
 # from .Selection import Selection
