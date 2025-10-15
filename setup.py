@@ -50,6 +50,7 @@ class CMakeBuild(build_ext):
                       '-DPYTHON_INCLUDE_DIR=' + python_include_directory,
                       '-DPOLYSOLVE_WITH_SPECTRA=OFF',
                       '-DPOLYSOLVE_WITH_AMGCL=OFF',
+                      '-DPOLYSOLVE_WITH_UMFPACK=OFF',
                       '-DCMAKE_POLICY_VERSION_MINIMUM=3.5']
 
         cfg = 'Debug' if self.debug else 'Release'
@@ -70,14 +71,14 @@ class CMakeBuild(build_ext):
         # env['CXXFLAGS'] = '{} -DVERSION_INFO=\"{}\"'.format(
             # env.get('CXXFLAGS', ''), self.distribution.get_version())
         # print(env['CXXFLAGS'])
-
+        print("------------------------" + self.build_temp)
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
         subprocess.check_call(['cmake', ext.sourcedir] +
                               cmake_args, cwd=self.build_temp, env=env)
 
         subprocess.check_call(['cmake', '--build', '.'] +
-                              build_args, cwd=self.build_temp)
+                              build_args)
 
         print()  # Add an empty line for cleaner output
 
