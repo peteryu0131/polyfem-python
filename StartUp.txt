@@ -1,0 +1,8 @@
+conda activate polyfem
+cd C:\Users\peter\Documents\GitHub\polyfem-python
+
+
+ python .\setup.py build install
+
+
+python polyfempy\examples\run_elasticity.py
