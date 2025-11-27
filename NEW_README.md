@@ -236,7 +236,7 @@ Test categories:
 - `test_determinism.py`: Reproducibility tests
 - `test_backend_switch.py`: Backend switching tests
 - `test_batch_isolation.py`: Batch processing isolation tests
-- `test_contact_examples_api.py`: Compatibility tests with polyfem-data examples (86 examples: 28 2D + 58 3D)
+- `test_contact_examples_api.py`: Compatibility tests with polyfem-data examples
 - `test_common_json_merge.py`: common.json merge functionality tests
 
 ## Compatibility
@@ -275,7 +275,7 @@ result = solve(cfg=cfg)
 ## Documentation
 
 - **[API Architecture](docs/api-architecture.md)**: Complete API design and architecture
-- **[API Compatibility](docs/api-contact-examples-compatibility.md)**: Compatibility with polyfem-data examples (2D and 3D)
+- **[API Compatibility](docs/api-contact-examples-compatibility.md)**: Compatibility with polyfem-data examples
 - **[Differentiable Guide](docs/differentiable-guide.md)**: Gradient-based optimization and PyTorch integration
 - **[Legacy vs New API](docs/legacy-vs-new-api-comparison.md)**: Comparison between old and new APIs
 - **[API Completion Assessment](docs/api-completion-assessment.md)**: Feature completion status
@@ -313,11 +313,9 @@ polyfempy/
     ├── test_contact_examples_api.py
     └── test_common_json_merge.py
 docs/
-  ├── api-architecture.md
-  ├── api-contact-examples-compatibility.md
-  ├── differentiable-guide.md
-  ├── legacy-vs-new-api-comparison.md
-  └── api-completion-assessment.md
+  ├── binding-spec.md    # API specification
+  ├── for_cpp_dev.md     # C++ implementation guide
+  └── TODO.md            # Development roadmap
 ```
 
 ## Design Principles
@@ -336,3 +334,5 @@ docs/
 ## Contact
 
 [Add contact information if needed]
+
+

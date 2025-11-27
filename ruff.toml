@@ -1,0 +1,26 @@
+# Ruff configuration for PolyFEM Python API
+
+line-length = 88
+target-version = "py39"
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+]
+
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "W191",  # indentation contains tabs
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["E501"]  # Allow longer lines in tests
+
+[lint.isort]
+known-first-party = ["polyfempy"]
+

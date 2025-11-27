@@ -15,3 +15,11 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License"
 ]
+
+[project.optional-dependencies]
+differentiable = [
+    "torch>=1.9.0",
+]
+all = [
+    "torch>=1.9.0",
+]
