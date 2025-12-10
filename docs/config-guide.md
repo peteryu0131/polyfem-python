@@ -9,10 +9,15 @@
 1. [快速开始](#快速开始)
 2. [数据流转过程](#数据流转过程)
 3. [参数输入方式](#参数输入方式)
-4. [参数验证机制](#参数验证机制)
-5. [JSON 参数支持](#json-参数支持)
-6. [实际应用示例](#实际应用示例)
-7. [添加新参数](#添加新参数)
+4. [Class-Based 配置详解](#class-based-配置详解)
+5. [参数验证机制](#参数验证机制)
+6. [JSON 参数支持](#json-参数支持)
+7. [实际应用示例](#实际应用示例)
+8. [添加新参数](#添加新参数)
+
+**相关文档**：
+- [Config Classes 使用指南](config-classes.md) - 详细的 Class-Based 配置说明
+- [Configuration Guide (English)](config-guide-en.md) - English version of this guide
 
 ---
 
@@ -175,21 +180,55 @@ cfg = SimulationConfig.from_json_file("config.json")
 
 ## 参数输入方式
 
-### 方式 1：基本字段（推荐用于简单配置）
+### 方式 1：使用 Class（推荐 - IDE 自动补全支持）
+
+为了提供更好的 IDE 自动补全支持和类型检查，`SimulationConfig` 的主要参数支持使用 class 形式。
+
+**基本示例：**
+```python
+from polyfempy.api.config import SimulationConfig, Material, BoundaryConditions, GravityParams
+
+# 使用 Material class
+material = Material(E=2100, nu=0.3, rho=1.0)
+cfg = SimulationConfig(materials=material)
+
+# 使用 BoundaryConditions class
+bc = BoundaryConditions()
+bc.add_dirichlet(id=4, value=[0.0, 0.0])
+cfg = SimulationConfig(boundary_conditions=bc)
+
+# 使用 ProblemParams classes
+gravity_params = GravityParams(force=0.1)
+cfg = SimulationConfig(problem_type="Gravity", problem_params=gravity_params)
+```
+
+**优势**：
+- ✅ IDE 自动补全：输入 `material.` 时，IDE 会提示所有可用属性
+- ✅ 类型检查：IDE 可以验证参数类型
+- ✅ 错误预防：拼写错误会被 IDE 发现
+- ✅ 代码清晰：`material.E` 比 `materials["E"]` 更清晰
+
+**详细说明**：请参考 [Config Classes 使用指南](config-classes.md)，了解所有可用的 Classes、便捷方法和完整示例。
+
+### 方式 2：使用 Dict（向后兼容）
 
 ```python
+# 旧方式仍然支持（但 IDE 无法自动补全）
 cfg = SimulationConfig(
     pde="linear_elasticity",
     discr_order=2,
-    materials={"E": 1e6, "nu": 0.3},
+    materials={"E": 1e6, "nu": 0.3},  # ⚠️ IDE 无法提示键名
     boundary_conditions={
-        "dirichlet_boundary": [{"id": 4, "value": [0.0, 0.0]}],
+        "dirichlet_boundary": [{"id": 4, "value": [0.0, 0.0]}],  # ⚠️ IDE 无法提示
         "rhs": [1.0, 0.0]
-    }
+    },
+    problem_params={"force": 0.1}  # ⚠️ IDE 无法提示键名
 )
 ```
 
-### 方式 2：通过 extras 输入额外参数
+**注意**：虽然 dict 方式仍然支持，但建议使用 class 方式以获得更好的开发体验。
+
+### 方式 3：通过 extras 输入额外参数
 
 ```python
 cfg = SimulationConfig(
@@ -214,7 +253,7 @@ cfg = SimulationConfig(
 )
 ```
 
-### 方式 3：从 JSON 文件加载（推荐用于完整配置）
+### 方式 4：从 JSON 文件加载（推荐用于完整配置）
 
 ```python
 # 从 JSON 文件加载完整配置
@@ -222,7 +261,7 @@ cfg = SimulationConfig.from_json_file("config.json")
 # 所有参数都保存在 extras["_full_json_config"] 中
 ```
 
-### 方式 4：从字典加载
+### 方式 5：从字典加载
 
 ```python
 config_dict = {
@@ -233,6 +272,18 @@ config_dict = {
 }
 cfg = SimulationConfig.from_json_dict(config_dict)
 ```
+
+---
+
+## Class-Based 配置详解
+
+为了提供更好的 IDE 自动补全支持和类型检查，`SimulationConfig` 的主要参数支持使用 class 形式（如 `Material`、`BoundaryConditions`、`GravityParams` 等）。
+
+**详细文档**：请参考 [Config Classes 使用指南](config-classes.md)，了解：
+- 为什么使用 Class 而不是 Dict
+- 所有可用的 Classes（Material、BoundaryConditions、ProblemParams 等）
+- 便捷方法和 Convenience Factories
+- 完整的使用示例
 
 ---
 
@@ -385,28 +436,11 @@ settings = cfg.to_dict()
 
 ### 如何输入这些参数
 
-**方式 1：从 JSON 文件加载（推荐）**
-```python
-cfg = SimulationConfig.from_json_file("config.json")
-# 所有参数都保留在完整 JSON 中
-```
+这些 JSON 参数可以通过以下方式输入（详细说明请参考 [参数输入方式](#参数输入方式) 章节）：
 
-**方式 2：通过 extras 输入**
-```python
-cfg = SimulationConfig(extras={
-    "solver": {...},
-    "time": {...},
-    "output": {...}
-})
-# 参数保留在 extras 中，不会被验证
-```
-
-**方式 3：通过字典输入**
-```python
-config_dict = {"solver": {...}, "time": {...}}
-cfg = SimulationConfig.from_json_dict(config_dict)
-# 转换为完整 JSON 配置
-```
+- **从 JSON 文件加载**：`SimulationConfig.from_json_file("config.json")`
+- **通过 extras 输入**：`SimulationConfig(extras={"solver": {...}, "time": {...}})`
+- **从字典加载**：`SimulationConfig.from_json_dict(config_dict)`
 
 ### to_dict() 的行为
 
@@ -753,10 +787,4 @@ d = cfg.to_dict()
 
 ---
 
-## 相关文档
-
-- [API 架构文档](api-architecture.md) - 完整的 API 架构说明
-- [API 架构文档（英文版）](api-architecture-en.md) - API Architecture Document (English)
-- [配置指南（英文版）](config-guide-en.md) - Configuration Guide (English)
-- [示例代码](../polyfempy/api/examples/README.md) - 实际使用示例
 

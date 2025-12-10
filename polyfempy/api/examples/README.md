@@ -4,23 +4,7 @@ This directory contains runnable examples demonstrating how to use the PolyFEM P
 
 ## Examples
 
-### 1. `run_dummy_elasticity.py`
-**Basic Dummy backend example**
-
-Demonstrates the simplest use case:
-- Creating a simple 2D mesh (unit square with 2 triangles)
-- Configuring simulation parameters
-- Running the solver with Dummy backend
-- Displaying results and metadata
-
-**Run:**
-```bash
-python -m polyfempy.api.examples.run_dummy_elasticity
-```
-
----
-
-### 2. `run_elasticity.py`
+### 1. `run_elasticity.py`
 **Minimal 2D Linear Elasticity**
 
 Shows how to:
@@ -35,7 +19,7 @@ python -m polyfempy.api.examples.run_elasticity
 
 ---
 
-### 3. `load_from_json.py`
+### 2. `load_from_json.py`
 **Load configuration from JSON file**
 
 Demonstrates how to:
@@ -52,7 +36,7 @@ python -m polyfempy.api.examples.load_from_json
 
 ---
 
-### 4. `parameter_sweep.py`
+### 3. `parameter_sweep.py`
 **Parameter sweep - study parameter sensitivity**
 
 Shows how to:
@@ -69,7 +53,7 @@ python -m polyfempy.api.examples.parameter_sweep
 
 ---
 
-### 5. `batch_processing.py`
+### 4. `batch_processing.py`
 **Batch processing with error isolation**
 
 Demonstrates how to:
@@ -86,23 +70,57 @@ python -m polyfempy.api.examples.batch_processing
 
 ---
 
-### 6. `with_callbacks.py`
-**Monitoring simulation progress**
+### 5. `class_based_config.py`
+**Class-based configuration for better IDE support**
 
-Shows how to:
-- Monitor simulation results and metadata
-- Study convergence by running simulations with different parameters
-- Analyze convergence behavior
-- Generate convergence plots
+Demonstrates the class-based API for SimulationConfig:
+- Using `Material` class instead of dictionaries
+- Using `BoundaryConditions` class with convenience methods
+- IDE autocomplete support
 
 **Run:**
 ```bash
-python -m polyfempy.api.examples.with_callbacks
+python -m polyfempy.api.examples.class_based_config
 ```
 
-**Note:** Callbacks are not directly supported in the high-level `solve()` API, but you can monitor progress by checking result metadata and running parameter studies.
+**Use case:** Learning the class-based API for better IDE support and type safety.
 
-**Use case:** Understanding convergence behavior, debugging, or analyzing simulation results.
+---
+
+### 6. `material_classes_example.py`
+**Dedicated material classes with multiple input modes**
+
+Demonstrates all dedicated material classes:
+- NeoHookean, IsochoricNeoHookean (E-nu and lambda-mu inputs)
+- LinearElasticity, HookeLinearElasticity, SaintVenant
+- MooneyRivlin series, Ogden materials
+- Fluid materials (Stokes, NavierStokes, OperatorSplitting)
+- Electrostatics
+- Parameter validation and multiple input modes
+
+**Run:**
+```bash
+python -m polyfempy.api.examples.material_classes_example
+```
+
+**Use case:** Learning how to use dedicated material classes with IDE autocomplete and validation.
+
+---
+
+### 7. `problem_params_class_example.py`
+**ProblemParams classes for better IDE support**
+
+Demonstrates the class-based API for problem parameters:
+- GravityParams, TorsionParams, FlowParams, FlowWithObstacleParams
+- IDE autocomplete support
+- Correct spelling (inflow_amount, not inflow_amout)
+
+**Run:**
+```bash
+python -m polyfempy.api.examples.problem_params_class_example
+```
+
+**Use case:** Learning how to use ProblemParams classes for predefined problems.
 
 ---
 

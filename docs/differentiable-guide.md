@@ -2,20 +2,20 @@
 
 本文档详细介绍了 PolyFEM Python API 中的可微分仿真功能，包括设计理念、使用方法、技术细节和最佳实践。
 
+**相关文档**：
+- [Differentiable Guide (English)](differentiable-guide-en.md) - English version of this guide
+
 ## 目录
 
 1. [快速开始](#快速开始)
 2. [概述](#概述)
-3. [为什么需要 Differentiable？](#为什么需要-differentiable)
-4. [技术原理](#技术原理)
-5. [API 设计](#api-设计)
-6. [使用指南](#使用指南)
-7. [新实现 vs 旧实现](#新实现-vs-旧实现)
-8. [支持的导数类型](#支持的导数类型)
-9. [完整示例](#完整示例)
-10. [高级用法](#高级用法)
-11. [常见问题](#常见问题)
-12. [实现细节](#实现细节)
+3. [技术原理](#技术原理)
+4. [API 设计](#api-设计)
+5. [新实现 vs 旧实现](#新实现-vs-旧实现)
+6. [支持的导数类型](#支持的导数类型)
+7. [完整示例](#完整示例)
+8. [高级用法](#高级用法)
+9. [实现细节](#实现细节)
 
 ---
 
@@ -47,7 +47,7 @@ loss.backward()
 grad = vertices.grad   # Gradient is computed automatically!
 ```
 
-**就这么简单！** 不需要手动写 `torch.autograd.Function`，不需要手动设置缓存，不需要手动调用 adjoint。
+**就这么简单！** 不需要手动配置 solver，不需要手动设置缓存，不需要手动调用 adjoint。所有细节都由 `solve_differentiable()` 自动处理。
 
 ---
 
@@ -62,24 +62,6 @@ Differentiable（可微分）功能允许你计算仿真结果对输入参数的
 - **逆问题求解**：从观测数据反推参数
 - **机器学习**：将物理仿真集成到神经网络训练中
 
-### 设计原则
-
-1. **默认简单**：`solve()` API 保持简单，不涉及 differentiable
-2. **可选增强**：提供独立的 differentiable 模块
-3. **渐进式复杂度**：从简单到高级，用户按需选择
-4. **向后兼容**：现有的复杂用法仍然支持
-
----
-
-## 为什么需要 Differentiable？
-
-Differentiable 功能主要适用于需要计算梯度进行优化的场景。例如：
-
-- **形状优化**：找到最优的网格顶点，使位移或应力最小
-- **材料参数优化**：找到最佳的材料参数（如弹性模量 E、泊松比 ν）
-- **逆问题求解**：从观测数据反推未知参数
-- **机器学习训练**：将物理仿真作为神经网络的一层
-
 **典型使用场景**：
 ```python
 # 目标：找到最优的 vertices，使得位移最小
@@ -90,6 +72,13 @@ def objective(vertices):
 # 需要计算梯度：d(objective)/d(vertices)
 # 这样才能用梯度下降优化
 ```
+
+### 设计原则
+
+1. **默认简单**：`solve()` API 保持简单，不涉及 differentiable
+2. **可选增强**：提供独立的 differentiable 模块
+3. **渐进式复杂度**：从简单到高级，用户按需选择
+4. **向后兼容**：现有的复杂用法仍然支持
 
 ### 为什么不能直接用 PyTorch 的自动微分？
 
@@ -178,7 +167,11 @@ PolyFEMFunction - PyTorch 集成层（自定义反向传播）
 
 ### 伴随方法（Adjoint Method）详解
 
-#### 数学原理
+伴随方法是计算 PDE 约束优化问题梯度的核心算法。它比直接计算梯度或使用自动微分更高效。
+
+#### 为什么需要伴随方法？
+
+**问题场景**：我们需要计算目标函数对参数的梯度，但目标函数依赖于 PDE 的解。
 
 对于优化问题：
 ```
@@ -188,64 +181,134 @@ subject to F(u(θ), θ) = 0  (PDE 约束)
 
 其中：
 - `u` 是 PDE 的解（位移场）
-- `θ` 是优化参数（如顶点坐标）
-- `J` 是目标函数（如总位移）
-- `F` 是 PDE 残差
+- `θ` 是优化参数（如顶点坐标、材料参数等）
+- `J` 是目标函数（如总位移、应力等）
+- `F` 是 PDE 残差（如线性弹性方程）
 
-**直接计算梯度**：`dJ/dθ = ∂J/∂θ + (∂J/∂u) · (du/dθ)`
+**直接计算梯度的问题**：
+```
+dJ/dθ = ∂J/∂θ + (∂J/∂u) · (du/dθ)
+```
 
-计算 `du/dθ` 需要求解线性系统，对于每个参数都要解一次，非常昂贵。
+要计算 `du/dθ`，需要对每个参数求解一次线性系统：
+```
+F_u · (du/dθ) = -F_θ
+```
 
-**伴随方法**：引入伴随变量 `λ`，满足：
+如果有 N 个参数，就需要求解 N 次线性系统，计算成本为 O(N × 求解成本)，非常昂贵！
+
+#### 伴随方法的数学原理
+
+**核心思想**：引入伴随变量 `λ`（也称为拉格朗日乘数），将约束优化问题转化为无约束问题。
+
+**伴随方程**：
 ```
 F_u^T · λ = -∂J/∂u
 ```
 
-然后梯度变为：
+其中 `F_u^T` 是 PDE 残差对解的雅可比矩阵的转置（即伴随算子）。
+
+**梯度公式**：
 ```
 dJ/dθ = ∂J/∂θ + λ^T · F_θ
 ```
 
-**优势**：只需要求解一次伴随方程，无论有多少参数！
+**关键优势**：
+- ✅ **只需要求解一次伴随方程**，无论有多少参数！
+- ✅ 计算成本为 O(1 × 求解成本)，而不是 O(N × 求解成本)
+- ✅ 对于百万级参数的问题，效率提升巨大
 
-#### 工作流程
+#### 在 PolyFEM 中的实现
 
-1. **前向传播（forward）**：
+伴随方法在 PolyFEM 中通过 `torch.autograd.Function` 实现，分为前向传播和反向传播两个阶段：
+
+##### 1. 前向传播（Forward Pass）
+
+前向传播就是运行一次普通的仿真：
+
    ```python
    def forward(ctx, solver, vertices, derivative_type):
        # 1. 更新网格顶点
        solver.mesh().set_vertices(vertices)
        
        # 2. 启用导数缓存（关键！）
+    # 这会缓存刚度矩阵、残差等中间结果，供反向传播使用
        solver.set_cache_level(pf.CacheLevel.Derivatives)
        
        # 3. 运行仿真，求解 PDE
+    # 这会求解 F(u, θ) = 0，得到解 u
        solver.solve()
        
        # 4. 保存 solver 到 ctx（用于 backward）
+    # ctx 用于在 forward 和 backward 之间传递数据
        ctx.solver = solver
+    ctx.derivative_type = derivative_type
        
-       # 5. 返回解
+    # 5. 返回解（作为 PyTorch Tensor）
        return torch.tensor(solver.get_solutions())
    ```
 
-2. **反向传播（backward）**：
+**关键点**：
+- `set_cache_level(CacheLevel.Derivatives)` 会缓存计算导数所需的中间结果（刚度矩阵、残差等）
+- 如果不设置缓存，反向传播时无法计算梯度
+
+##### 2. 反向传播（Backward Pass）
+
+反向传播使用伴随方法计算梯度：
+
    ```python
    def backward(ctx, grad_output):
-       # grad_output = d(loss)/d(solution)
+    # grad_output = d(loss)/d(solution) = ∂J/∂u
+    # 这是从损失函数反向传播到解的梯度
        
-       # 1. 求解伴随方程
+    # 1. 求解伴随方程：F_u^T · λ = -∂J/∂u
+    # solve_adjoint() 会使用前向传播中缓存的刚度矩阵转置
        ctx.solver.solve_adjoint(grad_output.numpy())
        
-       # 2. 计算参数导数（使用伴随解）
+    # 2. 计算参数导数：dJ/dθ = ∂J/∂θ + λ^T · F_θ
+    # 使用伴随解 λ 和缓存的 F_θ 计算梯度
        if ctx.derivative_type == "shape":
-           grad = pf.shape_derivative(ctx.solver)
+        grad = pf.shape_derivative(ctx.solver)  # 形状导数
        elif ctx.derivative_type == "material":
-           grad = pf.elastic_material_derivative(ctx.solver)
+        grad = pf.elastic_material_derivative(ctx.solver)  # 材料导数
+    elif ctx.derivative_type == "initial_velocity":
+        grad = pf.initial_velocity_derivative(ctx.solver)  # 初始速度导数
        
        # 3. 返回梯度
+    # 返回元组，对应 forward 的每个输入
        return None, torch.tensor(grad), None
-   ```
+    #     ↑      ↑                ↑
+    #   solver  vertices    derivative_type
+```
+
+**关键点**：
+- `solve_adjoint()` 求解伴随方程，得到伴随解 `λ`
+- `shape_derivative()` 等函数使用伴随解和缓存的中间结果计算梯度
+- 无论有多少参数，都只需要求解一次伴随方程
+
+#### 性能优势
+
+**对比自动微分**：
+- **自动微分**：需要存储所有中间计算，内存消耗巨大（O(计算步骤数)）
+- **伴随方法**：只缓存必要的中间结果（刚度矩阵、残差等），内存消耗小（O(问题规模)）
+
+**对比直接计算**：
+- **直接计算**：每个参数需要求解一次线性系统，计算成本 O(N)
+- **伴随方法**：只需要求解一次伴随方程，计算成本 O(1)
+
+**实际效果**：
+- 对于 1000 个参数的形状优化问题，伴随方法比直接计算快 1000 倍
+- 对于百万级参数的问题，伴随方法是唯一可行的方案
+
+#### 总结
+
+伴随方法是 Differentiable 功能的核心算法，它通过以下方式实现高效梯度计算：
+
+1. **前向传播**：运行一次仿真，缓存必要的中间结果
+2. **反向传播**：求解一次伴随方程，使用伴随解计算所有参数的梯度
+3. **性能优势**：计算成本与参数数量无关，只与问题规模有关
+
+这就是为什么 `solve_differentiable()` 能够高效计算梯度，即使对于大规模优化问题也是如此。
 
 ### Differentiable 与 Backend 的关系
 
@@ -378,65 +441,23 @@ PolyFEMFunction (PyTorch 集成)
 
 ## API 设计
 
-### 推荐方案：独立模块（Plan B）
-
-**核心设计**：
+Differentiable 功能作为独立模块提供，与基础 `solve()` API 分离：
 
 ```python
-# 1. 基础 API 保持不变
+# 基础 API（所有用户）
 from polyfempy.api import solve
-result = solve(V, C, cfg)  # 简单，清晰
+result = solve(V, C, cfg)
 
-# 2. Differentiable 作为独立模块
+# Differentiable API（需要梯度的用户）
 from polyfempy.differentiable import solve_differentiable
-result = solve_differentiable(V, C, cfg)  # 明确，专业
+result = solve_differentiable(V, C, cfg)
 ```
 
-**目录结构**：
-
-```
-polyfempy/
-├── api/                    # 基础 API（所有用户）
-│   ├── solve.py
-│   ├── config.py
-│   └── ...
-│
-└── differentiable/          # 可选模块（高级用户）
-    ├── __init__.py
-    ├── solve.py             # solve_differentiable() 函数
-    ├── torch_integration.py # PolyFEMFunction 封装
-    ├── result.py            # DifferentiableResult 类
-    ├── helpers.py           # 辅助工具
-    └── examples/            # 示例代码
-```
-
-### 为什么选择独立模块？
-
-#### 对比：集成到 solve() vs 独立模块
-
-| 方面 | 集成到 solve() | 独立模块（推荐） |
-|------|---------------|----------------|
-| API 统一性 | ✅ 统一接口 | ✅ 与新 API 统一 |
-| 代码量 | ❌ 函数变复杂 | ✅ 职责清晰 |
-| 依赖管理 | ❌ 所有用户都需要 PyTorch | ✅ 只有需要的用户导入 |
-| 向后兼容 | ❌ 可能影响现有用户 | ✅ 不影响现有用户 |
-| 易于维护 | ❌ 逻辑混合 | ✅ 逻辑分离 |
-
-**结论**：独立模块更好，因为它不影响 90% 的用户，同时为 10% 的用户提供清晰的接口。
-
----
-
-## 使用指南
-
-### 基本使用
-
-详细的基本使用示例请参见 [快速开始](#快速开始) 部分。以下是关键步骤：
-
-1. 准备数据（网格顶点 `V`、单元连接 `C`、配置 `cfg`）
-2. 将顶点转换为 PyTorch Tensor 并设置 `requires_grad=True`
-3. 调用 `solve_differentiable()` 运行可微分仿真
-4. 定义损失函数并调用 `.backward()` 计算梯度
-5. 从 `.grad` 属性获取梯度
+**设计优势**：
+- ✅ 职责清晰：基础 API 保持简单，Differentiable 作为可选模块
+- ✅ 依赖管理：只有需要的用户才导入 PyTorch
+- ✅ 向后兼容：不影响现有用户
+- ✅ 易于维护：逻辑分离，易于扩展
 
 ---
 
@@ -444,58 +465,34 @@ polyfempy/
 
 ### 详细对比
 
-#### 旧实现（20+ 行，容易出错）
+#### 旧实现（20+ 行，需要手动设置）
 
 ```python
 import polyfempy as pf
 import torch
-
-# 用户必须手动写 Function 类
-class Simulate(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, solver, vertices):
-        # 1. 更新网格
-        solver.mesh().set_vertices(vertices.detach().cpu().numpy())
-        
-        # 2. 设置缓存（⚠️ 容易忘记！）
-        solver.set_cache_level(pf.CacheLevel.Derivatives)
-        
-        # 3. 运行仿真
-        solver.solve()
-        
-        # 4. 保存状态
-        sol = torch.tensor(solver.get_solutions())
-        ctx.solver = solver
-        return sol
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        # 1. 求解伴随问题（⚠️ 容易忘记！）
-        ctx.solver.solve_adjoint(grad_output.detach().cpu().numpy())
-        
-        # 2. 计算导数
-        return None, torch.tensor(pf.shape_derivative(ctx.solver))
+import json
+from legacy_differentiable.diffSimulator import Simulate  # 已有写好的类
 
 # 使用（需要手动配置 solver）
 solver = pf.Solver()
-solver.set_settings(json.dumps(cfg))
-solver.set_mesh(V, C)
-solver.build_basis()
-solver.assemble()
+solver.set_settings(json.dumps(cfg))  # ⚠️ 需要手动配置
+solver.set_mesh(V, C)                 # ⚠️ 需要手动设置网格
+solver.build_basis()                   # ⚠️ 需要手动构建基函数
+solver.assemble()                      # ⚠️ 需要手动组装
 
 vertices = torch.tensor(V, requires_grad=True)
-result = Simulate.apply(solver, vertices)
+result = Simulate.apply(solver, vertices)  # 使用已有的 Simulate 类
 loss = torch.norm(result)
 loss.backward()
 grad = vertices.grad
 ```
 
 **问题**：
-- ❌ 代码量大（20+ 行）
-- ❌ 容易忘记设置缓存
-- ❌ 容易忘记调用 adjoint
-- ❌ 需要手动配置 solver
-- ❌ 与 `solve()` API 不一致
+- ❌ 代码量大（20+ 行），需要手动设置 solver
+- ❌ 需要手动配置所有 solver 参数（mesh、materials、boundary conditions 等）
+- ❌ 需要手动调用 build_basis()、assemble() 等步骤
+- ❌ 需要从 legacy_differentiable 导入 Simulate 类
+- ❌ 与 `solve()` API 不一致，配置方式不同
 
 #### 新实现（5 行，自动处理）
 
@@ -525,23 +522,24 @@ grad = vertices.grad  # ✅ 自动计算梯度
 | 功能 | 旧实现 | 新实现 | 说明 |
 |------|--------|--------|------|
 | **代码量** | 20+ 行 | 5 行 | 减少 75% |
-| **设置缓存** | 手动，容易忘记 | 自动 | ✅ 改进 |
-| **调用 adjoint** | 手动，容易忘记 | 自动 | ✅ 改进 |
-| **配置 solver** | 手动，复杂 | 自动 | ✅ 改进 |
+| **Function 类** | 已有 Simulate 类 | 自动封装 | ✅ 无需导入 |
+| **Solver 配置** | 手动（set_settings, set_mesh, build_basis, assemble） | 自动 | ✅ 改进 |
+| **设置缓存** | Simulate 类中已处理 | 自动 | ✅ 都支持 |
+| **调用 adjoint** | Simulate 类中已处理 | 自动 | ✅ 都支持 |
 | **形状优化** | ✅ | ✅ | 都支持，新实现更简单 |
 | **材料优化** | ❌ | ✅ | ✅ 新功能 |
 | **初始速度优化** | ✅ | ✅ | 都支持 |
-| **API 统一性** | ❌ | ✅ | ✅ 新优势 |
+| **API 统一性** | ❌（使用旧 API） | ✅（与 solve() 一致） | ✅ 新优势 |
 | **错误处理** | 基础 | 完善 | ✅ 改进 |
 | **文档和示例** | 少 | 完整 | ✅ 改进 |
 
 ### 为什么新实现更好？
 
-1. **减少错误**：自动处理所有细节，不会忘记关键步骤
-2. **提高效率**：代码量减少 75%，开发更快
-3. **易于学习**：API 统一，学习成本低
-4. **易于维护**：逻辑集中，易于改进
-5. **功能更全**：支持更多导数类型和辅助工具
+1. **减少代码量**：从 20+ 行减少到 5 行（减少 75%），无需手动配置 solver
+2. **API 统一**：与 `solve()` API 完全一致，使用相同的配置格式
+3. **自动处理**：自动配置 solver、设置缓存、调用 adjoint，不会忘记关键步骤
+4. **易于学习**：无需了解 legacy_differentiable，直接使用统一 API
+5. **功能更全**：支持更多导数类型（material、initial_velocity）和辅助工具
 
 ---
 
@@ -731,94 +729,7 @@ for iteration in range(100):
 
 ---
 
-## 常见问题
-
-### Q1: 为什么必须使用 `torch.autograd.Function`？
-
-**A:** 因为我们需要自定义反向传播。PyTorch 的自动微分不适合 PDE 求解器（内存消耗太大），我们需要使用伴随方法。详细说明参见 [为什么必须使用 `torch.autograd.Function`？](#为什么必须使用-torchautogradfunction) 章节。
-
-### Q2: 新实现和旧实现有什么区别？
-
-**A:** 主要区别：
-- **代码量**：从 20+ 行减少到 5 行（减少 75%）
-- **自动化**：自动处理缓存、adjoint 等，不会忘记
-- **API 统一**：与 `solve()` API 完全一致
-- **功能更全**：支持更多导数类型和辅助工具
-
-详细对比和示例代码请参见 [新实现 vs 旧实现](#新实现-vs-旧实现) 章节。
-
-### Q3: 什么时候应该使用 differentiable？
-
-**A:** 当你需要计算梯度时：
-- 形状优化
-- 材料参数优化
-- 逆问题求解
-- 机器学习训练
-
-如果只需要运行仿真看结果，使用普通的 `solve()` 即可。
-
-### Q4: 性能如何？
-
-**A:** 
-- **前向传播**：与普通 `solve()` 相同，运行一次仿真
-- **反向传播**：只需要一次伴随求解，无论有多少参数，非常高效
-- **内存**：只需要存储必要的中间结果，比自动微分节省很多
-
-详细性能考虑参见 [性能考虑](#性能考虑) 部分。
-
-### Q5: 支持哪些导数类型？
-
-**A:** 目前支持：
-- `"shape"`：形状导数（最常用），计算 d(loss)/d(vertices)
-- `"material"`：材料参数导数，计算 d(loss)/d(material_params)
-- `"initial_velocity"`：初始速度导数，计算 d(loss)/d(initial_velocity)
-
-使用示例请参见 [支持的导数类型](#支持的导数类型) 部分。未来可能会添加更多类型。
-
-### Q6: 可以同时计算多种导数吗？
-
-**A:** 目前不支持，需要分别调用。未来可能会支持。
-
-### Q7: 如何验证梯度是否正确？
-
-**A:** 使用 `gradient_check()` 函数，它会用有限差分法验证梯度。使用示例请参见 [使用辅助工具 - 验证梯度](#验证梯度) 部分。
-
-### Q8: 新实现会影响性能吗？
-
-**A:** 不会。新实现只是封装了旧实现，性能完全相同。实际上，由于自动处理了所有细节，减少了用户错误，可能更高效。
-
-### Q9: 为什么必须使用 `nanobind` backend？
-
-**A:** Differentiable 功能**必须**使用 `nanobind` backend，原因如下：
-
-1. **需要 C++ Solver 对象**：Differentiable 直接使用 `pf.Solver()` C++ API，而不是通过 backend SPI
-2. **需要伴随方法**：反向传播需要调用 `solve_adjoint()` 等 C++ 方法
-3. **需要导数计算**：需要真实的刚度矩阵、残差等中间结果来计算导数
-
-如果你传入错误的 backend，`solve_differentiable()` 会立即抛出 `ValueError`。
-
-**详细说明**：参见 [Differentiable 与 Backend 的关系](#differentiable-与-backend-的关系) 章节。
-
----
-
 ## 实现细节
-
-### 模块架构
-
-模块架构和各模块职责的详细说明请参见 [技术原理 - 模块架构](#模块架构) 章节。
-
-**模块结构**：
-```
-polyfempy/differentiable/
-├── __init__.py              # 依赖检查和统一导出
-├── solve.py                 # solve_differentiable() - 高级封装
-├── torch_integration.py     # PolyFEMFunction - PyTorch 集成层
-├── result.py                # DifferentiableResult - 结果容器
-├── helpers.py               # 辅助工具函数
-└── examples/                # 示例代码
-    ├── simple_shape_optimization.py
-    └── multi_solver_shape_optimization.py
-```
 
 ### 关键技术细节
 
@@ -886,46 +797,12 @@ ctx.solver.solve_adjoint(grad_output)
 ### 限制和未来改进
 
 **当前限制**：
-- 必须使用 `nanobind` backend，需要编译 C++ 模块。详细原因参见 [Differentiable 与 Backend 的关系](#differentiable-与-backend-的关系)
+- 必须使用 `nanobind` backend，需要编译 C++ 模块
 - 一次只能计算一种导数类型
-- 多个 solver 的复用可以优化
 
 **未来改进**：
 - 支持同时计算多种导数
-- 优化多个 solver 的复用
 - 支持更多导数类型
 - 更好的错误处理和诊断
 
----
-
-## 总结
-
-### 核心价值
-
-- ✅ **易用性**：5 行代码搞定，自动处理所有细节
-- ✅ **统一性**：与 `solve()` API 完全一致
-- ✅ **可靠性**：不会忘记关键步骤，减少错误
-- ✅ **灵活性**：支持从简单到复杂的所有场景
-- ✅ **高效性**：使用伴随方法，性能优异
-
-### 使用建议
-
-1. **大多数用户**：直接使用 `solve_differentiable()`，5 行搞定
-2. **高级用户**：可以继承 `PolyFEMFunction` 自定义
-3. **性能敏感**：当前实现已经优化，性能与手动实现相同
-
-### 设计哲学
-
-1. **分层设计**：每层职责清晰，易于维护
-2. **自动处理**：减少用户负担，避免常见错误
-3. **向后兼容**：不破坏现有代码，旧代码仍可用
-4. **灵活扩展**：支持多种使用方式，易于扩展
-
----
-
-## 参考资料
-
-- [API 架构文档](api-architecture.md) - 整体架构设计
-- [配置指南](config-guide.md) - 配置参数说明
-- [示例代码](../polyfempy/differentiable/examples/) - 可运行的示例
 

@@ -1,6 +1,6 @@
 # SimulationConfig Configuration Guide
 
-This document provides a comprehensive guide on using `SimulationConfig`, including parameter input, validation, data flow, and extension.
+This document provides a comprehensive guide to using `SimulationConfig`, including parameter input, validation, data flow, and extension.
 
 ---
 
@@ -9,10 +9,11 @@ This document provides a comprehensive guide on using `SimulationConfig`, includ
 1. [Quick Start](#quick-start)
 2. [Data Flow Process](#data-flow-process)
 3. [Parameter Input Methods](#parameter-input-methods)
-4. [Parameter Validation](#parameter-validation)
-5. [JSON Parameter Support](#json-parameter-support)
-6. [Real-World Examples](#real-world-examples)
-7. [Adding New Parameters](#adding-new-parameters)
+4. [Class-Based Configuration Details](#class-based-configuration-details)
+5. [Parameter Validation Mechanism](#parameter-validation-mechanism)
+6. [JSON Parameter Support](#json-parameter-support)
+7. [Practical Application Examples](#practical-application-examples)
+8. [Adding New Parameters](#adding-new-parameters)
 
 ---
 
@@ -24,23 +25,23 @@ This document provides a comprehensive guide on using `SimulationConfig`, includ
 from polyfempy.api import SimulationConfig, solve
 import numpy as np
 
-# Create simple configuration
+# Create a simple configuration
 cfg = SimulationConfig(
     pde="linear_elasticity",
     materials={"E": 1e6, "nu": 0.3},
     extras={"max_iters": 10, "random_seed": 42}
 )
 
-# Use configuration
+# Use the configuration
 V = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=np.float64)
 C = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
 result = solve(V, C, cfg)
 ```
 
-### Load from JSON File
+### Loading from JSON File
 
 ```python
-# Load full configuration from JSON file
+# Load complete configuration from JSON file
 cfg = SimulationConfig.from_json_file("config.json")
 result = solve(vertices=None, cells=None, cfg=cfg)
 ```
@@ -49,11 +50,11 @@ result = solve(vertices=None, cells=None, cfg=cfg)
 
 ## Data Flow Process
 
-### Why So Many Dictionaries?
+### Why Are There So Many Dictionaries?
 
-There are several different dictionaries used at different stages in the API:
+In the API, there are several different dictionaries used at different stages:
 
-1. **`SimulationConfig.extras`** - User-inputted extra parameters
+1. **`SimulationConfig.extras`** - User-input extra parameters
 2. **Dictionary returned by `SimulationConfig.to_dict()`** - Configuration passed to backend
 3. **`settings` dictionary (passed to `solve_impl()`)** - Configuration actually used by backend
 
@@ -66,14 +67,14 @@ There are several different dictionaries used at different stages in the API:
 cfg = SimulationConfig(
     pde="linear_elasticity",
     materials={"E": 1e6, "nu": 0.3},
-    extras={"max_iters": 10, "random_seed": 42}  # ← Put in extras
+    extras={"max_iters": 10, "random_seed": 42}  # ← Placed in extras
 )
 ```
 
-**Why put in `extras`?**
+**Why place in `extras`?**
 - `SimulationConfig` is a dataclass with fixed fields: `pde`, `discr_order`, `materials`, `boundary_conditions`, `extras`, `selection`, `problem_type`, `problem_params`
 - `max_iters` and `random_seed` are not direct fields of `SimulationConfig`
-- So they need to be put in the `extras` "miscellaneous" dictionary
+- So they need to be placed in the `extras` "miscellaneous" dictionary
 
 #### Stage 2: Convert to Dictionary (`to_dict()`)
 
@@ -93,9 +94,9 @@ settings_dict = cfg.to_dict()
 ```
 
 **Why promote to top level?**
-- Backends (`backend_dummy.py`, `backend_nanobind.py`) expect `max_iters` and `random_seed` at the dictionary's top level
-- Backend code: `max_iters = settings.get("max_iters", 10)` - Read directly from top level
-- If only in `extras`, backend would need `settings["extras"]["max_iters"]`, which is inconvenient
+- Backends (`backend_dummy.py`, `backend_nanobind.py`) expect `max_iters` and `random_seed` at the top level of the dictionary
+- Backend code: `max_iters = settings.get("max_iters", 10)` - reads directly from top level
+- If only in `extras`, backend would need to write `settings["extras"]["max_iters"]`, which is inconvenient
 
 #### Stage 3: Pass to Backend
 
@@ -116,9 +117,9 @@ def solve_impl(V, C, settings, callbacks):
     max_iters = settings.get("max_iters", 10)      # ← Read from top level
     random_seed = settings.get("random_seed", 42)  # ← Read from top level
     
-    # Use these parameters to run solve
+    # Use these parameters to run solver
     for i in range(max_iters):
-        # ... solve logic ...
+        # ... solver logic ...
 ```
 
 ### Complete Data Flow Example
@@ -131,7 +132,7 @@ cfg = SimulationConfig(
     extras={"max_iters": 10, "random_seed": 42}
 )
 
-# 2. Convert to dictionary (called internally)
+# 2. Convert to dictionary (called automatically internally)
 settings = cfg.to_dict()
 # settings = {
 #     "pde": "linear_elasticity",
@@ -139,8 +140,8 @@ settings = cfg.to_dict()
 #     "materials": {"E": 1e6, "nu": 0.3},
 #     "boundary_conditions": {},
 #     "extras": {"max_iters": 10, "random_seed": 42},  # Original extras preserved
-#     "max_iters": 10,        # Promoted to top level for easy backend access
-#     "random_seed": 42       # Promoted to top level for easy backend access
+#     "max_iters": 10,        # Promoted to top level for backend convenience
+#     "random_seed": 42       # Promoted to top level for backend convenience
 # }
 
 # 3. solve() function calls backend
@@ -151,45 +152,79 @@ result = solve(V, C, cfg)  # Internally calls cfg.to_dict() to get settings
 # max_iters = settings.get("max_iters", 10)  # Read from top level, gets 10
 ```
 
-### Design Reasons
+### Design Rationale
 
-**Design Reason 1: Type Safety vs Flexibility**
-- **`SimulationConfig` is type-safe**: Has fixed fields, IDE can auto-complete
+**Design Rationale 1: Type Safety vs Flexibility**
+- **`SimulationConfig` is type-safe**: Has fixed fields, IDE can autocomplete
 - **`extras` provides flexibility**: Can store arbitrary extra parameters without modifying class definition
 - **`to_dict()` provides conversion**: Converts type-safe object to flexible dictionary
 
-**Design Reason 2: Backend Compatibility**
-- **Backends need simple dictionaries**: Backend code expects simple `dict`, not complex objects
+**Design Rationale 2: Backend Compatibility**
+- **Backend needs simple dictionary**: Backend code expects simple `dict`, not complex objects
 - **Promote common parameters**: `max_iters` and `random_seed` are common parameters, promoting to top level is convenient
-- **Preserve original data**: `extras` still preserved in case other extra parameters need to be accessed
+- **Preserve original data**: `extras` is still preserved in case other extra parameters need to be accessed
 
-**Design Reason 3: Support Full JSON Configuration**
+**Design Rationale 3: Support Full JSON Configuration**
 ```python
 # If loading from full JSON
 cfg = SimulationConfig.from_json_file("config.json")
 # Full JSON stored in extras["_full_json_config"]
-# to_dict() will directly return full JSON instead of constructed dictionary
+# to_dict() will directly return full JSON, not constructed dictionary
 ```
 
 ---
 
 ## Parameter Input Methods
 
-### Method 1: Basic Fields (Recommended for Simple Configurations)
+### Method 1: Using Classes (Recommended - IDE Autocomplete Support)
+
+To provide better IDE autocomplete support and type checking, `SimulationConfig`'s main parameters support class form.
+
+**Basic Example:**
+```python
+from polyfempy.api.config import SimulationConfig, Material, BoundaryConditions, GravityParams
+
+# Use Material class
+material = Material(E=2100, nu=0.3, rho=1.0)
+cfg = SimulationConfig(materials=material)
+
+# Use BoundaryConditions class
+bc = BoundaryConditions()
+bc.add_dirichlet(id=4, value=[0.0, 0.0])
+cfg = SimulationConfig(boundary_conditions=bc)
+
+# Use ProblemParams classes
+gravity_params = GravityParams(force=0.1)
+cfg = SimulationConfig(problem_type="Gravity", problem_params=gravity_params)
+```
+
+**Advantages**:
+- ✅ IDE autocomplete: When typing `material.`, IDE will suggest all available attributes
+- ✅ Type checking: IDE can validate parameter types
+- ✅ Error prevention: Spelling errors will be caught by IDE
+- ✅ Clear code: `material.E` is clearer than `materials["E"]`
+
+**Detailed Documentation**: Please refer to the Config Classes Guide for all available Classes, convenience methods, and complete examples.
+
+### Method 2: Using Dict (Backward Compatible)
 
 ```python
+# Old way still supported (but IDE cannot autocomplete)
 cfg = SimulationConfig(
     pde="linear_elasticity",
     discr_order=2,
-    materials={"E": 1e6, "nu": 0.3},
+    materials={"E": 1e6, "nu": 0.3},  # ⚠️ IDE cannot suggest key names
     boundary_conditions={
-        "dirichlet_boundary": [{"id": 4, "value": [0.0, 0.0]}],
+        "dirichlet_boundary": [{"id": 4, "value": [0.0, 0.0]}],  # ⚠️ IDE cannot suggest
         "rhs": [1.0, 0.0]
-    }
+    },
+    problem_params={"force": 0.1}  # ⚠️ IDE cannot suggest key names
 )
 ```
 
-### Method 2: Input Extra Parameters via extras
+**Note**: Although dict method is still supported, it's recommended to use class method for better development experience.
+
+### Method 3: Input Extra Parameters via extras
 
 ```python
 cfg = SimulationConfig(
@@ -200,7 +235,7 @@ cfg = SimulationConfig(
         "max_iters": 10,
         "random_seed": 42,
         
-        # Other JSON parameters (remain in extras)
+        # Other JSON parameters (kept in extras)
         "solver": {
             "linear": {"max_iter": 1000, "tolerance": 1e-6},
             "nonlinear": {"max_iter": 50}
@@ -214,15 +249,15 @@ cfg = SimulationConfig(
 )
 ```
 
-### Method 3: Load from JSON File (Recommended for Full Configurations)
+### Method 4: Load from JSON File (Recommended for Complete Configuration)
 
 ```python
-# Load full configuration from JSON file
+# Load complete configuration from JSON file
 cfg = SimulationConfig.from_json_file("config.json")
-# All parameters saved in extras["_full_json_config"]
+# All parameters are saved in extras["_full_json_config"]
 ```
 
-### Method 4: Load from Dictionary
+### Method 5: Load from Dictionary
 
 ```python
 config_dict = {
@@ -236,17 +271,29 @@ cfg = SimulationConfig.from_json_dict(config_dict)
 
 ---
 
-## Parameter Validation
+## Class-Based Configuration Details
+
+To provide better IDE autocomplete support and type checking, `SimulationConfig`'s main parameters support class form (such as `Material`, `BoundaryConditions`, `GravityParams`, etc.).
+
+**Detailed Documentation**: Please refer to the Config Classes Guide for:
+- Why use Classes instead of Dict
+- All available Classes (Material, BoundaryConditions, ProblemParams, etc.)
+- Convenience methods and Convenience Factories
+- Complete usage examples
+
+---
+
+## Parameter Validation Mechanism
 
 ### Validation Levels
 
 #### 1. SimulationConfig Level Validation
 
-**Parameters Checked**:
-- `discr_order`: Must be positive integer (via `validate()` method)
+**Parameters that will be checked:**
+- `discr_order`: Must be a positive integer (via `validate()` method)
 - `materials['E']` and `materials['nu']`: Must be numbers (via `validate()` method)
 
-**Example**:
+**Examples:**
 ```python
 # ✅ Will be checked
 cfg = SimulationConfig(discr_order=-1)  # ValueError: discr_order must be positive
@@ -255,25 +302,25 @@ cfg = SimulationConfig(materials={"E": "abc"})  # ValueError: materials['E'] mus
 
 #### 2. to_dict() Level Validation
 
-**Current Behavior**:
+**Current Behavior:**
 - `to_dict()` **validates and converts** common parameters in `extras`
-- `max_iters`: Must be positive integer, string `"10"` auto-converted to integer `10`
-- `random_seed`: Must be integer or None, string `"42"` auto-converted to integer `42`
-- Invalid values immediately raise `ValueError` with clear error message
+- `max_iters`: Must be a positive integer, string `"10"` will be automatically converted to integer `10`
+- `random_seed`: Must be an integer or None, string `"42"` will be automatically converted to integer `42`
+- Invalid values will immediately raise `ValueError` with clear error messages
 
-**Example**:
+**Examples:**
 ```python
-# ✅ String auto-converted to integer
+# ✅ String will be automatically converted to integer
 cfg = SimulationConfig(extras={"max_iters": "10"})
 d = cfg.to_dict()
 print(d["max_iters"])  # 10 (integer)
 print(type(d["max_iters"]))  # <class 'int'>
 
-# ❌ Invalid string immediately raises error
+# ❌ Invalid string will immediately raise error
 cfg = SimulationConfig(extras={"max_iters": "abc"})
 d = cfg.to_dict()  # ValueError: extras['max_iters'] must be a positive integer, got 'abc'
 
-# ❌ Negative number immediately raises error
+# ❌ Negative number will immediately raise error
 cfg = SimulationConfig(extras={"max_iters": -5})
 d = cfg.to_dict()  # ValueError: extras['max_iters'] must be a positive integer, got -5
 ```
@@ -281,55 +328,55 @@ d = cfg.to_dict()  # ValueError: extras['max_iters'] must be a positive integer,
 ### Validation Rules
 
 1. **`max_iters`**:
-   - Must be positive integer
-   - String `"10"` auto-converted to integer `10`
-   - Negative numbers or invalid strings raise `ValueError`
+   - Must be a positive integer
+   - String `"10"` will be automatically converted to integer `10`
+   - Negative numbers or invalid strings will raise `ValueError`
 
 2. **`random_seed`**:
-   - Must be integer or `None`
-   - String `"42"` auto-converted to integer `42`
-   - Invalid strings raise `ValueError`
+   - Must be an integer or `None`
+   - String `"42"` will be automatically converted to integer `42`
+   - Invalid strings will raise `ValueError`
 
 3. **Other JSON Parameters** (`solver`, `time`, `output`, `contact`, `geometry`, etc.):
    - Can be input via `extras`
-   - Not validated (no type checking)
-   - Remain in `extras`, not promoted to top level
-   - If using full JSON mode (load from file), all parameters are preserved
-   - Require backend (C++ bindings) support to use
+   - Will not be validated (type checking)
+   - Kept in `extras`, not promoted to top level
+   - If using full JSON mode (loading from file), all parameters will be preserved
+   - Requires backend (C++ binding) support to use
 
-### Unknown Parameter Handling
+### Handling Unknown Parameters
 
-**Design Behavior**:
-- Unknown parameters are not validated
-- Remain in `extras`, but not promoted to top level
-- No error raised (allows custom parameters)
+**Design Behavior:**
+- Unknown parameters will not be validated
+- Kept in `extras`, but not promoted to top level
+- Will not raise error (allows custom parameters)
 
-**Example**:
+**Example:**
 ```python
-# User made a typo
+# User made a spelling error
 cfg = SimulationConfig(extras={"max_iter": 10})  # Should be max_iters
 
-# No error, but parameter ignored (uses default)
+# Will not raise error, but parameter is ignored (uses default value)
 settings = cfg.to_dict()
 # settings["max_iters"] doesn't exist, uses default value 10
 ```
 
-**Why This Design?**
-- Allows users to add custom parameters to `extras` that may be used by other tools
-- Only validate known critical parameters (`max_iters`, `random_seed`)
+**Why this design?**
+- Allows users to add custom parameters to `extras`, which may be used by other tools
+- Only validates known critical parameters (`max_iters`, `random_seed`)
 
 ---
 
 ## JSON Parameter Support
 
-### Complete PolyFEM JSON Configuration Parameter List
+### Complete Parameter List for PolyFEM JSON Configuration
 
-According to `from_json_dict()` documentation, PolyFEM JSON configuration supports all these parameters:
+According to `from_json_dict()` documentation, PolyFEM JSON configuration supports all the following parameters:
 
 #### 1. Basic Parameters
 - `pde`: PDE type ("Poisson", "LinearElasticity", "NonLinearElasticity", etc.)
 - `discr_order`: Discretization order (1, 2, ...)
-- `space`: Space configuration (contains `discr_order`, etc.)
+- `space`: Space configuration (includes `discr_order`, etc.)
 
 #### 2. Material Parameters
 - `materials`: Material configuration (array or dict format)
@@ -385,38 +432,21 @@ According to `from_json_dict()` documentation, PolyFEM JSON configuration suppor
 
 ### How to Input These Parameters
 
-**Method 1: Load from JSON File (Recommended)**
-```python
-cfg = SimulationConfig.from_json_file("config.json")
-# All parameters preserved in full JSON
-```
+These JSON parameters can be input in the following ways (for detailed explanation, see [Parameter Input Methods](#parameter-input-methods) section):
 
-**Method 2: Input via extras**
-```python
-cfg = SimulationConfig(extras={
-    "solver": {...},
-    "time": {...},
-    "output": {...}
-})
-# Parameters remain in extras, not validated
-```
-
-**Method 3: Input via Dictionary**
-```python
-config_dict = {"solver": {...}, "time": {...}}
-cfg = SimulationConfig.from_json_dict(config_dict)
-# Converted to full JSON configuration
-```
+- **Load from JSON file**: `SimulationConfig.from_json_file("config.json")`
+- **Input via extras**: `SimulationConfig(extras={"solver": {...}, "time": {...}})`
+- **Load from dictionary**: `SimulationConfig.from_json_dict(config_dict)`
 
 ### to_dict() Behavior
 
-1. **If Full JSON Configuration Exists** (`extras["_full_json_config"]`):
+1. **If there is full JSON configuration** (`extras["_full_json_config"]`):
    ```python
-   # Directly return full JSON, contains all parameters
+   # Directly return full JSON, containing all parameters
    return dict(self.extras["_full_json_config"])
    ```
 
-2. **If No Full JSON Configuration**:
+2. **If there is no full JSON configuration**:
    ```python
    # Only construct basic fields
    result = {
@@ -430,13 +460,13 @@ cfg = SimulationConfig.from_json_dict(config_dict)
    if "max_iters" in extras:
        result["max_iters"] = extras["max_iters"]  # Validate and convert
    
-   # Other extras parameters remain in extras
+   # Other extras parameters kept in extras
    result["extras"] = dict(extras)
    ```
 
 ---
 
-## Real-World Examples
+## Practical Application Examples
 
 ### Compatibility with polyfem-data Examples
 
@@ -450,34 +480,34 @@ cfg = SimulationConfig.from_json_dict(config_dict)
 - **86/86 successful** - All JSON files can be loaded into `SimulationConfig`
   - 2D: 28/28 successful
   - 3D: 58/58 successful
-- All parameters saved in `extras["_full_json_config"]`
+- All parameters are saved in `extras["_full_json_config"]`
 - No missing parameters detected
 
 #### Solver Configuration
 - **86/86 successful** - All configurations can be used to configure solver
   - 2D: 28/28 successful
   - 3D: 58/58 successful
-- All parameters correctly passed to `solver.set_settings()`
+- All parameters are correctly passed to `solver.set_settings()`
 
 #### Problem Type Statistics
 - **80/86** are transient problems (require time stepping)
   - 2D: 27/28 transient
   - 3D: 53/58 transient
 - **58/86** have contact enabled
-  - 2D: 20/28 with contact
-  - 3D: 38/58 with contact
+  - 2D: 20/28 have contact
+  - 3D: 38/58 have contact
 - **6/86** are static problems
 
 ### common.json Support
 
-✅ **common.json Auto-Merge**: API fully supports `common.json` reference and merge functionality.
+✅ **common.json Automatic Merging**: API fully supports `common.json` reference and merging functionality.
 
-#### Merge Rules
+#### Merging Rules
 
-1. **Auto-Detection**: If config file contains `"common": "path"` reference, automatically load and merge
-2. **Deep Merge**: Nested dictionaries recursively merged (e.g., `output.paraview` merges `file_name` and `options`)
-3. **Priority**: Original config values override defaults in `common.json`
-4. **Auto-Removal**: `common` key automatically removed after merge
+1. **Automatic Detection**: If configuration file contains `"common": "path"` reference, it will be automatically loaded and merged
+2. **Deep Merging**: Nested dictionaries are recursively merged (e.g., `output.paraview` will merge `file_name` and `options`)
+3. **Priority**: Original configuration values override default values in `common.json`
+4. **Automatic Removal**: `common` key is automatically removed after merging
 
 #### Example
 
@@ -502,23 +532,23 @@ cfg = SimulationConfig.from_json_dict(config_dict)
   }
 }
 
-// After merge
+// After merging
 {
   "contact": {"enabled": true, "dhat": 0.001},
   "output": {
     "paraview": {
-      "file_name": "5-squares.pvd",  // From original config
+      "file_name": "5-squares.pvd",  // From original configuration
       "options": {"material": true}   // From common.json
     }
   }
 }
 ```
 
-**Test Result**: All 86 example files that reference `common.json` merge correctly.
+**Test Results**: Among 86 example files, all files referencing `common.json` can be correctly merged.
 
 ### Loading Existing Examples
 
-All examples can be loaded using:
+All examples can be loaded using the following methods:
 
 ```python
 from polyfempy.api import SimulationConfig, solve
@@ -538,21 +568,21 @@ result = solve(cfg="data/contact/examples/2D/unit-tests/5-squares.json")
 
 ### Supported Parameters (Verified)
 
-Through testing 86 real examples, confirmed API supports all parameters in PolyFEM JSON format:
+Through testing 86 real examples, confirmed that API supports all parameters in PolyFEM JSON format:
 
 - ✅ **geometry**: Mesh files, transformations, volume_selection, surface_selection
-- ✅ **materials**: All material types (LinearElasticity, NeoHookean, etc.) and E, nu, rho parameters
+- ✅ **materials**: All material types (LinearElasticity, NeoHookean, etc.) and parameters like E, nu, rho
 - ✅ **boundary_conditions**: Dirichlet, Neumann, pressure, RHS, etc.
 - ✅ **time**: Transient settings (t0, tend, dt, integrator)
 - ✅ **contact**: Contact settings (enabled, dhat, mu, epsv, etc.)
 - ✅ **solver**: Linear/nonlinear solver settings
 - ✅ **output**: Paraview, JSON output settings
 - ✅ **space**: Discretization order (supports list format, e.g., `[{"id": 2, "order": 2}]`)
-- ✅ **common**: JSON references (auto-merge, supports deep nested merging)
+- ✅ **common**: JSON references (automatic merging, supports deep nested merging)
 
 ### Transient Problem Handling
 
-**Important Note**: Most examples (80/86) are transient problems requiring time stepping. Current `solve()` function can automatically handle static problems, but for transient problems, need to use low-level API:
+**Important Note**: Most examples (80/86) are transient problems requiring time stepping. The current `solve()` function can automatically handle static problems, but for transient problems, the low-level API needs to be used:
 
 ```python
 import polyfempy as pf
@@ -586,10 +616,10 @@ for i in range(1, 5):
 
 ### Future Enhancements
 
-To fully support transient problems in high-level `solve()` API, consider:
+To fully support transient problems in the high-level `solve()` API, consider:
 
-1. **Auto-detect transient problems**: Check `time` configuration
-2. **Time stepping loop**: Auto-handle `init_timestepping()` and `step_in_time()`
+1. **Automatic transient detection**: Check `time` configuration
+2. **Time stepping loop**: Automatically handle `init_timestepping()` and `step_in_time()`
 3. **Result aggregation**: Return time series results for transient problems
 
 ---
@@ -598,7 +628,7 @@ To fully support transient problems in high-level `solve()` API, consider:
 
 ### Current Design
 
-Use `_EXTRAS_PROMOTION_RULES` dictionary to configure which parameters need promotion and how to validate/convert them.
+Uses `_EXTRAS_PROMOTION_RULES` dictionary to configure which parameters need to be promoted and how to validate and convert them.
 
 ### How to Add New Parameters
 
@@ -637,7 +667,7 @@ _EXTRAS_PROMOTION_RULES = {
 
 #### Step 3: Done
 
-No need to modify `to_dict()` method, system handles it automatically.
+No need to modify `to_dict()` method, the system will handle it automatically.
 
 ### Common Validator Patterns
 
@@ -659,7 +689,7 @@ def _validate_positive_float(v):
     return v
 ```
 
-#### Pattern 3: Optional Integer (Allow None)
+#### Pattern 3: Optional Integer (allows None)
 ```python
 def _validate_int_or_none(v):
     if v is None:
@@ -667,7 +697,7 @@ def _validate_int_or_none(v):
     return int(v)
 ```
 
-#### Pattern 4: Enum Value (String)
+#### Pattern 4: Enumeration Value (string)
 ```python
 def _validate_solver_type(v):
     v = str(v)
@@ -709,14 +739,14 @@ _EXTRAS_PROMOTION_RULES = {
 # 3. Use
 cfg = SimulationConfig(extras={"tolerance": "1e-6"})
 d = cfg.to_dict()
-# d["tolerance"] = 1e-6 (auto-converted to float)
+# d["tolerance"] = 1e-6 (automatically converted to float)
 ```
 
 ### Advantages
 
-- ✅ **Extensibility**: Adding new parameter only requires one line in dictionary
-- ✅ **Consistency**: All parameters use same validation and promotion mechanism
-- ✅ **Maintainability**: All parameter configuration centralized in one place
+- ✅ **Extensibility**: Adding new parameters only requires adding one line to the dictionary
+- ✅ **Consistency**: All parameters use the same validation and promotion mechanism
+- ✅ **Maintainability**: All parameter configurations are centralized in one place
 - ✅ **Type Safety**: Automatic type conversion (string → number)
 
 ---
@@ -730,31 +760,26 @@ User Input (extras)
   → SimulationConfig.extras 
   → to_dict() (validate, convert, promote to top level) 
   → settings dictionary 
-  → Backend Use
+  → Backend usage
 ```
 
 ### Key Points
 
-- **`extras`**: User-inputted extra parameters (flexibility)
+- **`extras`**: User-input extra parameters (flexibility)
 - **`to_dict()`**: Responsible for validation, conversion, and promotion (compatibility)
 - **`settings`**: Format used by backend (simplicity)
 
 ### Validation Status
 
-- ✅ **Validated and Converted**: `max_iters`, `random_seed`
-- ⚠️ **Not Validated But Supported**: All other JSON parameters (via full JSON mode)
-- ❌ **Current Limitation**: Parameters input via `extras` (except common parameters) are not validated
+- ✅ **Validated and converted**: `max_iters`, `random_seed`
+- ⚠️ **Not validated but supported**: All other JSON parameters (via full JSON mode)
+- ❌ **Current limitation**: Parameters input via `extras` (except common parameters) will not be validated
 
 ### Usage Recommendations
 
-1. **Simple Configuration**: Use basic fields + common parameters in `extras`
-2. **Full Configuration**: Load from JSON file
-3. **Need Extra Parameters**: Use full JSON dictionary
+1. **Simple configuration**: Use basic fields + common parameters in `extras`
+2. **Complete configuration**: Load from JSON file
+3. **Need extra parameters**: Use full JSON dictionary
 
 ---
-
-## Related Documentation
-
-- [API Architecture Document](api-architecture-en.md) - Complete API architecture explanation
-- [Example Code](../polyfempy/api/examples/README.md) - Real-world usage examples
 

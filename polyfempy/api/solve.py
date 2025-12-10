@@ -202,7 +202,12 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
     
     # 8) Boundary conditions - only apply if not using JSON mode (BCs in JSON)
     if not use_json_mode:
-        bc = getattr(cfg, "boundary_conditions", {}) or {}
+        bc_raw = getattr(cfg, "boundary_conditions", {}) or {}
+        # Convert BoundaryConditions class to dict if needed
+        if hasattr(bc_raw, "to_dict"):
+            bc = bc_raw.to_dict()
+        else:
+            bc = bc_raw if isinstance(bc_raw, dict) else {}
 
         # 8.1 Dirichlet boundaries: [{'id': 4, 'value': [0,0(,0)]}, ...]
         entries = bc.get("dirichlet_boundary")
