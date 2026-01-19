@@ -1,21 +1,22 @@
-﻿import numpy as np
+"""
+Route A only:
+- Always `import polyfempy as pf` (stable C++ extension module name).
+- nanobind vs pybind11 is a build-time backend choice and must not change Python imports.
+
+Important:
+- The C++ binding's `Solver.solve()` returns a tuple `(sol, pressure)`, so Python must
+  capture and parse the return value instead of assuming getters exist.
+"""
+
+import numpy as np
 from . import tensor as T
 from .result import Result
 
 
 def _first_attr(obj, *names):
-    """Return the first available attribute name on an object.
+    """Return first available attribute name.
 
-    Args:
-        obj: Any Python object to inspect.
-        *names: Candidate attribute names to probe in order.
-
-    Returns:
-        The first name that exists on `obj`, or None if none are present.
-
-    Notes:
-        - Useful for adapting across multiple polyfempy versions with
-          slightly different method names.
+    Supports multiple polyfempy versions with different method names.
     """
     for n in names:
         if hasattr(obj, n):
@@ -24,95 +25,49 @@ def _first_attr(obj, *names):
 
 
 def _ensure_i32(cells):
-    """Ensure cell connectivity array has dtype int32.
-
-    If `cells` already has dtype int32, it is returned as-is; otherwise
-    a view/copy with dtype int32 is returned (no copy if possible).
-
-    Args:
-        cells: Array-like cell connectivity of shape (M, k).
-
-    Returns:
-        NumPy array with dtype `np.int32`.
-    """
+    """Ensure cells are int32 (no copy if already int32)."""
     return cells.astype(np.int32, copy=False) if cells.dtype != np.int32 else cells
 
 
 def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
-    """Unified high-level solve entry point.
+    """High-level solver wrapper.
 
-    This adapter normalizes user arrays (NumPy / Torch / JAX) to a CPU,
-    C-contiguous NumPy representation, constructs a backend Settings/Problem
-    from `SimulationConfig`, adapts to different polyfempy versions via
-    light reflection, applies minimal boundary data, runs the solver, and
-    wraps outputs into a `Result`.
+    Normalizes inputs, loads mesh or config, dispatches to PolyFEM.
+    Handles both JSON-based and array-based setups.
 
     Args:
-        vertices: Point coordinates of shape (N, dim). Can be NumPy / Torch / JAX.
-                  If None and cfg contains geometry (mesh files), mesh will be loaded from files.
-        cells: Cell connectivity of shape (M, k). Can be NumPy / Torch / JAX.
-               If None and cfg contains geometry (mesh files), mesh will be loaded from files.
-        cfg: A `SimulationConfig` instance, dict, or str (file path) containing 
-             full PolyFEM JSON configuration. If dict, it will be converted to 
-             SimulationConfig automatically. If str, treated as JSON file path.
-        sidesets_func: Optional callable to build side sets from geometry if
-            supported by the current polyfempy version.
-        dtype: Optional NumPy dtype for vertices (e.g., `np.float64`). If
-            provided, `vertices` are cast to this dtype during normalization.
+        vertices: (N, dim) array or None. If None and cfg has geometry, loads from files.
+        cells: (M, k) array or None.
+        cfg: SimulationConfig, dict, or JSON file path.
+        sidesets_func: Optional callable for side sets.
+        dtype: Optional dtype for vertices.
 
     Returns:
-        Result: A result object with:
-            - backend: Original backend of `vertices` ('numpy'|'torch'|'jax').
-            - vertices/cells: NumPy arrays suitable for export/post-processing.
-            - fields: Dict with at least "u" (displacement or generic solution).
-            - meta: Auxiliary info (e.g., solver_type).
-
-    Raises:
-        RuntimeError: If C++ bindings are missing, polyfempy cannot be imported,
-            no compatible solver constructor/methods are found, or solution
-            getters are unknown.
-
-    Notes:
-        - Numerical work is fully executed by the polyfempy C++ bindings.
-          This function only handles data normalization and version bridging.
-        - Dummy safety guard: if `cfg.to_settings()` returns an object with
-          `_is_dummy=True`, an error is raised immediately to prevent "fake runs".
-        - Multi-version compatibility uses `_first_attr(...)` to locate
-          available method names (e.g., `settings`/`set_settings`,
-          `set_mesh`/`set_mesh_data`).
-        - Minimal BCs supported here:
-            * Dirichlet via `dirichlet_boundary`: [{'id': int, 'value': ...}, ...]
-            * Body force / RHS via `rhs`.
-          Extensions (Neumann/pressure, etc.) can be added later.
+        Result with fields, vertices, cells, meta.
     """
     import json
     from .config import SimulationConfig
     
-    # 0) Handle input - validate and convert to SimulationConfig
     if cfg is None:
         raise ValueError("cfg (configuration) is required")
     
-    # 0.1) Handle dict/str input - convert to SimulationConfig
     if isinstance(cfg, dict):
         cfg = SimulationConfig.from_json_dict(cfg)
     elif isinstance(cfg, str):
-        # Assume it's a file path
         cfg = SimulationConfig.from_json_file(cfg)
     elif not isinstance(cfg, SimulationConfig):
         raise TypeError(f"cfg must be SimulationConfig, dict, or str (file path), got {type(cfg).__name__}")
     
-    # Check if we have full JSON config (geometry, time, etc.)
+    # Check for full JSON config (geometry, time, etc.)
     full_json = None
     if hasattr(cfg, "extras") and cfg.extras and "_full_json_config" in cfg.extras:
         full_json = cfg.extras["_full_json_config"]
     
-    # Check if full_json contains geometry (indicates mesh should be loaded from files)
-    has_geometry_in_json = full_json is not None and "geometry" in full_json
+    # JSON mode: load mesh from files if geometry in JSON and no vertices/cells provided
+    use_json_mode = (full_json is not None and "geometry" in full_json and 
+                     (vertices is None or cells is None))
     
-    # If we have full JSON with geometry and no vertices/cells, use JSON mode (load mesh from files)
-    use_json_mode = has_geometry_in_json and (vertices is None or cells is None)
-    
-    # 1) Normalize inputs to NumPy (if provided)
+    # Normalize inputs to NumPy
     if vertices is not None and cells is not None:
         V_np, v_backend = T.as_numpy(vertices, dtype=dtype)
         C_np, _ = T.as_numpy(cells, dtype=np.int32)
@@ -122,13 +77,12 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
         if not use_json_mode:
             raise ValueError("Either provide vertices/cells arrays, or use JSON config with geometry (mesh files)")
 
-    # 2) Import polyfempy (required for real execution).
     try:
         import polyfempy as pf
     except Exception:
         raise RuntimeError("polyfempy bindings not found. Please install/compile them first.")
 
-    # 3) Construct solver/state (support different versions).
+    # Construct solver (support different versions)
     solver = None
     for ctor in ("Solver", "State"):
         if hasattr(pf, ctor):
@@ -136,37 +90,57 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
                 solver = getattr(pf, ctor)()
                 break
             except Exception:
-                # Some versions may require extra args; try next name.
                 pass
     if solver is None:
         raise RuntimeError("No usable Solver/State constructor found in polyfempy.")
 
-    # 4) Apply Settings - use JSON mode if we have full JSON config
+    # Apply settings
     if use_json_mode:
-        # Use full JSON configuration directly
         config_json = json.dumps(full_json)
-        name = _first_attr(solver, "settings", "set_settings")
-        if not name:
-            raise RuntimeError("Missing settings(...) / set_settings(...) on solver.")
-        getattr(solver, name)(config_json, strict_validation=False)
+        # Prefer explicit setter; some older variants used `settings(json, ...)`.
+        if hasattr(solver, "set_settings"):
+            solver.set_settings(config_json, strict_validation=False)
+        elif hasattr(solver, "settings"):
+            try:
+                solver.settings(config_json, strict_validation=False)
+            except TypeError as e:
+                raise RuntimeError(
+                    "Found solver.settings() but it does not accept arguments; "
+                    "expected a settings setter or set_settings()."
+                ) from e
+        else:
+            raise RuntimeError("Missing set_settings(...) on solver.")
         
-        # Load mesh from settings (geometry in JSON)
         if hasattr(solver, "load_mesh_from_settings"):
             solver.load_mesh_from_settings()
         else:
             raise RuntimeError("JSON mode requires load_mesh_from_settings() method")
     else:
-        # Use SimulationConfig mode (existing behavior)
-        settings = cfg.to_settings()
-        if getattr(settings, "_is_dummy", False):
-            raise RuntimeError("DummySettings: C++ bindings not found; cannot run a real solve.")
-        
-        name = _first_attr(solver, "settings", "set_settings")
-        if not name:
-            raise RuntimeError("Missing settings(...) / set_settings(...) on solver.")
-        getattr(solver, name)(settings)
+        # The C++ binding expects a JSON string (it does `json::parse(str(settings))`).
+        # Do NOT pass Python dict repr or placeholder objects here.
+        if hasattr(cfg, "to_dict"):
+            settings_dict = cfg.to_dict()
+        elif hasattr(cfg, "to_json_dict"):
+            settings_dict = cfg.to_json_dict()
+        else:
+            raise TypeError("cfg must provide to_dict() or to_json_dict() for non-JSON mode.")
 
-    # 5) Set mesh - only if not using JSON mode (mesh already loaded)
+        settings_json = json.dumps(settings_dict)
+
+        if hasattr(solver, "set_settings"):
+            solver.set_settings(settings_json, strict_validation=False)
+        elif hasattr(solver, "settings"):
+            try:
+                solver.settings(settings_json, strict_validation=False)
+            except TypeError as e:
+                raise RuntimeError(
+                    "Found solver.settings() but it does not accept arguments; "
+                    "expected a settings setter or set_settings()."
+                ) from e
+        else:
+            raise RuntimeError("Missing set_settings(...) on solver.")
+
+    # Set mesh (skip if JSON mode already loaded)
     if not use_json_mode:
         set_mesh_ok = False
         for name in ("set_mesh", "set_mesh_data", "load_mesh_from_points"):
@@ -187,29 +161,27 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
         if not set_mesh_ok:
             raise RuntimeError("No mesh setter found (set_mesh / set_mesh_data / load_mesh_from_points).")
 
-    # 6) Build basis and assemble (required for JSON mode or if needed)
+    # Build basis and assemble (required for JSON mode)
     if use_json_mode:
         if hasattr(solver, "build_basis"):
             solver.build_basis()
         if hasattr(solver, "assemble"):
             solver.assemble()
     
-    # 7) Side sets (optional).
+    # Side sets (optional)
     if sidesets_func is not None:
         name = _first_attr(solver, "set_sidesets_from_function", "build_sidesets_from_function")
         if name:
             getattr(solver, name)(sidesets_func)
     
-    # 8) Boundary conditions - only apply if not using JSON mode (BCs in JSON)
+    # Boundary conditions (skip if JSON mode - BCs in JSON)
     if not use_json_mode:
         bc_raw = getattr(cfg, "boundary_conditions", {}) or {}
-        # Convert BoundaryConditions class to dict if needed
         if hasattr(bc_raw, "to_dict"):
             bc = bc_raw.to_dict()
         else:
             bc = bc_raw if isinstance(bc_raw, dict) else {}
 
-        # 8.1 Dirichlet boundaries: [{'id': 4, 'value': [0,0(,0)]}, ...]
         entries = bc.get("dirichlet_boundary")
         if entries:
             add_name = _first_attr(solver, "add_dirichlet_boundary", "set_dirichlet_boundary")
@@ -221,24 +193,61 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
                 val = ent.get("value", 0.0)
                 add(sid, val)
 
-        # 8.2 Body force / RHS: scalar or per-dimension vector.
         rhs = bc.get("rhs")
         if rhs is not None:
             name = _first_attr(solver, "set_body_force", "set_rhs", "add_rhs")
             if name:
                 getattr(solver, name)(rhs)
 
-    # 9) Run solve (`solve` / `solve_problem` / `run`).
+    # Run solve
     name = _first_attr(solver, "solve", "solve_problem", "run")
     if not name:
         raise RuntimeError("No solver entry point found (solve / solve_problem / run).")
-    getattr(solver, name)()
+    ret = getattr(solver, name)()
 
-    # 10) Fetch solution and additional fields (displacement, stress, strain, energy, etc.)
+    # Fetch solution and additional fields
     fields = {}
     meta = {"solver_type": type(solver).__name__}
+
+    # Preferred: parse return value from C++ binding (`solve() -> (sol, pressure)`).
+    if isinstance(ret, (tuple, list)) and len(ret) >= 1:
+        sol = np.asarray(ret[0])
+        fields["u"] = sol
+        if len(ret) >= 2 and ret[1] is not None:
+            try:
+                pressure = np.asarray(ret[1])
+                # Keep consistent with `_extract_additional_fields` ("p" for pressure).
+                fields["p"] = pressure
+            except Exception:
+                pass
+
+        # Prefer solver-provided mesh if available (esp. JSON mode).
+        V_pts = None
+        for vn in ("get_vertices", "get_points"):
+            if hasattr(solver, vn):
+                try:
+                    V_pts = np.asarray(getattr(solver, vn)())
+                    break
+                except Exception:
+                    pass
+        if V_pts is None:
+            V_pts = V_np if V_np is not None else np.array([])
+
+        cells_result = C_np
+        for cn in ("get_elements", "get_cells"):
+            if hasattr(solver, cn):
+                try:
+                    cells_result = np.asarray(getattr(solver, cn)())
+                    break
+                except Exception:
+                    pass
+        if cells_result is None:
+            cells_result = np.array([], dtype=np.int32)
+
+        _extract_additional_fields(solver, fields, meta)
+        return Result(v_backend, V_pts, cells_result, fields, meta=meta)
     
-    # 10.1 Sampled solution: typically returns (pts, tris, el_id, bid, fun).
+    # Try sampled solution first
     if hasattr(solver, "get_sampled_solution"):
         out = solver.get_sampled_solution()
         if isinstance(out, (list, tuple)) and len(out) >= 5:
@@ -246,26 +255,20 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
             fun = np.asarray(out[4])
             fields["u"] = fun
             
-            # Get cells from solver if available
             cells_result = C_np
-            if hasattr(solver, "get_cells"):
-                try:
-                    cells_result = np.asarray(solver.get_cells())
-                except Exception:
-                    pass
+            for cn in ("get_elements", "get_cells"):
+                if hasattr(solver, cn):
+                    try:
+                        cells_result = np.asarray(getattr(solver, cn)())
+                        break
+                    except Exception:
+                        pass
             
-            # Try to get additional fields
             _extract_additional_fields(solver, fields, meta)
             
-            return Result(
-                v_backend,
-                pts,
-                cells_result,
-                fields,
-                meta=meta,
-            )
+            return Result(v_backend, pts, cells_result, fields, meta=meta)
 
-    # 10.2 Direct solution: `get_solution` / `get_displacement` / `get_u`.
+    # Fallback to direct solution
     u = None
     for name in ("get_solution", "get_displacement", "get_u"):
         if hasattr(solver, name):
@@ -285,17 +288,17 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
     if V_pts is None:
         V_pts = V_np if V_np is not None else np.array([])
     
-    # Get cells from solver if available
     cells_result = C_np
-    if hasattr(solver, "get_cells"):
-        try:
-            cells_result = np.asarray(solver.get_cells())
-        except Exception:
-            pass
-    elif cells_result is None:
-        cells_result = np.array([])
+    for cn in ("get_elements", "get_cells"):
+        if hasattr(solver, cn):
+            try:
+                cells_result = np.asarray(getattr(solver, cn)())
+                break
+            except Exception:
+                pass
+    if cells_result is None:
+        cells_result = np.array([], dtype=np.int32)
     
-    # Extract additional fields (stress, strain, energy, etc.)
     _extract_additional_fields(solver, fields, meta)
     
     return Result(
@@ -308,14 +311,7 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
 
 
 def _extract_additional_fields(solver, fields: dict, meta: dict):
-    """Extract additional fields from solver (stress, strain, energy, etc.).
-    
-    Args:
-        solver: Solver object with potential getter methods.
-        fields: Dictionary to populate with field data.
-        meta: Dictionary to populate with metadata.
-    """
-    # Try to get stress
+    """Extract optional fields (stress, strain, energy, etc.)."""
     for name in ("get_stress", "get_cauchy_stress", "stress"):
         if hasattr(solver, name):
             try:

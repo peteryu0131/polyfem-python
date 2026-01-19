@@ -2,6 +2,9 @@
 
 本文档详细介绍了 PolyFEM Python API 中的可微分仿真功能，包括设计理念、使用方法、技术细节和最佳实践。
 
+> Note (Route A): Python 统一 `import polyfempy as pf`（稳定的 C++ 扩展模块名）。
+> nanobind/pybind11 只是编译后端差异；且 C++ 绑定 `Solver.solve()` 返回 `(sol, pressure)`，Python 侧必须接收返回值。
+
 **相关文档**：
 - [Differentiable Guide (English)](differentiable-guide-en.md) - English version of this guide
 
@@ -420,7 +423,7 @@ PolyFEMFunction (PyTorch 集成)
 #### 使用建议
 
 1. **确保 C++ 模块已编译**：
-   - `solve_differentiable()` 需要 C++ 模块 `polyfem_nb`
+   - `solve_differentiable()` 需要 C++ 扩展模块 `polyfempy`（nanobind/pybind11 任一后端）
    - 如果未编译，会给出清晰的错误提示
 
 2. **错误处理**：

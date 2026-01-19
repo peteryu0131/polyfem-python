@@ -22,14 +22,13 @@ def multi_solver_optimization():
     
     config["root_path"] = f"{root}/initial-contact.json"
     
-    # Get initial vertices
+    # Get initial vertices and cells from mesh
     import polyfempy as pf
     solver1 = pf.Solver()
     solver1.set_settings(json.dumps(config), False)
     solver1.load_mesh_from_settings()
     V = solver1.mesh().vertices()
-    
-    C = np.array([[0, 1, 2]], dtype=np.int32)  # Simplified - should get from mesh
+    C = solver1.mesh().cells()  # Get cells from mesh
     
     # Configuration for solver 1
     cfg1 = {
@@ -105,9 +104,6 @@ def multi_solver_optimization():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Multi-Solver Shape Optimization")
-    print("=" * 60)
     loss, grad = multi_solver_optimization()
-    print("\n✓ Optimization completed successfully!")
+    print("Optimization completed successfully!")
 

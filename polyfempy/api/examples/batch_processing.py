@@ -94,11 +94,11 @@ def main():
     for i, result in enumerate(results):
         if isinstance(result, Exception):
             failure_count += 1
-            print(f"Job {i+1}: ❌ FAILED - {type(result).__name__}: {result}")
+            print(f"Job {i+1}: FAILED - {type(result).__name__}: {result}")
         else:
             success_count += 1
             u_norm = np.linalg.norm(result.u) if result.u is not None else 0.0
-            print(f"Job {i+1}: ✅ SUCCESS")
+            print(f"Job {i+1}: SUCCESS")
             print(f"  Solution norm: {u_norm:.6e}")
             print(f"  Iterations: {result.meta['iters']}")
             print(f"  Residual: {result.meta['residual']:.6e}")

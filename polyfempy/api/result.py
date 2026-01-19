@@ -1,39 +1,13 @@
 import numpy as np
 
-
 class Result:
-    """A unified container for mesh + point fields across numeric backends.
+    """Container for mesh and solution fields.
 
-    Internally, all arrays are stored as NumPy (C-contiguous). When needed,
-    fields (and optionally the mesh) can be converted back to the user's
-    original backend (e.g., 'numpy' / 'torch' / 'jax').
-
-    Attributes:
-        backend: Name of the original backend ('numpy'|'torch'|'jax').
-        vertices: Vertex coordinates, shape (N, dim), float32/float64.
-        cells: Element connectivity, shape (M, k), int32.
-        fields: Mapping from field name to array, e.g., {'u': (N, dim)} or {'p': (N,)}.
-        meta: Free-form metadata (logs/timing/diagnostics).
-
-    Notes:
-        - Arrays are normalized to C-contiguous for robustness.
-        - `cells` are cast to int32.
-        - Only fields that match the number of vertices are exported as point data.
+    Stores NumPy arrays and can convert back to the original backend.
     """
 
     def __init__(self, backend, vertices, cells, fields=None, meta=None):
-        """Initialize a Result and normalize data to NumPy/C-contiguous.
-
-        Args:
-            backend: Original backend name ('numpy', 'torch', or 'jax').
-            vertices: Vertex array-like of shape (N, dim).
-            cells: Connectivity array-like of shape (M, k). Will be int32.
-            fields: Optional dict[str, array-like] of point fields.
-            meta: Optional dict with miscellaneous metadata.
-
-        Returns:
-            None. The instance stores NumPy views/copies internally.
-        """
+        """Initialize Result and normalize to NumPy/C-contiguous."""
         self.backend = backend
         self.vertices = np.asarray(vertices)
         self.cells = np.asarray(cells, dtype=np.int32)
@@ -42,70 +16,29 @@ class Result:
         self._make_contiguous_inplace()
 
     def _make_contiguous_inplace(self):
-        """Ensure internal arrays are C-contiguous (and `cells` are int32).
-
-        This is a no-op if arrays are already in the desired layout/dtype.
-
-        Args:
-            None.
-
-        Returns:
-            None. Operates in-place on `vertices`, `cells`, and `fields`.
-        """
+        """Ensure arrays are C-contiguous and cells are int32."""
         self.vertices = np.ascontiguousarray(self.vertices)
         self.cells = np.ascontiguousarray(self.cells.astype(np.int32, copy=False))
         for k, v in list(self.fields.items()):
             self.fields[k] = np.ascontiguousarray(np.asarray(v))
 
     def field(self, name):
-        """Retrieve a field by name.
-
-        Args:
-            name: Field name.
-
-        Returns:
-            The stored NumPy array for the field, or None if not present.
-        """
+        """Get field by name, or None if not present."""
         return self.fields.get(name)
 
     def set_field(self, name, value):
-        """Set/replace a field (normalized to NumPy, C-contiguous).
-
-        Args:
-            name: Field name.
-            value: Array-like to store.
-
-        Returns:
-            self, to allow chaining.
-        """
+        """Set field (normalized to NumPy, C-contiguous)."""
         self.fields[name] = np.ascontiguousarray(np.asarray(value))
         return self
 
     def remove_field(self, name):
-        """Remove a field if it exists.
-
-        Args:
-            name: Field name.
-
-        Returns:
-            self, to allow chaining.
-        """
+        """Remove field if it exists."""
         if name in self.fields:
             del self.fields[name]
         return self
 
     def as_numpy(self):
-        """Normalize internal storage to NumPy (idempotent).
-
-        Ensures all arrays are NumPy/C-contiguous. Useful as a no-op in
-        NumPy-only pipelines to make intent explicit.
-
-        Args:
-            None.
-
-        Returns:
-            self.
-        """
+        """Normalize to NumPy (idempotent)."""
         self._make_contiguous_inplace()
         return self
 
@@ -141,24 +74,7 @@ class Result:
         return self
 
     def magnitude(self, name, out_name=None, eps=0.0):
-        """Create a scalar field as the Euclidean norm of a vector field.
-
-        If the input field is 1D (shape (N,)), the absolute value is used.
-        Otherwise, the L2 norm across the last axis is computed.
-
-        Args:
-            name: Input field name.
-            out_name: Output field name. Defaults to "<name>_norm".
-            eps: Optional small non-negative value added inside sqrt for
-                numerical stability.
-
-        Returns:
-            self.
-
-        Notes:
-            - Expects per-vertex fields. Shapes like (N, d) are typical.
-            - If the field does not exist, this is a no-op.
-        """
+        """Compute Euclidean norm of vector field (L2 norm, or abs for 1D)."""
         arr = self.field(name)
         if arr is None:
             return self
@@ -171,23 +87,7 @@ class Result:
         return self
 
     def to_vtk(self, path):
-        """Export to VTK via meshio if available; otherwise save as NPZ.
-
-        The function attempts to guess a suitable `meshio` cell type from
-        `(cells.shape[1], vertices.shape[1])`. If `meshio` is missing or an
-        error occurs (e.g., unsupported topology), it falls back to saving
-        an `.npz` that includes `vertices`, `cells`, and all fields.
-
-        Supported topologies (by default):
-            2D: k=3 -> triangle, k=4 -> quad
-            3D: k=4 -> tetra,     k=8 -> hexahedron
-
-        Args:
-            path: Output path. If it ends with ".npz", NPZ is always written.
-
-        Returns:
-            None. Writes a file to `path` (or `path + ".npz"` on fallback).
-        """
+        """Export to VTK via meshio, fallback to NPZ."""
         cell_type = self._guess_cell_type(self.cells, self.vertices)
         try:
             import meshio
@@ -206,32 +106,11 @@ class Result:
             )
 
     def field_names(self):
-        """List stored field names.
-
-        Args:
-            None.
-
-        Returns:
-            A list of field names (list[str]).
-        """
+        """List field names."""
         return list(self.fields.keys())
 
     def summary(self):
-        """Return a lightweight summary for debugging.
-
-        Args:
-            None.
-
-        Returns:
-            A dict with shapes and metadata, e.g.:
-            {
-              "backend": str,
-              "vertices": (N, dim),
-              "cells": (M, k),
-              "dim": dim or "?",
-              "fields": {name: shape_tuple, ...},
-            }
-        """
+        """Return summary dict with shapes and metadata."""
         dim = self.vertices.shape[1] if self.vertices.ndim == 2 else "?"
         info = {
             "backend": self.backend,
@@ -243,17 +122,7 @@ class Result:
         return info
 
     def _point_fields(self):
-        """Collect fields that can be written as per-vertex point data.
-
-        A field qualifies if `field.shape[0] == num_vertices`.
-
-        Args:
-            None.
-
-        Returns:
-            A dict mapping field names to NumPy arrays suitable for
-            `meshio.Mesh(..., point_data=...)`.
-        """
+        """Collect fields matching vertex count for point data."""
         out = {}
         n = self.vertices.shape[0] if self.vertices.ndim == 2 else None
         for k, v in self.fields.items():
@@ -264,18 +133,7 @@ class Result:
 
     @staticmethod
     def _guess_cell_type(cells, vertices):
-        """Guess a meshio cell type from connectivity size and spatial dim.
-
-        Args:
-            cells: Connectivity array, shape (M, k).
-            vertices: Vertex array, shape (N, dim).
-
-        Returns:
-            A meshio cell type string, e.g. 'triangle', 'quad', 'tetra', 'hexahedron'.
-
-        Notes:
-            This is a heuristic; extend as needed for other topologies.
-        """
+        """Guess meshio cell type from connectivity size and spatial dim."""
         k = cells.shape[1] if cells.ndim == 2 else None
         dim = vertices.shape[1] if vertices.ndim == 2 else None
         if k == 2:

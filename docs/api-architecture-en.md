@@ -2,6 +2,10 @@
 
 This document explains all files in the `polyfempy/api/` directory, including design philosophy, function purposes, and examples.
 
+> Note (Route A): Python should always `import polyfempy as pf` (stable C++ extension module name).
+> nanobind vs pybind11 is a build-time choice and must not affect imports. The C++ binding’s
+> `Solver.solve()` returns `(sol, pressure)`, so Python callers must capture and parse it.
+
 ## Directory Structure
 
 ```
@@ -83,7 +87,7 @@ Before diving into each module, understand these core concepts that run through 
 
 - `tensor.py` forces every array to become **CPU, C-contiguous NumPy** before it crosses the Python↔C++ boundary, matching nanobind’s zero-copy assumptions
 - `_ensure_i32()` and `Result` normalize cell connectivity to `int32`, aligning with nanobind/Eigen expectations on the C++ side
-- `backend_nanobind.py` exposes a thin shim so that, once `polyfem_nb` is built, calls can be forwarded straight to `solve_cpp`
+- `backend_nanobind.py` (deprecated) no longer imports `polyfem_nb/solve_cpp`; Route A uses `polyfempy` directly
 - `solve.py` directly detects the nanobind-built `polyfempy` module and relies on its zero-copy plumbing plus `Solver/State` APIs
 - All scripts in `polyfempy/api/examples/` operate on NumPy data, making it easy to validate the nanobind data path end to end
 
@@ -571,9 +575,9 @@ residual = 1e-3 / (i + 1)  # Linear decrease
 #### `solve_impl(V, C, settings, callbacks) -> dict`
 
 **Implementation Strategy**:
-1. Check availability: Try to import `polyfem_nb`
-2. Error handling: If unavailable, raise `NotImplementedError`
-3. Forward call: If available, forward to `solve_cpp()`
+1. Check availability: Try to import `polyfempy as pf`
+2. Error handling: If unavailable, raise a clear error (build/install the C++ extension first)
+3. Call C++: construct `pf.Solver()/pf.State()`, call `solver.solve()`, and parse `(sol, pressure)`
 
 ---
 

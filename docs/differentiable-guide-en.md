@@ -2,6 +2,10 @@
 
 This document provides a comprehensive guide to the differentiable simulation functionality in PolyFEM Python API, including design philosophy, usage methods, technical details, and best practices.
 
+> Note (Route A): Python should always `import polyfempy as pf` (stable C++ extension module name).
+> nanobind vs pybind11 is a build-time choice and must not affect imports. The C++ binding’s
+> `Solver.solve()` returns `(sol, pressure)`, so Python callers must capture and parse it.
+
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
@@ -417,7 +421,7 @@ Theoretically, `backend_nanobind.py` could expose Solver object, but this would:
 #### Usage Recommendations
 
 1. **Ensure C++ Module is Compiled**:
-   - `solve_differentiable()` needs C++ module `polyfem_nb`
+   - `solve_differentiable()` needs the C++ extension module `polyfempy` (nanobind or pybind11 backend)
    - If not compiled, will provide clear error message
 
 2. **Error Handling**:

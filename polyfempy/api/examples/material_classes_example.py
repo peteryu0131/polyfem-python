@@ -1,15 +1,9 @@
-"""Example: Using dedicated material classes for better IDE support.
+"""Dedicated material classes example.
 
-This example demonstrates the new dedicated material classes (NeoHookean, 
-LinearElasticity, Stokes, etc.) which provide IDE autocomplete support and
-support multiple input modes (E-nu vs lambda-mu, etc.).
+Demonstrates NeoHookean, LinearElasticity, Stokes, etc. with multiple input modes.
 """
 
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-
-from api.config import (
+from polyfempy.api.config import (
     SimulationConfig,
     # Elastic materials
     NeoHookean,
@@ -34,76 +28,52 @@ from api.config import (
 
 
 def example_neo_hookean():
-    """Example 1: NeoHookean material with E-nu and lambda-mu inputs."""
     print("=" * 70)
     print("Example 1: NeoHookean Material")
     print("=" * 70)
     
-    # Mode 1: E-nu input (Young's modulus and Poisson's ratio)
-    material1 = NeoHookean(
-        E=2100,      # Young's modulus
-        nu=0.3,      # Poisson's ratio
-        rho=1.0,     # Density
-        id=0
-    )
+    material1 = NeoHookean(E=2100, nu=0.3, rho=1.0, id=0)
     print("NeoHookean (E-nu input):")
     print(f"  E={material1.E}, nu={material1.nu}, rho={material1.rho}")
     print(f"  to_dict(): {material1.to_dict()}")
     
-    # Mode 2: lambda-mu input (Lamé parameters)
-    material2 = NeoHookean(
-        lambda_=1000,  # First Lamé parameter
-        mu=800,        # Shear modulus
-        rho=1.0
-    )
+    material2 = NeoHookean(lambda_=1000, mu=800, rho=1.0)
     print("\nNeoHookean (lambda-mu input):")
     print(f"  lambda_={material2.lambda_}, mu={material2.mu}, rho={material2.rho}")
     print(f"  to_dict(): {material2.to_dict()}")
     
-    # Use in SimulationConfig
     cfg = SimulationConfig(materials=material1)
     print(f"\nSimulationConfig materials: {cfg.to_dict()['materials']}")
     print()
 
 
 def example_linear_elasticity():
-    """Example 2: LinearElasticity material with multiple input modes."""
     print("=" * 70)
     print("Example 2: LinearElasticity Material")
     print("=" * 70)
     
-    # E-nu input
     material1 = LinearElasticity(E=2100, nu=0.3, rho=1.0)
     print("LinearElasticity (E-nu input):")
     print(f"  {material1.to_dict()}")
     
-    # lambda-mu input
     material2 = LinearElasticity(lambda_=1000, mu=800, rho=1.0)
     print("\nLinearElasticity (lambda-mu input):")
     print(f"  {material2.to_dict()}")
     
-    # Use in SimulationConfig
     cfg = SimulationConfig(materials=material1)
     print(f"\nSimulationConfig: {cfg.to_dict()['materials']}")
     print()
 
 
 def example_hooke_saint_venant():
-    """Example 3: HookeLinearElasticity and SaintVenant with elasticity_tensor."""
     print("=" * 70)
     print("Example 3: HookeLinearElasticity and SaintVenant")
     print("=" * 70)
     
-    # HookeLinearElasticity with E-nu
-    hooke1 = HookeLinearElasticity(
-        E=2100,
-        nu=0.3,
-        fiber_direction=[1, 0, 0]
-    )
+    hooke1 = HookeLinearElasticity(E=2100, nu=0.3, fiber_direction=[1, 0, 0])
     print("HookeLinearElasticity (E-nu input):")
     print(f"  {hooke1.to_dict()}")
     
-    # HookeLinearElasticity with elasticity_tensor
     hooke2 = HookeLinearElasticity(
         elasticity_tensor=[100, 50, 50, 0, 0, 0, 50, 100, 50, 0, 0, 0, 50, 50, 100, 0, 0, 0,
                            0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 25],
@@ -113,21 +83,13 @@ def example_hooke_saint_venant():
     print(f"  type: {hooke2.type}")
     print(f"  has elasticity_tensor: {'elasticity_tensor' in hooke2.to_dict()}")
     
-    # SaintVenant with E-nu
-    saint1 = SaintVenant(
-        E=2100,
-        nu=0.3,
-        phi=0,
-        psi=0,
-        fiber_direction=[0, 1, 0]
-    )
+    saint1 = SaintVenant(E=2100, nu=0.3, phi=0, psi=0, fiber_direction=[0, 1, 0])
     print("\nSaintVenant (E-nu input):")
     print(f"  {saint1.to_dict()}")
     print()
 
 
 def example_mooney_rivlin():
-    """Example 4: MooneyRivlin materials."""
     print("=" * 70)
     print("Example 4: MooneyRivlin Materials")
     print("=" * 70)
@@ -152,7 +114,6 @@ def example_mooney_rivlin():
 
 
 def example_ogden():
-    """Example 5: Ogden materials."""
     print("=" * 70)
     print("Example 5: Ogden Materials")
     print("=" * 70)
@@ -177,7 +138,6 @@ def example_ogden():
 
 
 def example_fluid_materials():
-    """Example 6: Fluid materials (Stokes, NavierStokes, OperatorSplitting)."""
     print("=" * 70)
     print("Example 6: Fluid Materials")
     print("=" * 70)
@@ -207,7 +167,6 @@ def example_fluid_materials():
 
 
 def example_electrostatics():
-    """Example 7: Electrostatics material."""
     print("=" * 70)
     print("Example 7: Electrostatics Material")
     print("=" * 70)
@@ -223,28 +182,24 @@ def example_electrostatics():
 
 
 def example_validation():
-    """Example 8: Parameter validation in material classes."""
     print("=" * 70)
     print("Example 8: Parameter Validation")
     print("=" * 70)
     
     print("Testing validation for NeoHookean...")
     
-    # Test 1: Missing required parameters
     try:
-        n = NeoHookean(E=2100)  # Missing nu
+        n = NeoHookean(E=2100)
         print("  ERROR: Should have raised ValueError")
     except ValueError as e:
         print(f"  [OK] Correctly caught missing parameter: {str(e)}")
     
-    # Test 2: Both input modes provided (conflict)
     try:
         n = NeoHookean(E=2100, nu=0.3, lambda_=1000, mu=800)
         print("  ERROR: Should have raised ValueError")
     except ValueError as e:
         print(f"  [OK] Correctly caught conflict: {str(e)}")
     
-    # Test 3: Valid input
     try:
         n = NeoHookean(E=2100, nu=0.3)
         print(f"  [OK] Valid input works: {n.to_dict()}")
@@ -255,7 +210,6 @@ def example_validation():
 
 
 def example_comparison():
-    """Example 9: Comparison with old Material class."""
     print("=" * 70)
     print("Example 9: Comparison - Generic Material vs Dedicated Classes")
     print("=" * 70)
@@ -263,20 +217,15 @@ def example_comparison():
     print("\n[OLD] Old way (generic Material class):")
     print("   from api.config import Material")
     print("   material = Material(E=2100, nu=0.3, type='NeoHookean')")
-    print("   # IDE doesn't know NeoHookean-specific parameters")
-    print("   # No validation for input modes")
     
     print("\n[NEW] New way (dedicated classes):")
     print("   from api.config import NeoHookean")
-    print("   material = NeoHookean(E=2100, nu=0.3)  # IDE autocompletes all parameters")
-    print("   material = NeoHookean(lambda_=1000, mu=800)  # Alternative input mode")
-    print("   # IDE knows all available parameters")
-    print("   # Automatic validation of input modes")
+    print("   material = NeoHookean(E=2100, nu=0.3)")
+    print("   material = NeoHookean(lambda_=1000, mu=800)")
     print()
 
 
 def example_integration():
-    """Example 10: Integration with SimulationConfig."""
     print("=" * 70)
     print("Example 10: Integration with SimulationConfig")
     print("=" * 70)
@@ -309,12 +258,4 @@ if __name__ == "__main__":
     example_comparison()
     example_integration()
     
-    print("=" * 70)
-    print("Summary:")
-    print("  [OK] Dedicated material classes provide IDE autocomplete")
-    print("  [OK] Support multiple input modes (E-nu, lambda-mu, elasticity_tensor)")
-    print("  [OK] Automatic parameter validation")
-    print("  [OK] Type-safe and error-resistant")
-    print("  [OK] Clean integration with SimulationConfig")
-    print("=" * 70)
 

@@ -2,6 +2,9 @@
 
 本文档详细说明 `polyfempy/api/` 文件夹下的所有文件，包括设计理念、函数意义和示例部分。
 
+> Note (Route A): Python 统一 `import polyfempy as pf`（稳定的 C++ 扩展模块名）。
+> nanobind/pybind11 只是编译后端差异；且 C++ 绑定 `Solver.solve()` 返回 `(sol, pressure)`，Python 侧必须接收返回值。
+
 ## 目录结构
 
 ```
@@ -83,7 +86,7 @@ __all__ = ["solve", "SimulationConfig", "Result", "Selection", "batch_solve"]
 
 - `tensor.py` 强制所有数组在进入 C++ 前变成 **CPU、C-contiguous 的 NumPy**，满足 nanobind 的零拷贝要求
 - `_ensure_i32()` 与 `Result` 统一单元连接的 dtype 为 `int32`，与 nanobind/Eigen 的接口约束一致
-- `backend_nanobind.py` 提供薄适配层，当用户编译 `polyfem_nb` 时可直接调用 `solve_cpp`
+- `backend_nanobind.py`（已废弃）不再导入 `polyfem_nb/solve_cpp`，而是统一走 `polyfempy`（Route A）
 - `solve.py` 直接探测 nanobind 构建的 `polyfempy`，依赖其零拷贝机制与 `Solver/State` API
 - `polyfempy/api/examples/` 以 NumPy 数据为主，方便验证 nanobind 数据路径
 
@@ -871,15 +874,15 @@ residual = 1e-3 / (i + 1)  # 线性递减
 **功能**：Nanobind 后端适配器
 
 **实现策略**：
-1. **检查可用性**：尝试导入 `polyfem_nb`
-2. **错误处理**：如果不可用，抛出 `NotImplementedError`
-3. **转发调用**：如果可用，转发到 `solve_cpp()`
+1. **检查可用性**：尝试导入 `polyfempy as pf`
+2. **错误处理**：如果不可用，抛出清晰错误（需要先编译/安装 C++ 扩展）
+3. **调用 C++**：构造 `pf.Solver()/pf.State()`，调用 `solver.solve()` 并解析返回 `(sol, pressure)`
 
 **错误消息**：
 ```python
 raise NotImplementedError(
     "nanobind backend not connected. "
-    "Please build the C++ module (polyfem_nb) first."
+    "Please build the C++ extension module (polyfempy) first."
 )
 ```
 
@@ -1168,7 +1171,10 @@ python -m polyfempy.api.examples.load_from_json
 **实现**：
 ```python
 def solve_impl(V, C, settings, callbacks):
-    return solve_cpp(V, C, settings, callbacks)
+    import polyfempy as pf
+    # 省略：set_settings(JSON) + set_mesh(...) + ret = solver.solve()
+    # 关键：solver.solve() -> (sol, pressure)
+    return {"u": ret[0], "p": ret[1] if len(ret) > 1 else None}
 ```
 
 ### 2. 策略模式（Strategy Pattern）

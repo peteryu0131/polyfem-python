@@ -1,22 +1,13 @@
 from .solve import solve
 
 def batch_solve(jobs):
-    """
-    Sequential batch solve (order-preserving)
+    """Sequential batch solve (order-preserving).
 
-    Parameters
-    ----------
-    jobs : sequence
-        Each item is either:
-          - a 3-tuple (V, C, cfg), or
-          - a 4-tuple (V, C, cfg, kwargs_dict)
-        where kwargs_dict contains keyword args forwarded to solve(), e.g.
-        sidesets_func / dtype.
+    Args:
+        jobs: Sequence of (V, C, cfg) or (V, C, cfg, kwargs_dict) tuples.
 
-    Returns
-    -------
-    list[Result]
-        A list of results in exactly the same order as the input jobs.
+    Returns:
+        list[Result] in same order as jobs.
     """
     out = []
     for job in jobs:
