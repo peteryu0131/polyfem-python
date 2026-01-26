@@ -9,12 +9,15 @@ Important:
   prefer parsing the return value; only fall back to getters when needed.
 """
 
+# pyright: reportMissingImports=false
+# torch is an optional dependency, so type checker may not find it
+
 import numpy as np
 from typing import Optional, List, Dict, Any, Union
 
 try:
-    import torch
-    from torch.autograd import Function
+    import torch  # pyright: ignore[reportMissingImports]
+    from torch.autograd import Function  # pyright: ignore[reportMissingImports]
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
@@ -37,6 +40,15 @@ class PolyFEMFunction(Function):
         
         vertices_np = vertices.detach().cpu().numpy()
         solver.mesh().set_vertices(vertices_np)
+        
+        # After set_vertices() changes the geometry, we MUST rebuild basis and reassemble.
+        # This is critical: the old basis and matrices were built for the old geometry.
+        # solve() will also call build_basis() internally, but we need to do it here
+        # explicitly to ensure the geometry change is properly handled.
+        if hasattr(solver, "build_basis"):
+            solver.build_basis()
+        if hasattr(solver, "assemble"):
+            solver.assemble()
         
         # Enable derivative caching (required for adjoint)
         import polyfempy as pf
@@ -86,6 +98,23 @@ class PolyFEMFunction(Function):
         
         if ctx.derivative_type == "shape":
             grad_np = pf.shape_derivative(ctx.solver)
+        elif ctx.derivative_type == "periodic_shape":
+            # For periodic problems, use periodic_shape_derivative if available
+            # Otherwise fall back to regular shape_derivative
+            # Note: This requires periodic_shape_derivative to be exposed in polyfempy
+            if hasattr(pf, "periodic_shape_derivative"):
+                grad_np = pf.periodic_shape_derivative(ctx.solver)
+            else:
+                # Fallback: use regular shape_derivative for now
+                # TODO: Add periodic_shape_derivative to polyfempy bindings
+                import warnings
+                warnings.warn(
+                    "periodic_shape_derivative not available in polyfempy. "
+                    "Using regular shape_derivative instead. "
+                    "For proper periodic support, add periodic_shape_derivative to adjoint.cpp bindings.",
+                    RuntimeWarning
+                )
+                grad_np = pf.shape_derivative(ctx.solver)
         elif ctx.derivative_type == "material":
             grad_np = pf.elastic_material_derivative(ctx.solver)
         elif ctx.derivative_type == "initial_velocity":

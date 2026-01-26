@@ -3,10 +3,7 @@
 #include <polyfem/utils/MatrixUtils.hpp>
 #include <polyfem/State.hpp>
 #include "binding.hpp"
-#include <pybind11/eigen.h>
-#include <pybind11_json/pybind11_json.hpp>
 
-namespace py = pybind11;
 using namespace polyfem;
 using namespace polyfem::mesh;
 using namespace polyfem::solver;

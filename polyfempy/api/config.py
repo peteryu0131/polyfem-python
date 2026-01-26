@@ -1,5 +1,4 @@
-﻿  
-from dataclasses import dataclass, field
+﻿from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING, Union, List, Dict, Any, overload
 import json
 
@@ -1651,9 +1650,23 @@ class SimulationConfig:
         Example:
             >>> cfg = SimulationConfig.from_json_file("config.json")
         """
-        with open(filepath, "r") as f:
+        from pathlib import Path
+        json_path = Path(filepath).resolve()
+        
+        with open(json_path, "r") as f:
             config_dict = json.load(f)
-        return cls.from_json_dict(config_dict)
+        
+        # Store root_path for resolving relative paths (e.g., common.json)
+        config_dict["root_path"] = str(json_path)
+        
+        cfg = cls.from_json_dict(config_dict)
+        
+        # Also store root_path in extras for solve() to use
+        if not hasattr(cfg, 'extras') or cfg.extras is None:
+            cfg.extras = {}
+        cfg.extras["_root_path"] = str(json_path)
+        
+        return cfg
 
     # ---------------- Validation ----------------
 

@@ -2,10 +2,6 @@
 #include <polyfem/mesh/mesh3D/CMesh3D.hpp>
 #include <polyfem/mesh/mesh2D/CMesh2D.hpp>
 #include "binding.hpp"
-#include <pybind11/eigen.h>
-#include <pybind11/stl.h>
-
-namespace py = pybind11;
 using namespace polyfem;
 using namespace polyfem::mesh;
 

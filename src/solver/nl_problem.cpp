@@ -1,8 +1,5 @@
 #include <polyfem/solver/NLProblem.hpp>
 #include "binding.hpp"
-#include <pybind11/eigen.h>
-
-namespace py = pybind11;
 using namespace polyfem;
 using namespace polyfem::solver;
 

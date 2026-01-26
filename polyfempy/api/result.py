@@ -45,7 +45,7 @@ class Result:
     def to_backend(self, include_mesh=False):
         """Convert fields (and optionally mesh) back to the original backend.
 
-        This implements a �return-what-was-fed� behavior:
+        This implements a "return-what-was-fed" behavior:
         if `backend` is 'torch' or 'jax', fields are converted via
         `polyfempy.api.tensor.to_backend`. If `backend` is 'numpy', this is a no-op.
 

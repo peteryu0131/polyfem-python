@@ -1,6 +1,14 @@
 [build-system]
-requires = ["setuptools", "wheel", "pybind11", "cmake"]
+requires = ["setuptools", "wheel", "nanobind", "cmake"]
 build-backend = "setuptools.build_meta"
+
+# Note: nanobind is used for Python bindings (pybind11 support removed).
+# 
+# Usage:
+#   python -m pip install -e . --no-build-isolation
+# 
+# Note: Use --no-build-isolation to ensure CMake can find conda-installed
+#       C++ dependencies (e.g., tsl-robin-map).
 
 [project]
 name = "polyfempy"
@@ -20,6 +28,10 @@ classifiers = [
 differentiable = [
     "torch>=1.9.0",
 ]
+nanobind = [
+    "nanobind>=2.0.0",
+]
 all = [
     "torch>=1.9.0",
+    "nanobind>=2.0.0",
 ]

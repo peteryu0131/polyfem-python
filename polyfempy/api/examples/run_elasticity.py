@@ -33,9 +33,9 @@ def main():
     u = res.fields.get("u")
     print(f"[ok] fields={list(res.fields)}; u.shape={None if u is None else u.shape}")
 
-    # export (VTU if meshio present, else NPZ fallback)
-    out = res.to_vtu("elasticity_output.vtu")
-    print(f"[ok] saved → {out}")
+    # export (VTK if meshio present, else NPZ fallback)
+    res.to_vtk("elasticity_output.vtu")
+    print(f"[ok] saved → elasticity_output.vtu")
 
 
 if __name__ == "__main__":

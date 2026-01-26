@@ -80,8 +80,14 @@ def main():
     print(f"Running {len(jobs)} simulations in batch...")
     print("(Errors are isolated - one failure won't stop others)\n")
     
-    # Run batch
-    results = batch_solve(jobs)
+    # Run batch (with error handling)
+    results = []
+    for i, job in enumerate(jobs):
+        try:
+            result = batch_solve([job])[0]
+            results.append(result)
+        except Exception as e:
+            results.append(e)
     
     # Process results
     print("="*60)
@@ -100,8 +106,11 @@ def main():
             u_norm = np.linalg.norm(result.u) if result.u is not None else 0.0
             print(f"Job {i+1}: SUCCESS")
             print(f"  Solution norm: {u_norm:.6e}")
-            print(f"  Iterations: {result.meta['iters']}")
-            print(f"  Residual: {result.meta['residual']:.6e}")
+            # Note: iters and residual may not be available in meta
+            if 'iters' in result.meta:
+                print(f"  Iterations: {result.meta['iters']}")
+            if 'residual' in result.meta:
+                print(f"  Residual: {result.meta['residual']:.6e}")
     
     print("\n" + "="*60)
     print("SUMMARY")

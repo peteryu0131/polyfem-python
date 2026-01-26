@@ -6,16 +6,13 @@
 #include <polyfem/utils/MatrixUtils.hpp>
 #include <polyfem/State.hpp>
 #include "binding.hpp"
-#include <pybind11/eigen.h>
-#include <pybind11_json/pybind11_json.hpp>
 
-namespace py = pybind11;
 using namespace polyfem;
 using namespace polyfem::solver;
 
 void define_objective(py::module_ &m)
 {
-  py::class_<AdjointForm, std::shared_ptr<AdjointForm>>(m, "Objective")
+  py::class_<AdjointForm>(m, "Objective")
       .def("name", &AdjointForm::name)
 
       .def("value", &AdjointForm::value, py::arg("x"))

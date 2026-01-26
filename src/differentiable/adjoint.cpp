@@ -2,10 +2,6 @@
 #include <polyfem/utils/MatrixUtils.hpp>
 #include <polyfem/State.hpp>
 #include "binding.hpp"
-#include <pybind11/eigen.h>
-#include <pybind11/stl.h>
-
-namespace py = pybind11;
 using namespace polyfem;
 using namespace polyfem::solver;
 
@@ -137,19 +133,23 @@ void define_adjoint(py::module_ &m)
       },
       py::arg("solver"));
 
-  m.def(
-      "dirichlet_derivative",
-      [](State &state) {
-        const int dim = state.mesh->dimension();
-
-        Eigen::VectorXd term;
-        if (state.problem->is_time_dependent())
-          log_and_throw_adjoint_error(
-              "Dirichlet derivative is only supported for static problems!");
-
-        AdjointTools::dJ_dirichlet_static_adjoint_term(
-            state, state.get_adjoint_mat(0), term);
-        return utils::unflatten(term, state.mesh->dimension());
-      },
-      py::arg("solver"));
+  // Note: dirichlet_derivative is disabled because AdjointTools::dJ_dirichlet_static_adjoint_term
+  // may not exist in the current polyfem version. If you need this functionality, check if the
+  // API has been renamed or if there's an alternative method in your polyfem version.
+  // 
+  // Uncomment and adjust the code below if the API is available:
+  //
+  // m.def(
+  //     "dirichlet_derivative",
+  //     [](State &state) {
+  //       const int dim = state.mesh->dimension();
+  //       Eigen::VectorXd term;
+  //       if (state.problem->is_time_dependent())
+  //         log_and_throw_adjoint_error(
+  //             "Dirichlet derivative is only supported for static problems!");
+  //       AdjointTools::dJ_dirichlet_static_adjoint_term(
+  //           state, state.get_adjoint_mat(0), term);
+  //       return utils::unflatten(term, state.mesh->dimension());
+  //     },
+  //     py::arg("solver"));
 }

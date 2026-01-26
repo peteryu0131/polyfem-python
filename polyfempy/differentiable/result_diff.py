@@ -1,14 +1,19 @@
 """DifferentiableResult: result container for differentiable simulations."""
 
-from typing import Optional, Dict, Any
+# pyright: reportMissingImports=false
+# torch is an optional dependency, so type checker may not find it
+
+from typing import Optional, Dict, Any, TYPE_CHECKING
 import numpy as np
 
-try:
+if TYPE_CHECKING:
     import torch
+
+try:
+    import torch  # pyright: ignore[reportMissingImports]
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
-    torch = None  # Placeholder
 
 
 class DifferentiableResult:

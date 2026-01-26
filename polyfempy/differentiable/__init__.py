@@ -8,16 +8,26 @@ Main exports:
     - PolyFEMFunction: PyTorch Function wrapper for custom use cases
 """
 
+# pyright: reportMissingImports=false
+# torch is an optional dependency, so type checker may not find it
+
+import os
+import sys
+
+# Fix OpenMP library conflicts on Windows (set before importing torch)
+if sys.platform == 'win32' and 'KMP_DUPLICATE_LIB_OK' not in os.environ:
+    os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+
 try:
-    import torch
+    import torch  # pyright: ignore[reportMissingImports]
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
 
 if _TORCH_AVAILABLE:
-    from .solve import solve_differentiable
+    from .solve_diff import solve_differentiable
     from .torch_integration import PolyFEMFunction
-    from .result import DifferentiableResult
+    from .result_diff import DifferentiableResult
     from .helpers import create_shape_optimizer, gradient_check
     __all__ = [
         "solve_differentiable",

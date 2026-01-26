@@ -1,10 +1,16 @@
 """Helper functions for differentiable simulations."""
 
-from typing import Optional, List, Dict, Any, Union
+# pyright: reportMissingImports=false
+# torch is an optional dependency, so type checker may not find it
+
+from typing import Optional, List, Dict, Any, Union, TYPE_CHECKING
 import numpy as np
 
-try:
+if TYPE_CHECKING:
     import torch
+
+try:
+    import torch  # pyright: ignore[reportMissingImports]
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
@@ -15,7 +21,7 @@ def create_shape_optimizer(V, C, cfg):
 
     Returns function that takes vertices and returns (loss, gradient).
     """
-    from .solve import solve_differentiable
+    from .solve_diff import solve_differentiable
     
     def optimize_fn(vertices):
         if not _TORCH_AVAILABLE:

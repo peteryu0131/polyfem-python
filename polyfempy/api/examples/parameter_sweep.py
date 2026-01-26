@@ -55,9 +55,13 @@ def main():
         results.append((E, result))
         
         # Print summary
-        print(f"  Solution norm: {np.linalg.norm(result.u) if result.u is not None else 'N/A':.6e}")
-        print(f"  Iterations: {result.meta['iters']}")
-        print(f"  Residual: {result.meta['residual']:.6e}")
+        u_norm = np.linalg.norm(result.u) if result.u is not None else 0.0
+        print(f"  Solution norm: {u_norm:.6e}")
+        # Note: iters and residual may not be available in meta
+        if 'iters' in result.meta:
+            print(f"  Iterations: {result.meta['iters']}")
+        if 'residual' in result.meta:
+            print(f"  Residual: {result.meta['residual']:.6e}")
     
     # Compare results
     print("\n" + "="*60)
@@ -68,7 +72,9 @@ def main():
     
     for E, result in results:
         u_norm = np.linalg.norm(result.u) if result.u is not None else 0.0
-        print(f"{E:<15.1e} {u_norm:<15.6e} {result.meta['iters']:<12} {result.meta['residual']:<15.6e}")
+        iters = result.meta.get('iters', 'N/A')
+        residual = result.meta.get('residual', 'N/A')
+        print(f"{E:<15.1e} {u_norm:<15.6e} {iters:<12} {residual:<15}")
     
     print("\n" + "="*60)
     print("OBSERVATION")

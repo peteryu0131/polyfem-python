@@ -16,7 +16,8 @@ def batch_solve(jobs):
             kwargs = {}
         else:
             V, C, cfg, kwargs = job
-            kwargs = kwargs or {}
+            if kwargs is None:
+                kwargs = {}
         res = solve(V, C, cfg, **kwargs)
         out.append(res)
     return out

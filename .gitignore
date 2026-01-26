@@ -1,24 +1,80 @@
+# Build directories
 build/
 build.nosync/
 bin/
 bin_rel/
-.vscode
+lib/
+out/
 dist/
-3rdparty*
-*.sublime-workspace
-copy_lib
-*.sublime-project
-*.code-workspace
-__pycache__
-*.obj
-*.pyc
+CMakeFiles/
+CPM_modules/
+_deps/
+msvc_*/
+x64/
+*.dir/
+Release/
+Debug/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Output files
 *.vtu
 *.pvd
-*.egg-info
-*.so
-temp-plot.html
+*.csv
+examples/output/
+# Ignore output JSON files (like sim.json), but keep config files
+sim.json
+examples/output/*.json
+
+# IDE
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.code-workspace
+.vs/
+*.swp
+*.swo
+*~
+
+# Dependencies
+3rdparty*
 data*
 *libTracyClient.*
+
+# Compiled binaries (Windows)
+*.dll
+*.pyd
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.a
+# Note: nanobind.dll and TracyClient.dll in polyfempy/ are build artifacts
+
+# Cache
 .cache/
-/.vs
-/env
+.env
+env/
+venv/
+ENV/
+
+# Temporary files
+*.obj
+*.log
+*.tmp
+*.bak
+temp-plot.html
+copy_lib
+build_verbose.txt

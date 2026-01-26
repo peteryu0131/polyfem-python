@@ -13,17 +13,9 @@
 
 #include <stdexcept>
 
-#include <pybind11_json/pybind11_json.hpp>
-
-#include <pybind11/pybind11.h>
-#include <pybind11/eigen.h>
-#include <pybind11/functional.h>
-#include <pybind11/stl.h>
-#include <pybind11/iostream.h>
-
+#include "binding_wrapper.hpp"
 #include "differentiable/binding.hpp"
 
-namespace py = pybind11;
 using namespace polyfem;
 
 typedef std::function<Eigen::MatrixXd(double x, double y, double z)> BCFuncV;
@@ -134,11 +126,11 @@ void define_solver(py::module_ &m)
 
     init_globals(self);
     // py::scoped_ostream_redirect output;
-    const std::string json_string = py::str(settings);
+    const std::string json_string = nb::cast<std::string>(py::str(settings));
     self.init(json::parse(json_string), strict_validation);
   };
 
-  py::class_<State, std::shared_ptr<State>>(m, "Solver")
+  py::class_<State>(m, "Solver")
       .def(py::init<>())
 
       .def("is_tensor", [](const State &s) { return s.assembler->is_tensor(); })
@@ -173,7 +165,7 @@ void define_solver(py::module_ &m)
 
       .def(
           "mesh", [](State &s) -> mesh::Mesh & { return *s.mesh.get(); },
-          "Get mesh in simulator", py::return_value_policy::reference)
+          "Get mesh in simulator", py_return_value_policy::reference)
 
       .def(
           "load_mesh_from_settings",
@@ -193,19 +185,26 @@ void define_solver(py::module_ &m)
       //     },
       //     "Reload boundary conditions from the json.")
 
-      .def(
-          "update_dirichlet_nodes",
-          [](State &s, const Eigen::VectorXi &node_ids,
-             const Eigen::MatrixXd &nodal_dirichlet) {
-            auto tensor_problem = std::dynamic_pointer_cast<
-                polyfem::assembler::GenericTensorProblem>(s.problem);
-            // if (!s.iso_parametric())
-            //   throw std::runtime_error(
-            //       "Can only update dirichlet nodes for isoparametric.");
-            tensor_problem->update_dirichlet_nodes(s.in_node_to_node, node_ids,
-                                                   nodal_dirichlet);
-          },
-          "Reload boundary conditions from the json.")
+      // Note: update_dirichlet_nodes is disabled because GenericTensorProblem::update_dirichlet_nodes
+      // may not exist in the current polyfem version. 
+      //
+      // Alternative: Use reload_boundary_conditions (see commented code above) or modify s.args
+      // and call set_settings() to update boundary conditions from JSON.
+      //
+      // Uncomment the code below if the API is available:
+      //
+      // .def(
+      //     "update_dirichlet_nodes",
+      //     [](State &s, const Eigen::VectorXi &node_ids,
+      //        const Eigen::MatrixXd &nodal_dirichlet) {
+      //       auto tensor_problem = std::dynamic_pointer_cast<
+      //           polyfem::assembler::GenericTensorProblem>(s.problem);
+      //       if (!tensor_problem)
+      //         throw std::runtime_error("Problem is not a GenericTensorProblem");
+      //       tensor_problem->update_dirichlet_nodes(s.in_node_to_node, node_ids,
+      //                                              nodal_dirichlet);
+      //     },
+      //     "Reload boundary conditions from the json.")
 
       .def(
           "load_mesh_from_path",
@@ -268,6 +267,9 @@ void define_solver(py::module_ &m)
                 R"({ "threshold": 0.0 })"_json;
             s.args["geometry"][0]["surface_selection"]["threshold"] =
                 boundary_id_threshold;
+            // Set enabled and is_obstacle fields to avoid null value errors
+            s.args["geometry"][0]["enabled"] = true;
+            s.args["geometry"][0]["is_obstacle"] = false;
 
             s.load_mesh();
           },
@@ -345,7 +347,7 @@ void define_solver(py::module_ &m)
 
       .def(
           "nl_problem", [](State &s) { return *(s.solve_data.nl_problem); },
-          py::return_value_policy::reference)
+          py_return_value_policy::reference)
 
       .def(
           "solve",
