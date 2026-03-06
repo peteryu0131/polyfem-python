@@ -55,8 +55,8 @@ result = solve(vertices=None, cells=None, cfg=cfg)
 In the API, there are several different dictionaries used at different stages:
 
 1. **`SimulationConfig.extras`** - User-input extra parameters
-2. **Dictionary returned by `SimulationConfig.to_dict()`** - Configuration passed to backend
-3. **`settings` dictionary (passed to `solve_impl()`)** - Configuration actually used by backend
+2. **Dictionary returned by `SimulationConfig.to_dict()`** - Configuration passed to the solver (C++ extension)
+3. **`settings` dictionary (passed by `solve()` to C++ extension)** - Configuration actually used by the solver
 
 ### Data Flow Process
 
@@ -94,33 +94,21 @@ settings_dict = cfg.to_dict()
 ```
 
 **Why promote to top level?**
-- Backends (`backend_dummy.py`, `backend_nanobind.py`) expect `max_iters` and `random_seed` at the top level of the dictionary
-- Backend code: `max_iters = settings.get("max_iters", 10)` - reads directly from top level
-- If only in `extras`, backend would need to write `settings["extras"]["max_iters"]`, which is inconvenient
+- When `solve()` passes the config (from `cfg.to_dict()`) to the C++ extension or uses it to build JSON, the C++ side expects common parameters like `max_iters` and `random_seed` at the top level.
+- If they were only in `extras`, the C++ or Python glue would need `settings["extras"]["max_iters"]`, which is inconvenient and error-prone.
 
-#### Stage 3: Pass to Backend
-
-```python
-# solve() function calls backend
-from .backend_dummy import solve_impl
-
-settings = cfg.to_dict()  # Get dictionary
-result = solve_impl(V, C, settings, callbacks=None)
-```
-
-**How backend uses it:**
+#### Stage 3: Pass to Solver
 
 ```python
-# backend_dummy.py
-def solve_impl(V, C, settings, callbacks):
-    # Read directly from top level
-    max_iters = settings.get("max_iters", 10)      # ← Read from top level
-    random_seed = settings.get("random_seed", 42)  # ← Read from top level
-    
-    # Use these parameters to run solver
-    for i in range(max_iters):
-        # ... solver logic ...
+# Inside solve(): get config dict and call C++ extension
+settings = cfg.to_dict()  # Get dictionary (with promoted top-level params)
+# solve() uses settings to build JSON or Settings, then calls the polyfempy C++ extension
+result = solve(V, C, cfg)  # User only calls solve(); no direct exposure to settings
 ```
+
+**How the solver uses it:**
+- `solve()` in `solve.py` calls the compiled `polyfempy` C++ extension directly (Route A); there are no separate backend modules.
+- If the C++ or internal logic needs `max_iters` or `random_seed`, it can read from the top level of the config dict: `settings.get("max_iters", 10)`.
 
 ### Complete Data Flow Example
 
@@ -140,16 +128,15 @@ settings = cfg.to_dict()
 #     "materials": {"E": 1e6, "nu": 0.3},
 #     "boundary_conditions": {},
 #     "extras": {"max_iters": 10, "random_seed": 42},  # Original extras preserved
-#     "max_iters": 10,        # Promoted to top level for backend convenience
-#     "random_seed": 42       # Promoted to top level for backend convenience
+#     "max_iters": 10,        # Promoted to top level for solver convenience
+#     "random_seed": 42       # Promoted to top level for solver convenience
 # }
 
-# 3. solve() function calls backend
-result = solve(V, C, cfg)  # Internally calls cfg.to_dict() to get settings
+# 3. solve() calls C++ extension
+result = solve(V, C, cfg)  # Internally calls cfg.to_dict() to get settings, then passes to C++
 
-# 4. Backend uses settings
-# In backend_dummy.py:
-# max_iters = settings.get("max_iters", 10)  # Read from top level, gets 10
+# 4. Solver uses settings
+# solve.py passes settings to the C++ extension; max_iters/random_seed read from top level if needed
 ```
 
 ### Design Rationale
@@ -159,8 +146,8 @@ result = solve(V, C, cfg)  # Internally calls cfg.to_dict() to get settings
 - **`extras` provides flexibility**: Can store arbitrary extra parameters without modifying class definition
 - **`to_dict()` provides conversion**: Converts type-safe object to flexible dictionary
 
-**Design Rationale 2: Backend Compatibility**
-- **Backend needs simple dictionary**: Backend code expects simple `dict`, not complex objects
+**Design Rationale 2: Compatibility with C++ Extension**
+- **Solver expects a simple dictionary**: `solve()` passes config as a `dict` to the C++ extension or uses it to build JSON; no need to pass complex Python objects
 - **Promote common parameters**: `max_iters` and `random_seed` are common parameters, promoting to top level is convenient
 - **Preserve original data**: `extras` is still preserved in case other extra parameters need to be accessed
 
@@ -342,7 +329,7 @@ d = cfg.to_dict()  # ValueError: extras['max_iters'] must be a positive integer,
    - Will not be validated (type checking)
    - Kept in `extras`, not promoted to top level
    - If using full JSON mode (loading from file), all parameters will be preserved
-   - Requires backend (C++ binding) support to use
+   - Requires the C++ extension (polyfempy build) to use
 
 ### Handling Unknown Parameters
 
@@ -760,14 +747,14 @@ User Input (extras)
   → SimulationConfig.extras 
   → to_dict() (validate, convert, promote to top level) 
   → settings dictionary 
-  → Backend usage
+  → Used by solve() / C++ extension
 ```
 
 ### Key Points
 
 - **`extras`**: User-input extra parameters (flexibility)
 - **`to_dict()`**: Responsible for validation, conversion, and promotion (compatibility)
-- **`settings`**: Format used by backend (simplicity)
+- **`settings`**: Format used by the C++ extension (simplicity)
 
 ### Validation Status
 

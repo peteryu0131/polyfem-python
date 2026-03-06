@@ -21,10 +21,46 @@ if sys.platform == 'win32':
         os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 from .solve import solve
-from .config import SimulationConfig
+from .config import (
+    SimulationConfig,
+    Material, NeoHookean, IsochoricNeoHookean, MooneyRivlin, MooneyRivlin3Param,
+    MooneyRivlin3ParamSymbolic, UnconstrainedOgden, IncompressibleOgden,
+    LinearElasticity, HookeLinearElasticity, SaintVenant, Stokes, NavierStokes,
+    OperatorSplitting, Electrostatics, IncompressibleLinearElasticity,
+    BoundaryConditions, DirichletBoundary, NeumannBoundary,
+    Geometry, GeometryMesh,
+    Solver, LinearSolver, NonlinearSolver,
+    Time,
+    Output, ParaviewOutput,
+    Contact,
+    GravityParams, TorsionParams, FlowParams, FlowWithObstacleParams,
+)
 from .result import Result
 from .selection import Selection
 from .batch import batch_solve
+from .io import read_mesh, Mesh
 
-__all__ = ["solve", "SimulationConfig", "Result", "Selection", "batch_solve"]
+__all__ = [
+    "solve", "SimulationConfig", "Result", "Selection", "batch_solve",
+    "read_mesh", "Mesh",
+    # Material classes
+    "Material", "NeoHookean", "IsochoricNeoHookean", "MooneyRivlin", "MooneyRivlin3Param",
+    "MooneyRivlin3ParamSymbolic", "UnconstrainedOgden", "IncompressibleOgden",
+    "LinearElasticity", "HookeLinearElasticity", "SaintVenant", "Stokes", "NavierStokes",
+    "OperatorSplitting", "Electrostatics", "IncompressibleLinearElasticity",
+    # Boundary condition classes
+    "BoundaryConditions", "DirichletBoundary", "NeumannBoundary",
+    # Geometry classes
+    "Geometry", "GeometryMesh",
+    # Solver classes
+    "Solver", "LinearSolver", "NonlinearSolver",
+    # Time class
+    "Time",
+    # Output classes
+    "Output", "ParaviewOutput",
+    # Contact classes
+    "Contact",
+    # Problem parameter classes
+    "GravityParams", "TorsionParams", "FlowParams", "FlowWithObstacleParams",
+]
  

@@ -21,9 +21,10 @@ from .result_diff import DifferentiableResult
 
 
 def solve_differentiable(
-    V: Union[np.ndarray, "torch.Tensor"],
-    C: Union[np.ndarray, "torch.Tensor"],
-    cfg: Union[Dict[str, Any], SimulationConfig],
+    V: Optional[Union[np.ndarray, "torch.Tensor"]] = None,
+    C: Optional[Union[np.ndarray, "torch.Tensor"]] = None,
+    cfg: Optional[Union[str, Dict[str, Any], SimulationConfig]] = None,
+    root_path: Optional[str] = None,
     differentiable_params: Optional[List[str]] = None,
     derivative_type: str = "shape",
     backend: str = "nanobind",
@@ -32,18 +33,32 @@ def solve_differentiable(
     """Solve with automatic gradient computation.
 
     Returns PyTorch tensors supporting .backward() via adjoint method.
+    API 与 api.solve() 对齐：cfg 支持 JSON 路径、dict、或 SimulationConfig（含你用 API 类构建的配置）。
+
+    Two usage modes:
+
+    1) Config + mesh file (recommended): pass cfg only. Mesh is loaded via
+       load_mesh_from_settings(). cfg 可以是:
+       - str: JSON 文件路径（自动用该路径作为 root_path 解析 mesh 相对路径）
+       - SimulationConfig: 用 API 类构建，如 SimulationConfig(geometry=Geometry(...), materials=...).
+         若 geometry 里 mesh 是相对路径，需设 cfg.extras["_root_path"] = "目录路径" 或传 root_path=...
+       - dict: 与 SimulationConfig.to_dict() 格式一致，可含 root_path 或由 extras["_root_path"] 提供
+
+    2) Array mode: pass V, C, and cfg. Mesh is set via set_mesh(V, C). You may need
+       sidesets_func to assign boundary IDs if the mesh has no sidesets.
 
     Args:
-        V: (N, dim) vertices. If torch.Tensor with requires_grad=True, computes gradients.
-        C: (M, k) cells.
-        cfg: Configuration dict or SimulationConfig.
+        V: (N, dim) vertices, or None when using config+mesh mode.
+        C: (M, k) cells, or None when using config+mesh mode.
+        cfg: JSON path (str), dict, or SimulationConfig (e.g. from API classes).
+        root_path: Optional. When using config+mesh with relative paths, overrides/sets
+            root_path for resolving mesh files (e.g. root_path=str(Path("data").resolve())).
         differentiable_params: Parameter names to make differentiable. Default: ["geometry"].
-        derivative_type: "shape", "periodic_shape", "material", "initial_velocity", etc. 
-            Default: "shape". Use "periodic_shape" for periodic boundary conditions or periodic contact.
-        backend: Must be "nanobind" (dummy doesn't support differentiable).
+        derivative_type: "shape", "periodic_shape", "material", "initial_velocity", etc.
+        backend: Must be "nanobind".
 
     Returns:
-        DifferentiableResult with PyTorch tensors.
+        DifferentiableResult with .u, .vertices (backward 后 .vertices.grad 为形状导数).
     """
     if not _TORCH_AVAILABLE:
         raise ImportError(
@@ -57,8 +72,6 @@ def solve_differentiable(
             "The 'dummy' backend does not support differentiable operations."
         )
     
-    # Check if nanobind backend is available and import
-    # Note: polyfempy is imported here and reused later
     try:
         import polyfempy as pf
     except ImportError:
@@ -67,142 +80,136 @@ def solve_differentiable(
             "Please build the C++ module first."
         )
     
-    # Normalize inputs
-    if isinstance(V, torch.Tensor):
-        V_np = V.detach().cpu().numpy()
-        V_requires_grad = V.requires_grad
-        V_device = V.device
-        V_dtype = V.dtype
-    else:
-        V_np = np.asarray(V, dtype=np.float64)
-        V_requires_grad = False
-        V_device = torch.device("cpu")
-        V_dtype = torch.float64
-    
-    if isinstance(C, torch.Tensor):
-        C_np = C.detach().cpu().numpy().astype(np.int32)
-    else:
-        C_np = np.asarray(C, dtype=np.int32)
-    
-    if isinstance(cfg, dict):
+    import json
+    from pathlib import Path
+
+    # --- Resolve config and decide: load_mesh (file) vs set_mesh (array) ---
+    if cfg is None:
+        raise ValueError("cfg is required (JSON path, dict, or SimulationConfig)")
+    config_root = None  # 从 cfg 解析出的 root_path（用于解析 mesh 相对路径）
+    if isinstance(cfg, str):
+        config = SimulationConfig.from_json_file(cfg)
+        config_root = str(Path(cfg).resolve())
+    elif isinstance(cfg, dict):
         config = SimulationConfig.from_json_dict(cfg)
+        config_root = cfg.get("root_path") or (config.extras or {}).get("_root_path")
     elif isinstance(cfg, SimulationConfig):
         config = cfg
+        config_root = (getattr(config, "extras", None) or {}).get("_root_path")
+        if not config_root and hasattr(config, "to_dict"):
+            config_root = config.to_dict().get("root_path")
     else:
-        raise ValueError(f"cfg must be dict or SimulationConfig, got {type(cfg)}")
+        raise ValueError(f"cfg must be str, dict, or SimulationConfig, got {type(cfg)}")
     
     settings = config.to_dict()
-    
-    # Add placeholder geometry field if not present (required by JSON validator)
-    # Since we're setting mesh via set_mesh(), we don't need actual geometry data
-    # Use a minimal valid geometry object (matches pattern in solve.py)
-    if "geometry" not in settings:
-        settings["geometry"] = [{
-            "type": "ground",
-            "height": 0.0,
-            "enabled": True,
-            "is_obstacle": False
-        }]
-    
-    # C++ JSON schema requires "materials" to be an array with "type" field
-    # Convert materials dict to array format if needed (matches pattern in solve.py)
-    if "materials" in settings:
-        materials = settings["materials"]
-        if isinstance(materials, dict) and not isinstance(materials, list):
-            # Ensure materials has "type" field
-            if "type" not in materials:
-                # Infer type from pde if available
-                pde = settings.get("pde", "LinearElasticity")
-                if pde == "Poisson":
-                    materials["type"] = "Laplacian"
-                else:
-                    materials["type"] = "LinearElasticity"
-            # Convert to array format
-            settings["materials"] = [materials]
-    
-    # Convert "selection" to "id" in boundary conditions (required by JSON validator)
-    # In array mode, we use boundary IDs (sideset IDs) directly
-    if "boundary_conditions" in settings:
-        bc = settings["boundary_conditions"]
-        
-        # Convert dirichlet_boundary
-        if "dirichlet_boundary" in bc:
-            for bc_item in bc["dirichlet_boundary"]:
-                if isinstance(bc_item, dict) and "selection" in bc_item and "id" not in bc_item:
-                    # Use selection value as id (they should match in array mode)
-                    bc_item["id"] = bc_item.pop("selection")
-        
-        # Convert neumann_boundary
-        if "neumann_boundary" in bc:
-            for bc_item in bc["neumann_boundary"]:
-                if isinstance(bc_item, dict) and "selection" in bc_item and "id" not in bc_item:
-                    # Use selection value as id (they should match in array mode)
-                    bc_item["id"] = bc_item.pop("selection")
-    
-    if differentiable_params is None:
-        differentiable_params = ["geometry"]
-    
-    # Use old API for direct Solver access (required for differentiable operations)
-    # Note: pf is already imported above
-    solver = pf.Solver()
-    
-    import json
-    # First set settings (including boundary conditions)
-    settings_json = json.dumps(settings)
-    solver.set_settings(settings_json, strict_validation=False)
-    
-    # Then set mesh (array mode)
-    solver.set_mesh(V_np, C_np.astype(np.int32))
-    
-    # Set boundary IDs if sidesets_func is provided (required for boundary conditions to work)
-    if sidesets_func is not None:
-        try:
-            mesh = solver.mesh()
-            if hasattr(mesh, "set_boundary_ids") and hasattr(mesh, "n_boundary_elements"):
-                n_boundary = mesh.n_boundary_elements()
-                boundary_ids = []
-                
-                for i in range(n_boundary):
-                    try:
-                        v0 = mesh.boundary_element_vertex(i, 0)
-                        v1 = mesh.boundary_element_vertex(i, 1)
-                        p0 = mesh.point(v0)
-                        p1 = mesh.point(v1)
-                        center = (p0 + p1) / 2.0
-                        bid = sidesets_func(center, True)
-                        boundary_ids.append(bid)
-                    except Exception:
-                        boundary_ids.append(-1)
-                
-                if boundary_ids:
-                    boundary_ids_array = np.array(boundary_ids, dtype=np.int32)
-                    mesh.set_boundary_ids(boundary_ids_array)
-        except Exception as e:
-            import warnings
-            warnings.warn(f"Failed to set boundary IDs: {e}", RuntimeWarning)
-    
-    # Re-apply settings after set_mesh() to ensure boundary conditions are recognized
-    # This matches the pattern in solve.py and legacy tests
-    solver.set_settings(settings_json, strict_validation=False)
-    
-    # Build basis and assemble to initialize the solver properly.
-    # This ensures boundary conditions are recognized and the solver is in a valid state.
-    # Note: solve() will call build_basis() and assemble() again internally, but we need
-    # to do it here first to ensure boundary conditions are properly set up.
-    # When set_vertices() is called in forward(), we'll rebuild basis and assemble again.
-    solver.build_basis()
-    solver.assemble()
-    
-    # Set cache level for differentiable operations (must be set before solve())
-    # Note: pf is already imported above
-    solver.set_cache_level(pf.CacheLevel.Derivatives)
-    
-    # Initialize time stepping for transient problems (if needed)
-    if "time" in settings and settings["time"]:
-        time_config = settings["time"]
-        t0 = time_config.get("t0", 0.0) if isinstance(time_config, dict) else 0.0
-        dt = time_config.get("dt", 0.01) if isinstance(time_config, dict) else 0.01
-        solver.init_timestepping(t0, dt)
+    # root_path：用户传入的 root_path 参数优先；否则用 config 里的
+    root_path_resolved = root_path if root_path is not None else config_root
+    if not root_path_resolved:
+        root_path_resolved = settings.get("root_path")
+    if root_path_resolved:
+        settings["root_path"] = root_path_resolved
+
+    use_load_mesh = (V is None and C is None) and settings.get("geometry")
+    if use_load_mesh and not settings.get("root_path"):
+        raise ValueError(
+            "Config+mesh mode requires root_path so mesh paths resolve. "
+            "Pass cfg as JSON path, or cfg.extras['_root_path'] = ..., or root_path=..."
+        )
+
+    if use_load_mesh:
+        # --- Config + mesh file path (same as legacy / differentiable_minimal) ---
+        solver = pf.Solver()
+        solver.set_log_level(6)  # 6=off，先设再 load/build，减少 C++ 端整段输出
+        solver.set_settings(json.dumps(settings), strict_validation=False)
+        solver.load_mesh_from_settings()
+        solver.build_basis()
+        solver.assemble()
+        solver.set_cache_level(pf.CacheLevel.Derivatives)
+        if "time" in settings and settings["time"]:
+            tcfg = settings["time"]
+            t0 = tcfg.get("t0", 0.0) if isinstance(tcfg, dict) else 0.0
+            dt = tcfg.get("dt", 0.01) if isinstance(tcfg, dict) else 0.01
+            solver.init_timestepping(t0, dt)
+        mesh = solver.mesh()
+        V_np = np.asarray(mesh.vertices(), dtype=np.float64)
+        V_requires_grad = True
+        V_device = torch.device("cpu")
+        V_dtype = torch.float64
+        if differentiable_params is None:
+            differentiable_params = ["geometry"]
+    else:
+        # --- Array mode: set_mesh(V, C) ---
+        if V is None or C is None:
+            raise ValueError("When cfg has no geometry or root_path, both V and C are required")
+        if isinstance(V, torch.Tensor):
+            V_np = V.detach().cpu().numpy()
+            V_requires_grad = V.requires_grad
+            V_device = V.device
+            V_dtype = V.dtype
+        else:
+            V_np = np.asarray(V, dtype=np.float64)
+            V_requires_grad = False
+            V_device = torch.device("cpu")
+            V_dtype = torch.float64
+        if isinstance(C, torch.Tensor):
+            C_np = C.detach().cpu().numpy().astype(np.int32)
+        else:
+            C_np = np.asarray(C, dtype=np.int32)
+
+        # Normalize settings for array mode
+        if "geometry" not in settings:
+            settings["geometry"] = [{"type": "ground", "height": 0.0, "enabled": True, "is_obstacle": False}]
+        if "materials" in settings:
+            materials = settings["materials"]
+            if isinstance(materials, dict) and not isinstance(materials, list):
+                if "type" not in materials:
+                    pde = settings.get("pde", "LinearElasticity")
+                    materials["type"] = "Laplacian" if pde == "Poisson" else "LinearElasticity"
+                settings["materials"] = [materials]
+        if "boundary_conditions" in settings:
+            bc = settings["boundary_conditions"]
+            for key in ("dirichlet_boundary", "neumann_boundary"):
+                if key not in bc:
+                    continue
+                for item in bc[key]:
+                    if isinstance(item, dict) and "selection" in item and "id" not in item:
+                        item["id"] = item.pop("selection")
+        if differentiable_params is None:
+            differentiable_params = ["geometry"]
+
+        solver = pf.Solver()
+        solver.set_log_level(6)  # 6=off，减少 C++ 端输出
+        settings_json = json.dumps(settings)
+        solver.set_settings(settings_json, strict_validation=False)
+        solver.set_mesh(V_np, C_np.astype(np.int32))
+        if sidesets_func is not None:
+            try:
+                mesh = solver.mesh()
+                if hasattr(mesh, "set_boundary_ids") and hasattr(mesh, "n_boundary_elements"):
+                    n_b = mesh.n_boundary_elements()
+                    ids = []
+                    for i in range(n_b):
+                        try:
+                            p0 = mesh.point(mesh.boundary_element_vertex(i, 0))
+                            p1 = mesh.point(mesh.boundary_element_vertex(i, 1))
+                            bid = sidesets_func((p0 + p1) / 2.0, True)
+                            ids.append(bid)
+                        except Exception:
+                            ids.append(-1)
+                    if ids:
+                        mesh.set_boundary_ids(np.array(ids, dtype=np.int32))
+            except Exception as e:
+                import warnings
+                warnings.warn(f"Failed to set boundary IDs: {e}", RuntimeWarning)
+        solver.set_settings(settings_json, strict_validation=False)
+        solver.build_basis()
+        solver.assemble()
+        solver.set_cache_level(pf.CacheLevel.Derivatives)
+        if "time" in settings and settings["time"]:
+            tcfg = settings["time"]
+            t0 = tcfg.get("t0", 0.0) if isinstance(tcfg, dict) else 0.0
+            dt = tcfg.get("dt", 0.01) if isinstance(tcfg, dict) else 0.01
+            solver.init_timestepping(t0, dt)
     
     if V_requires_grad:
         V_torch = torch.tensor(V_np, requires_grad=True, dtype=V_dtype, device=V_device)
@@ -215,6 +222,7 @@ def solve_differentiable(
         u=solutions,
         solver=solver,
         derivative_type=derivative_type,
-        differentiable_params=differentiable_params
+        differentiable_params=differentiable_params,
+        vertices=V_torch,
     )
 

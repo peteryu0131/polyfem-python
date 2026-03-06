@@ -31,7 +31,11 @@ differentiable = [
 nanobind = [
     "nanobind>=2.0.0",
 ]
+io = [
+    "meshio>=5.0.0",
+]
 all = [
     "torch>=1.9.0",
     "nanobind>=2.0.0",
+    "meshio>=5.0.0",
 ]

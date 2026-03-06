@@ -60,7 +60,7 @@ result = solve(vertices=None, cells=None, cfg=cfg)
 
 1. **`SimulationConfig.extras`** - 用户输入的额外参数
 2. **`SimulationConfig.to_dict()` 返回的字典** - 传递给后端的配置
-3. **`settings` 字典（传递给 `solve_impl()`）** - 后端实际使用的配置
+3. **`settings` 字典（由 `solve()` 传入 C++ 扩展）** - 求解器实际使用的配置
 
 ### 数据流转过程
 
@@ -98,33 +98,21 @@ settings_dict = cfg.to_dict()
 ```
 
 **为什么要提升到顶层？**
-- 后端（`backend_dummy.py`, `backend_nanobind.py`）期望 `max_iters` 和 `random_seed` 在字典的顶层
-- 后端代码：`max_iters = settings.get("max_iters", 10)` - 直接从顶层读取
-- 如果只在 `extras` 中，后端需要写 `settings["extras"]["max_iters"]`，这样不方便
+- `solve()` 将 `cfg.to_dict()` 得到的字典传给 C++ 扩展（或用于构建完整 JSON）时，C++ 侧期望 `max_iters`、`random_seed` 等常用参数在顶层
+- 若只在 `extras` 中，C++ 或 Python 封装需写 `settings["extras"]["max_iters"]`，不便且易错
 
-#### 阶段 3：传递给后端
-
-```python
-# solve() 函数调用后端
-from .backend_dummy import solve_impl
-
-settings = cfg.to_dict()  # 获取字典
-result = solve_impl(V, C, settings, callbacks=None)
-```
-
-**后端如何使用：**
+#### 阶段 3：传递给求解器
 
 ```python
-# backend_dummy.py
-def solve_impl(V, C, settings, callbacks):
-    # 直接从顶层读取
-    max_iters = settings.get("max_iters", 10)      # ← 从顶层读取
-    random_seed = settings.get("random_seed", 42)  # ← 从顶层读取
-    
-    # 使用这些参数运行求解
-    for i in range(max_iters):
-        # ... 求解逻辑 ...
+# solve() 内部：获取配置字典并调用 C++ 扩展
+settings = cfg.to_dict()  # 获取字典（含顶层提升后的参数）
+# solve() 使用 settings 构建 JSON 或 Settings，再调用 polyfempy C++ 扩展
+result = solve(V, C, cfg)  # 用户只需调用 solve，无需直接接触 settings
 ```
+
+**求解器侧如何使用：**
+- `solve()` 在 `solve.py` 中直接调用编译出的 `polyfempy` C++ 扩展（Route A），无独立的 backend 模块
+- 若 C++ 或内部逻辑需要 `max_iters`、`random_seed`，可从传入的配置字典顶层读取：`settings.get("max_iters", 10)`
 
 ### 完整的数据流示例
 
@@ -148,12 +136,11 @@ settings = cfg.to_dict()
 #     "random_seed": 42       # 提升到顶层，方便后端读取
 # }
 
-# 3. solve() 函数调用后端
-result = solve(V, C, cfg)  # 内部会调用 cfg.to_dict() 获取 settings
+# 3. solve() 调用 C++ 扩展
+result = solve(V, C, cfg)  # 内部会 cfg.to_dict() 得到 settings，再交给 C++ 扩展
 
-# 4. 后端使用 settings
-# backend_dummy.py 中：
-# max_iters = settings.get("max_iters", 10)  # 从顶层读取，得到 10
+# 4. 求解器使用 settings
+# solve.py 将 settings 传给 C++ 扩展；若需 max_iters/random_seed，从顶层读取即可
 ```
 
 ### 设计原因
@@ -163,8 +150,8 @@ result = solve(V, C, cfg)  # 内部会调用 cfg.to_dict() 获取 settings
 - **`extras` 提供灵活性**：可以存储任意额外参数，不需要修改类定义
 - **`to_dict()` 提供转换**：将类型安全的对象转换为灵活的字典
 
-**设计原因 2：后端兼容性**
-- **后端需要简单的字典**：后端代码期望简单的 `dict`，不需要复杂的对象
+**设计原因 2：与 C++ 扩展的兼容**
+- **求解器需要简单字典**：`solve()` 将配置以 `dict` 形式传给 C++ 扩展或用于生成 JSON，不需要在 Python 侧传复杂对象
 - **提升常用参数**：`max_iters` 和 `random_seed` 是常用参数，提升到顶层方便使用
 - **保留原始数据**：`extras` 仍然保留，以防需要访问其他额外参数
 
@@ -346,7 +333,7 @@ d = cfg.to_dict()  # ValueError: extras['max_iters'] must be a positive integer,
    - 不会被验证（类型检查）
    - 保留在 `extras` 中，不会提升到顶层
    - 如果使用完整 JSON 模式（从文件加载），所有参数都会保留
-   - 需要后端（C++ 绑定）支持才能使用
+   - 需要 C++ 扩展（polyfempy 编译产物）支持才能使用
 
 ### 未知参数的处理
 
@@ -764,14 +751,14 @@ d = cfg.to_dict()
   → SimulationConfig.extras 
   → to_dict() (验证、转换、提升到顶层) 
   → settings 字典 
-  → 后端使用
+  → solve() 传入 C++ 扩展使用
 ```
 
 ### 关键点
 
 - **`extras`**：用户输入的额外参数（灵活性）
 - **`to_dict()`**：负责验证、转换和提升（兼容性）
-- **`settings`**：后端使用的格式（简单性）
+- **`settings`**：供 C++ 扩展使用的字典格式（简单性）
 
 ### 验证状态
 

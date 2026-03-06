@@ -25,6 +25,7 @@ class DifferentiableResult:
         solver: Any,
         derivative_type: str = "shape",
         differentiable_params: Optional[list] = None,
+        vertices: Optional["torch.Tensor"] = None,
         strain: Optional["torch.Tensor"] = None,
         stress: Optional["torch.Tensor"] = None,
         meta: Optional[Dict[str, Any]] = None
@@ -37,6 +38,7 @@ class DifferentiableResult:
         self.solver = solver
         self.derivative_type = derivative_type
         self.differentiable_params = differentiable_params or []
+        self.vertices = vertices  # 可微顶点，backward 后可用 result.vertices.grad
         self.strain = strain
         self.stress = stress
         self.meta = meta or {}

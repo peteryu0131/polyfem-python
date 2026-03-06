@@ -12,6 +12,10 @@
 #include <polyfem/State.hpp>
 
 #include <stdexcept>
+#include <algorithm>
+#include <cctype>
+#include <vector>
+#include <string>
 
 #include "binding_wrapper.hpp"
 #include "differentiable/binding.hpp"
@@ -20,6 +24,58 @@ using namespace polyfem;
 
 typedef std::function<Eigen::MatrixXd(double x, double y, double z)> BCFuncV;
 typedef std::function<double(double x, double y, double z)> BCFuncS;
+
+// Helper function to clean mutually exclusive solver fields after jse.inject_defaults()
+// C++ backend's jse.inject_defaults() fills ALL default values including mutually
+// exclusive fields (ADAM, L-BFGS, Newton, etc.), causing validation errors.
+// This function removes all but the one actually being used.
+void clean_mutually_exclusive_solver_fields(json &args) {
+  if (!args.contains("solver") || !args["solver"].is_object()) {
+    return;
+  }
+  
+  auto &solver = args["solver"];
+  
+  // Lambda to clean a nonlinear solver config
+  auto clean_nonlinear_solver = [](json &nonlinear) {
+    if (!nonlinear.is_object()) return;
+    
+    // Remove ALL solver method config blocks (ADAM, L-BFGS, Newton, etc.)
+    std::vector<std::string> solver_keys = {"ADAM", "L-BFGS", "L-BFGS-B",
+                                            "Newton", "StochasticADAM", "StochasticGradientDescent"};
+    for (const auto &key : solver_keys) {
+      if (nonlinear.contains(key)) nonlinear.erase(key);
+    }
+    
+    // Remove advanced, box_constraints, allow_out_of_iterations, first_grad_norm_tol
+    // JSE validation fails when these filled-by-inject_defaults objects are present
+    for (const auto &key : {"advanced", "box_constraints", "allow_out_of_iterations", "first_grad_norm_tol"}) {
+      if (nonlinear.contains(key)) nonlinear.erase(key);
+    }
+    
+    // line_search: keep ONLY "method" - strip all other fields
+    if (nonlinear.contains("line_search") && nonlinear["line_search"].is_object()) {
+      auto &ls = nonlinear["line_search"];
+      std::string method = "RobustArmijo";
+      if (ls.contains("method") && ls["method"].is_string())
+        method = ls["method"].get<std::string>();
+      nonlinear["line_search"] = {{"method", method}};
+    }
+  };
+  
+  // Clean main nonlinear solver
+  if (solver.contains("nonlinear") && solver["nonlinear"].is_object()) {
+    clean_nonlinear_solver(solver["nonlinear"]);
+  }
+  
+  // Also clean augmented_lagrangian/nonlinear (C++ copies nonlinear settings there)
+  if (solver.contains("augmented_lagrangian") && solver["augmented_lagrangian"].is_object()) {
+    auto &aug_lag = solver["augmented_lagrangian"];
+    if (aug_lag.contains("nonlinear") && aug_lag["nonlinear"].is_object()) {
+      clean_nonlinear_solver(aug_lag["nonlinear"]);
+    }
+  }
+}
 
 class Assemblers
 {
@@ -128,6 +184,11 @@ void define_solver(py::module_ &m)
     // py::scoped_ostream_redirect output;
     const std::string json_string = nb::cast<std::string>(py::str(settings));
     self.init(json::parse(json_string), strict_validation);
+    
+    // CRITICAL FIX: Clean mutually exclusive solver fields after jse.inject_defaults()
+    // C++ backend's jse.inject_defaults() fills ALL default values including mutually
+    // exclusive fields (ADAM, L-BFGS, Newton, etc.), causing validation errors.
+    clean_mutually_exclusive_solver_fields(self.args);
   };
 
   py::class_<State>(m, "Solver")
@@ -647,6 +708,12 @@ void define_solve(py::module_ &m)
 
         State state;
         state.init(in_args, strict_validation);
+        
+        // CRITICAL FIX: Clean mutually exclusive solver fields after jse.inject_defaults()
+        // C++ backend's jse.inject_defaults() fills ALL default values including mutually
+        // exclusive fields (ADAM, L-BFGS, Newton, etc.), causing validation errors.
+        clean_mutually_exclusive_solver_fields(state.args);
+        
         state.load_mesh(/*non_conforming=*/false, names, cells, vertices);
 
         // Mesh was not loaded successfully; load_mesh() logged the error.

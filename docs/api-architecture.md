@@ -2,6 +2,9 @@
 
 本文档详细说明 `polyfempy/api/` 文件夹下的所有文件，包括设计理念、函数意义和示例部分。
 
+**相关文档**：
+- [API 与机器学习结合：方向与建议](ml-integration-ideas.md) — 与 ML/PyTorch 结合的研究方向与 API 建议（含 NeurIPS 投稿思路）
+
 > Note (Route A): Python 统一 `import polyfempy as pf`（稳定的 C++ 扩展模块名）。
 > nanobind/pybind11 只是编译后端差异；且 C++ 绑定 `Solver.solve()` 返回 `(sol, pressure)`，Python 侧必须接收返回值。
 
@@ -10,24 +13,16 @@
 ```
 polyfempy/api/
 ├── __init__.py              # 模块入口，导出主要 API
-├── solve.py                 # 主求解函数（统一入口）
-├── config.py                # 配置类（SimulationConfig）
+├── solve.py                 # 主求解函数（统一入口）；直接调用 C++（Route A）
+├── config.py                # 配置（SimulationConfig 及材料/边界/几何/求解器等类）
 ├── result.py                # 结果容器（Result）
-├── errors.py                # 错误处理（统一错误模型）
-├── backend_base.py          # 后端 SPI 定义（接口契约）
-├── backend_dummy.py         # Dummy 后端实现（测试用）
-├── backend_nanobind.py      # Nanobind 后端适配器（C++ 连接）
+├── selection.py             # 边界条件几何选择（Selection）
 ├── batch.py                 # 批量处理（batch_solve）
-├── tensor.py                # 张量转换（多后端支持）
-└── examples/                # API 示例代码
-    ├── run_dummy_elasticity.py
-    ├── run_elasticity.py
-    ├── load_from_json.py
-    ├── parameter_sweep.py
-    ├── batch_processing.py
-    ├── with_callbacks.py
-    └── README.md
+├── tensor.py                # 张量转换（多后端 NumPy/Torch/JAX）
+└── io.py                    # 网格 I/O（read_mesh、Mesh；依赖 meshio）
 ```
+
+示例位于仓库根目录的 `examples/` 下（如 `examples/python_config_5_cubes.py`），不在 `polyfempy/api/` 内。
 
 ---
 
@@ -55,12 +50,11 @@ __all__ = ["solve", "SimulationConfig", "Result", "Selection", "batch_solve"]
 - **`SimulationConfig`**: 配置类，用于创建仿真配置
 - **`Result`**: 结果容器，包含解和元数据
 - **`Selection`**: 几何选择工具，用于通过几何形状选择边界条件
-- **`batch_solve`**: 批量求解函数，支持错误隔离
+- **`batch_solve`**: 批量求解（顺序执行、保持顺序）
 
 ### 示例
 
-- 示例文件：`polyfempy/api/examples/`
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
+- 示例脚本：仓库根目录下的 `examples/`（如 `examples/python_config_5_cubes.py`、`examples/contact_5_cubes.py`）。
 
 ---
 
@@ -82,15 +76,14 @@ __all__ = ["solve", "SimulationConfig", "Result", "Selection", "batch_solve"]
 - 结果转换回原始后端（`to_backend()`）
 - 零拷贝优化（当可能时）
 
-#### 与 nanobind 兼容的专项工作
+#### Nanobind / C++ 后端（Route A）
 
-- `tensor.py` 强制所有数组在进入 C++ 前变成 **CPU、C-contiguous 的 NumPy**，满足 nanobind 的零拷贝要求
-- `_ensure_i32()` 与 `Result` 统一单元连接的 dtype 为 `int32`，与 nanobind/Eigen 的接口约束一致
-- `backend_nanobind.py`（已废弃）不再导入 `polyfem_nb/solve_cpp`，而是统一走 `polyfempy`（Route A）
-- `solve.py` 直接探测 nanobind 构建的 `polyfempy`，依赖其零拷贝机制与 `Solver/State` API
-- `polyfempy/api/examples/` 以 NumPy 数据为主，方便验证 nanobind 数据路径
+- Python API 仅使用单一后端：编译出的 `polyfempy` C++ 扩展（nanobind）。不再有独立的后端模块（`backend_base` / `backend_dummy` / `backend_nanobind`），`solve.py` 直接调用 C++ 求解器。
+- `tensor.py` 强制所有数组在进入 C++ 前变为 **CPU、C-contiguous 的 NumPy**，满足 nanobind 的零拷贝假设。
+- `_ensure_i32()` 与 `Result` 将单元连接统一为 `int32`，与 nanobind/Eigen 在 C++ 侧的约定一致。
+- `solve.py` 导入 `polyfempy` 包，并通过 `cpp_backend_available()` / `cpp_backend_error()` 在扩展未编译时给出明确错误信息。
 
-**详细说明**：参见 [11. `tensor.py` - 张量转换](#11-tensorpy---张量转换)
+**详细说明**：参见 [7. `tensor.py` - 张量转换](#7-tensorpy---张量转换)
 
 ### int32 类型要求
 
@@ -215,8 +208,7 @@ for name in ("set_mesh", "set_mesh_data", "load_mesh_from_points"):
 
 ### 示例
 
-- 示例文件：`polyfempy/api/examples/`
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
+- 示例脚本：仓库根目录下的 `examples/`。
 
 ---
 
@@ -582,8 +574,7 @@ cfg = SimulationConfig(
 
 ### 示例
 
-- 示例文件：`polyfempy/api/examples/`
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
+- 示例脚本：仓库根目录下的 `examples/`。
 
 ---
 
@@ -696,204 +687,11 @@ cfg = SimulationConfig(
 
 ### 示例
 
-- 示例文件：`polyfempy/api/examples/`
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
+- 示例脚本：仓库根目录下的 `examples/`。
 
 ---
 
-## 6. `errors.py` - 错误处理
-
-### 设计理念
-
-**统一错误模型 + 清晰前缀**：
-- 所有错误都有明确的前缀（INPUT:/CALLBACK:/BACKEND:）
-- 错误类型与错误原因对应
-- 提供清晰的错误消息
-
-### 核心函数
-
-#### `raise_input_error(msg: str) -> None`
-
-**功能**：抛出输入错误
-
-**用途**：输入验证失败
-
-**错误类型**：`ValueError`
-
-**前缀**：`INPUT:`
-
-**示例**：
-```python
-raise_input_error("vertices must be float64 C-contiguous")
-# ValueError: INPUT: vertices must be float64 C-contiguous
-```
-
-#### `raise_callback_type_error(msg: str) -> None`
-
-**功能**：抛出回调错误
-
-**用途**：回调返回值类型错误
-
-**错误类型**：`TypeError`
-
-**前缀**：`CALLBACK:`
-
-**示例**：
-```python
-raise_callback_type_error("body_force must return ndarray")
-# TypeError: CALLBACK: body_force must return ndarray
-```
-
-#### `raise_backend_error(msg: str) -> None`
-
-**功能**：抛出后端错误
-
-**用途**：后端内部失败
-
-**错误类型**：`RuntimeError`
-
-**前缀**：`BACKEND:`
-
-**示例**：
-```python
-raise_backend_error("solver failed to converge")
-# RuntimeError: BACKEND: solver failed to converge
-```
-
-### 示例
-
-- 示例文件：`polyfempy/api/examples/`
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
-
----
-
-## 7. `backend_base.py` - 后端 SPI 定义
-
-### 设计理念
-
-**接口契约 + 文档说明**：
-- 定义后端接口契约（SPI）
-- 提供详细的文档说明
-- 确保所有后端实现一致性
-
-### 核心函数
-
-#### `solve_impl(V, C, settings, callbacks) -> dict`
-
-**功能**：后端 SPI 接口（文档函数）
-
-**用途**：定义后端接口契约
-
-**输入契约**：
-- `V`: np.ndarray, shape (N, dim), dtype float64, C-contiguous
-- `C`: np.ndarray, shape (M, k), dtype int32, C-contiguous
-- `settings`: dict from SimulationConfig.to_dict()
-- `callbacks`: dict[str, callable] or None
-
-**输出契约**：
-- 必须返回 dict，包含以下键：
-  - `u`: np.ndarray, shape (N, dim), dtype float64, C-contiguous
-  - `strain`: np.ndarray or None
-  - `stress`: np.ndarray or None
-  - `meta`: dict with required keys (backend, iters, residual, seed)
-
-**Meta Schema**：
-- `backend`: str ("dummy" | "nanobind")
-- `iters`: int (迭代次数)
-- `residual`: float (最终残差，必须是有限值)
-- `seed`: int or None (随机种子)
-
-### 后端职责
-
-1. **输入验证**：验证输入是否符合契约（虽然调用方已经验证）
-2. **回调处理**：按顺序调用回调（before_solve → after_iter×K → after_solve）
-3. **确定性输出**：如果提供了 random_seed，产生确定性输出
-4. **返回结果**：返回符合契约的 dict
-
-### 示例
-
-- 示例文件：`polyfempy/api/examples/`
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
-
----
-
-## 8. `backend_dummy.py` - Dummy 后端实现
-
-### 设计理念
-
-**严格验证 + 确定性输出 + 回调测试**：
-- 严格验证输入（dtype、shape、contiguity）
-- 产生确定性伪随机输出
-- 正确处理回调生命周期
-- 统一错误模型
-
-### 核心函数
-
-#### `solve_impl(V, C, settings, callbacks) -> dict`
-
-**功能**：Dummy 后端实现
-
-**实现策略**：
-1. **输入验证**：严格验证 V 和 C 的 dtype、shape、contiguity
-2. **解析设置**：从 settings 获取 max_iters、random_seed
-3. **回调处理**：按顺序调用回调（before_solve → after_iter×K → after_solve）
-4. **生成输出**：使用确定性随机数生成器生成伪随机位移场
-5. **返回结果**：返回符合 SPI 契约的 dict
-
-**确定性输出**：
-```python
-rng = np.random.RandomState(random_seed)
-u = rng.normal(loc=0.0, scale=1e-3, size=(N, dim)).astype(np.float64)
-```
-
-**残差模型**：
-```python
-residual = 1e-3 / (i + 1)  # 线性递减
-```
-
-### 示例
-
-- 示例文件：`polyfempy/api/examples/`
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
-
----
-
-## 9. `backend_nanobind.py` - Nanobind 后端适配器
-
-### 设计理念
-
-**适配器模式 + 优雅降级**：
-- 尝试导入 C++ 后端
-- 如果不可用，提供清晰的错误消息
-- 转发调用到 C++ 后端
-
-### 核心函数
-
-#### `solve_impl(V, C, settings, callbacks) -> dict`
-
-**功能**：Nanobind 后端适配器
-
-**实现策略**：
-1. **检查可用性**：尝试导入 `polyfempy as pf`
-2. **错误处理**：如果不可用，抛出清晰错误（需要先编译/安装 C++ 扩展）
-3. **调用 C++**：构造 `pf.Solver()/pf.State()`，调用 `solver.solve()` 并解析返回 `(sol, pressure)`
-
-**错误消息**：
-```python
-raise NotImplementedError(
-    "nanobind backend not connected. "
-    "Please build the C++ extension module (polyfempy) first."
-)
-```
-
-### 示例
-
-- 示例文件：`polyfempy/api/examples/`
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
-
----
-
-## 10. `batch.py` - 批量处理
+## 6. `batch.py` - 批量处理
 
 ### 设计理念
 
@@ -932,18 +730,15 @@ return out
 ```
 
 **错误处理**：
-- 如果任务失败，结果位置包含 Exception 对象
-- 其他任务继续执行
-- 顺序保持：结果顺序与输入顺序一致
+- 任务顺序执行；若某任务抛异常，该异常会向外传播（当前实现无按任务错误隔离）。
 
 ### 示例
 
-- 示例文件：`polyfempy/api/examples/batch_processing.py` - 批量处理示例
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
+- 示例脚本：仓库根目录下的 `examples/`。
 
 ---
 
-## 11. `tensor.py` - 张量转换
+## 7. `tensor.py` - 张量转换
 
 ### 设计理念
 
@@ -1079,159 +874,36 @@ def _torch_to_numpy_zero_copy(t):
 
 ### 示例
 
-- 示例文件：`polyfempy/api/examples/`
-- 示例内容：参见 [Examples README](../polyfempy/api/examples/README.md)
+- 示例脚本：仓库根目录下的 `examples/`。
 
 ---
 
 ## 示例架构
 
-### 示例文件结构
+示例位于**仓库根目录**的 `examples/` 下，不在 `polyfempy/api/` 内。
 
-```
-polyfempy/api/examples/
-├── run_dummy_elasticity.py      # 基础 Dummy 后端示例
-├── run_elasticity.py            # 最小 2D 线性弹性示例
-├── load_from_json.py            # 从 JSON 文件加载配置
-├── parameter_sweep.py           # 参数扫描（参数敏感性研究）
-├── batch_processing.py          # 批量处理（错误隔离）
-├── with_callbacks.py            # 使用 callbacks 监控求解
-└── README.md                    # 示例说明文档
-```
+### 示例文件
 
-### 示例分类
-
-#### 1. 基础示例
-
-**目的**：展示基本的 API 使用方法
-
-**示例文件**：
-- `run_dummy_elasticity.py` - 最简单的使用示例
-- `run_elasticity.py` - 线性弹性问题示例
-
-**演示内容**：
-- 创建网格（顶点和单元）
-- 配置仿真参数
-- 运行求解器
-- 查看结果
-
-#### 2. 配置示例
-
-**目的**：展示不同的配置方式
-
-**示例文件**：
-- `load_from_json.py` - 从 JSON 文件加载完整配置
-
-**演示内容**：
-- 从 JSON 文件加载配置
-- 使用包含 geometry 的 JSON（自动加载网格）
-- 处理完整的 PolyFEM JSON 配置
-
-#### 3. 高级用法示例
-
-**目的**：展示高级功能和最佳实践
-
-**示例文件**：
-- `parameter_sweep.py` - 参数扫描和敏感性分析
-- `batch_processing.py` - 批量处理和错误隔离
-- `with_callbacks.py` - 使用 callbacks 监控进度
-
-**演示内容**：
-- 运行多个仿真（不同参数）
-- 批量处理多个配置
-- 错误隔离（一个失败不影响其他）
-- 监控求解进度
-- 记录收敛历史
+- **`examples/python_config_5_cubes.py`**：完整示例——多体几何（5 个立方体 + 平面）、接触、NeoHookean 材料、时间步进、求解器/输出配置、结果读写。
+- **`examples/contact_5_cubes.py`**：接触算例变体。
+- **`examples/README_设计说明.md`**：设计说明（中文）。
 
 ### 运行示例
 
-所有示例都可以通过以下方式运行：
+在仓库根目录执行：
 
 ```bash
-# 运行单个示例
-python -m polyfempy.api.examples.run_dummy_elasticity
-python -m polyfempy.api.examples.parameter_sweep
-python -m polyfempy.api.examples.batch_processing
-python -m polyfempy.api.examples.with_callbacks
-python -m polyfempy.api.examples.load_from_json
+python examples/python_config_5_cubes.py
+python examples/contact_5_cubes.py
 ```
-
-详细说明请参见：[Examples README](../polyfempy/api/examples/README.md)
 
 ---
 
 ## 设计模式
 
-### 1. 适配器模式（Adapter Pattern）
-
-**应用**：`backend_nanobind.py`
-
-**目的**：适配 C++ 后端到 Python API
-
-**实现**：
-```python
-def solve_impl(V, C, settings, callbacks):
-    import polyfempy as pf
-    # 省略：set_settings(JSON) + set_mesh(...) + ret = solver.solve()
-    # 关键：solver.solve() -> (sol, pressure)
-    return {"u": ret[0], "p": ret[1] if len(ret) > 1 else None}
-```
-
-### 2. 策略模式（Strategy Pattern）
-
-**应用**：后端切换（dummy vs nanobind）
-
-**目的**：运行时选择后端实现
-
-**实现**：
-```python
-if backend == "dummy":
-    return backend_dummy.solve_impl(V, C, settings, callbacks)
-elif backend == "nanobind":
-    return backend_nanobind.solve_impl(V, C, settings, callbacks)
-```
-
-### 3. 工厂模式（Factory Pattern）
-
-**应用**：`SimulationConfig.to_settings()`
-
-**目的**：根据配置创建后端 Settings 对象
-
-**实现**：
-```python
-if c.pde == "Poisson":
-    problem = pf.GenericScalar()
-else:
-    problem = pf.GenericTensor()
-```
-
-### 4. 外观模式（Facade Pattern）
-
-**应用**：`solve()` 函数
-
-**目的**：隐藏底层复杂性，提供简单接口
-
-**实现**：
-```python
-def solve(vertices, cells, cfg, ...):
-    # 归一化输入
-    # 构建设置
-    # 创建求解器
-    # 运行求解
-    # 返回结果
-```
-
-### 5. 单例模式（Singleton Pattern）
-
-**应用**：错误处理函数
-
-**目的**：提供统一的错误处理接口
-
-**实现**：
-```python
-def raise_input_error(msg):
-    raise ValueError("INPUT: " + msg)
-```
+1. **外观模式**：`solve()` —— 单一入口；隐藏配置规范化、C++ 调用与结果构建。
+2. **工厂模式**：`SimulationConfig` 及配置类（如 `NeoHookean`、`Geometry`、`Solver`）—— 为 C++ 后端构建 JSON/配置。
+3. **直接 C++ 绑定**：`solve.py` 直接调用编译出的 `polyfempy` 扩展（Route A）；无独立后端 SPI 或 dummy 后端。
 
 ---
 
@@ -1248,23 +920,18 @@ solve(vertices, cells, cfg)
     - as_numpy(vertices) → V_np, backend
     - as_numpy(cells) → C_np, _
     ↓
-2. 构建设置（config.py）
-    - cfg.to_settings() → settings
+2. 构建配置/JSON（config.py）
+    - cfg.to_dict() 或从 cfg 取完整 JSON
     ↓
-3. 选择后端（backend_base.py）
-    - backend == "dummy" → backend_dummy.solve_impl()
-    - backend == "nanobind" → backend_nanobind.solve_impl()
+3. 调用 C++（solve.py）
+    - 导入 polyfempy；检查 cpp_backend_available()
+    - 构建求解器、设置网格或从 geometry 加载、运行 solve
+    - 将 (sol, pressure) 解析为结果 dict
     ↓
-4. 后端实现（backend_dummy.py / backend_nanobind.py）
-    - 输入验证
-    - 回调处理
-    - 运行求解
-    - 返回结果 dict
-    ↓
-5. 构建结果（result.py）
+4. 构建结果（result.py）
     - Result(backend, vertices, cells, fields, meta)
     ↓
-6. 返回结果
+5. 返回结果
     - result.to_backend() → 转换回原始后端
     ↓
 用户代码
@@ -1337,23 +1004,19 @@ result.to_backend()
 1. **统一接口**：提供简单的 API，隐藏复杂性
 2. **多后端支持**：支持 NumPy/Torch/JAX 数组
 3. **版本兼容**：支持不同版本的 C++ 绑定
-4. **错误隔离**：批量处理中错误不互相影响
+4. **顺序保持**：`batch_solve` 按输入任务顺序返回结果
 5. **确定性输出**：相同输入产生相同输出
-6. **清晰错误**：所有错误都有明确前缀和消息
-
 ### 文件职责
 
-- **`solve.py`**: 主求解函数，统一入口
-- **`config.py`**: 配置类，规范化配置
-- **`result.py`**: 结果容器，多后端支持
-- **`errors.py`**: 错误处理，统一错误模型
-- **`backend_base.py`**: 后端 SPI 定义，接口契约
-- **`backend_dummy.py`**: Dummy 后端实现，测试用
-- **`backend_nanobind.py`**: Nanobind 后端适配器，C++ 连接
-- **`batch.py`**: 批量处理，错误隔离
-- **`tensor.py`**: 张量转换，多后端支持
+- **`solve.py`**：主求解函数；直接调用 C++ 扩展（Route A）
+- **`config.py`**：配置及配置类（材料、边界、几何、求解器、输出等）
+- **`result.py`**：结果容器，多后端支持，meshio/VTK 读写
+- **`selection.py`**：边界条件几何选择
+- **`batch.py`**：批量处理（顺序、保持顺序）
+- **`tensor.py`**：张量转换（NumPy/Torch/JAX）
+- **`io.py`**：网格 I/O（`read_mesh`、`Mesh`；依赖 meshio）
 
 ### 示例说明
 
-所有示例都位于 `polyfempy/api/examples/` 目录，每个示例都是可运行的独立脚本，展示了不同的 API 使用场景。详细说明请参见 [Examples README](../polyfempy/api/examples/README.md)。
+示例位于仓库根目录的 `examples/` 下（如 `examples/python_config_5_cubes.py`）。
 

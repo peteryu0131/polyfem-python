@@ -11,24 +11,16 @@ This document explains all files in the `polyfempy/api/` directory, including de
 ```
 polyfempy/api/
 ├── __init__.py              # Module entry, exports main API
-├── solve.py                 # Main solve function (unified entry point)
-├── config.py                # Configuration class (SimulationConfig)
+├── solve.py                 # Main solve function (unified entry point); calls C++ directly (Route A)
+├── config.py                # Configuration (SimulationConfig + material/BC/geometry/solver classes)
 ├── result.py                # Result container (Result)
-├── errors.py                # Error handling (unified error model)
-├── backend_base.py          # Backend SPI definition (interface contract)
-├── backend_dummy.py         # Dummy backend implementation (for testing)
-├── backend_nanobind.py      # Nanobind backend adapter (C++ connection)
+├── selection.py             # Geometry selection for boundary conditions (Selection)
 ├── batch.py                 # Batch processing (batch_solve)
-├── tensor.py                # Tensor conversion (multi-backend support)
-└── examples/                # API example code
-    ├── run_dummy_elasticity.py
-    ├── run_elasticity.py
-    ├── load_from_json.py
-    ├── parameter_sweep.py
-    ├── batch_processing.py
-    ├── with_callbacks.py
-    └── README.md
+├── tensor.py                # Tensor conversion (multi-backend NumPy/Torch/JAX)
+└── io.py                    # Mesh I/O (read_mesh, Mesh; uses meshio)
 ```
+
+Examples live in the repository root under `examples/` (e.g. `examples/python_config_5_cubes.py`), not inside `polyfempy/api/`.
 
 ---
 
@@ -56,12 +48,11 @@ __all__ = ["solve", "SimulationConfig", "Result", "Selection", "batch_solve"]
 - **`SimulationConfig`**: Configuration class for creating simulation configurations
 - **`Result`**: Result container containing solution and metadata
 - **`Selection`**: Geometry selection tool for selecting boundary conditions by geometric shapes
-- **`batch_solve`**: Batch solve function with error isolation
+- **`batch_solve`**: Batch solve (sequential, order-preserving)
 
 ### Examples
 
-- Example files: `polyfempy/api/examples/`
-- Example content: See [Examples README](../polyfempy/api/examples/README.md)
+- Example scripts: `examples/` at the repository root (e.g. `examples/python_config_5_cubes.py`, `examples/contact_5_cubes.py`).
 
 ---
 
@@ -83,15 +74,14 @@ Before diving into each module, understand these core concepts that run through 
 - Convert results back to original backend (`to_backend()`)
 - Zero-copy optimization (when possible)
 
-#### Nanobind Compatibility Work
+#### Nanobind / C++ Backend (Route A)
 
-- `tensor.py` forces every array to become **CPU, C-contiguous NumPy** before it crosses the Python↔C++ boundary, matching nanobind’s zero-copy assumptions
-- `_ensure_i32()` and `Result` normalize cell connectivity to `int32`, aligning with nanobind/Eigen expectations on the C++ side
-- `backend_nanobind.py` (deprecated) no longer imports `polyfem_nb/solve_cpp`; Route A uses `polyfempy` directly
-- `solve.py` directly detects the nanobind-built `polyfempy` module and relies on its zero-copy plumbing plus `Solver/State` APIs
-- All scripts in `polyfempy/api/examples/` operate on NumPy data, making it easy to validate the nanobind data path end to end
+- The Python API uses a single backend: the compiled `polyfempy` C++ extension (nanobind). There are no separate backend modules (`backend_base` / `backend_dummy` / `backend_nanobind`); `solve.py` calls the C++ solver directly.
+- `tensor.py` forces every array to become **CPU, C-contiguous NumPy** before it crosses the Python↔C++ boundary, matching nanobind’s zero-copy assumptions.
+- `_ensure_i32()` and `Result` normalize cell connectivity to `int32`, aligning with nanobind/Eigen expectations on the C++ side.
+- `solve.py` imports the `polyfempy` package and uses `cpp_backend_available()` / `cpp_backend_error()` for clear errors when the extension is not built.
 
-**Details**: See [11. `tensor.py` - Tensor Conversion](#11-tensorpy---tensor-conversion)
+**Details**: See [7. `tensor.py` - Tensor Conversion](#7-tensorpy---tensor-conversion)
 
 ### int32 Type Requirement
 
@@ -216,8 +206,7 @@ for name in ("set_mesh", "set_mesh_data", "load_mesh_from_points"):
 
 ### Examples
 
-- Example files: `polyfempy/api/examples/`
-- Example content: See [Examples README](../polyfempy/api/examples/README.md)
+- Example scripts: `examples/` at the repository root.
 
 ---
 
@@ -474,114 +463,7 @@ cfg = SimulationConfig(
 
 ---
 
-## 6. `errors.py` - Error Handling
-
-### Design Philosophy
-
-**Unified Error Model + Clear Prefixes**:
-- All errors have clear prefixes (INPUT:/CALLBACK:/BACKEND:)
-- Error types correspond to error causes
-- Provide clear error messages
-
-### Core Functions
-
-- `raise_input_error(msg)`: Raise input error (ValueError, prefix: INPUT:)
-- `raise_callback_type_error(msg)`: Raise callback error (TypeError, prefix: CALLBACK:)
-- `raise_backend_error(msg)`: Raise backend error (RuntimeError, prefix: BACKEND:)
-
----
-
-## 7. `backend_base.py` - Backend SPI Definition
-
-### Design Philosophy
-
-**Interface Contract + Documentation**:
-- Define backend interface contract (SPI)
-- Provide detailed documentation
-- Ensure all backend implementations are consistent
-
-### Core Function
-
-#### `solve_impl(V, C, settings, callbacks) -> dict`
-
-**Function**: Backend SPI interface (documentation function)
-
-**Input Contract**:
-- `V`: np.ndarray, shape (N, dim), dtype float64, C-contiguous
-- `C`: np.ndarray, shape (M, k), dtype int32, C-contiguous
-- `settings`: dict from SimulationConfig.to_dict()
-- `callbacks`: dict[str, callable] or None
-
-**Output Contract**:
-- Must return dict with keys:
-  - `u`: np.ndarray, shape (N, dim), dtype float64, C-contiguous
-  - `strain`: np.ndarray or None
-  - `stress`: np.ndarray or None
-  - `meta`: dict with required keys (backend, iters, residual, seed)
-
-**Backend Responsibilities**:
-1. Input validation (though caller already validates)
-2. Callback handling (call in order: before_solve → after_iter×K → after_solve)
-3. Deterministic output (if random_seed provided)
-4. Return result dict conforming to contract
-
----
-
-## 8. `backend_dummy.py` - Dummy Backend Implementation
-
-### Design Philosophy
-
-**Strict Validation + Deterministic Output + Callback Testing**:
-- Strictly validate inputs (dtype, shape, contiguity)
-- Generate deterministic pseudo-random output
-- Correctly handle callback lifecycle
-- Unified error model
-
-### Core Function
-
-#### `solve_impl(V, C, settings, callbacks) -> dict`
-
-**Implementation Strategy**:
-1. Input validation: Strictly validate V and C dtype, shape, contiguity
-2. Parse settings: Get max_iters, random_seed from settings
-3. Callback handling: Call callbacks in order (before_solve → after_iter×K → after_solve)
-4. Generate output: Use deterministic RNG to generate pseudo-random displacement field
-5. Return result: Return dict conforming to SPI contract
-
-**Deterministic Output**:
-```python
-rng = np.random.RandomState(random_seed)
-u = rng.normal(loc=0.0, scale=1e-3, size=(N, dim)).astype(np.float64)
-```
-
-**Residual Model**:
-```python
-residual = 1e-3 / (i + 1)  # Linear decrease
-```
-
----
-
-## 9. `backend_nanobind.py` - Nanobind Backend Adapter
-
-### Design Philosophy
-
-**Adapter Pattern + Graceful Degradation**:
-- Try to import C++ backend
-- If unavailable, provide clear error message
-- Forward calls to C++ backend
-
-### Core Function
-
-#### `solve_impl(V, C, settings, callbacks) -> dict`
-
-**Implementation Strategy**:
-1. Check availability: Try to import `polyfempy as pf`
-2. Error handling: If unavailable, raise a clear error (build/install the C++ extension first)
-3. Call C++: construct `pf.Solver()/pf.State()`, call `solver.solve()`, and parse `(sol, pressure)`
-
----
-
-## 10. `batch.py` - Batch Processing
+## 6. `batch.py` - Batch Processing
 
 ### Design Philosophy
 
@@ -603,13 +485,11 @@ residual = 1e-3 / (i + 1)  # Linear decrease
 - `list[Result]`: Result list, order matches input
 
 **Error Handling**:
-- If task fails, result position contains Exception object
-- Other tasks continue execution
-- Order preserved: Result order matches input order
+- Tasks are run sequentially; if a task raises, that exception propagates (no per-job error isolation in the current implementation).
 
 ---
 
-## 11. `tensor.py` - Tensor Conversion
+## 7. `tensor.py` - Tensor Conversion
 
 ### Design Philosophy
 
@@ -689,54 +569,30 @@ User Torch Tensor
 
 ## Example Architecture
 
-### Example File Structure
+Examples are located in the **repository root** under `examples/`, not inside `polyfempy/api/`.
 
-```
-polyfempy/api/examples/
-├── run_dummy_elasticity.py      # Basic Dummy backend example
-├── run_elasticity.py            # Minimal 2D linear elasticity example
-├── load_from_json.py            # Load configuration from JSON file
-├── parameter_sweep.py           # Parameter sweep (sensitivity study)
-├── batch_processing.py          # Batch processing (error isolation)
-├── with_callbacks.py            # Monitor solve with callbacks
-└── README.md                    # Example documentation
-```
+### Example Files
 
-### Example Categories
-
-1. **Basic Examples**: Show basic API usage
-   - `run_dummy_elasticity.py` - Simplest usage example
-   - `run_elasticity.py` - Linear elasticity problem example
-
-2. **Configuration Examples**: Show different configuration methods
-   - `load_from_json.py` - Load full configuration from JSON file
-
-3. **Advanced Usage Examples**: Show advanced features and best practices
-   - `parameter_sweep.py` - Parameter sweep and sensitivity analysis
-   - `batch_processing.py` - Batch processing and error isolation
-   - `with_callbacks.py` - Monitor progress with callbacks
+- **`examples/python_config_5_cubes.py`** – Full-featured example: multi-body geometry (5 cubes + plane), contact, NeoHookean material, time stepping, solver/output configuration, result read/write.
+- **`examples/contact_5_cubes.py`** – Contact example variant.
+- **`examples/README_设计说明.md`** – Design notes (Chinese).
 
 ### Running Examples
 
-All examples can be run via:
+From the repository root:
 
 ```bash
-python -m polyfempy.api.examples.run_dummy_elasticity
-python -m polyfempy.api.examples.parameter_sweep
-python -m polyfempy.api.examples.batch_processing
-python -m polyfempy.api.examples.with_callbacks
-python -m polyfempy.api.examples.load_from_json
+python examples/python_config_5_cubes.py
+python examples/contact_5_cubes.py
 ```
 
 ---
 
 ## Design Patterns
 
-1. **Adapter Pattern**: `backend_nanobind.py` - Adapt C++ backend to Python API
-2. **Strategy Pattern**: Backend switching (dummy vs nanobind)
-3. **Factory Pattern**: `SimulationConfig.to_settings()` - Create backend Settings objects based on config
-4. **Facade Pattern**: `solve()` function - Hide complexity, provide simple interface
-5. **Singleton Pattern**: Error handling functions - Provide unified error handling interface
+1. **Facade Pattern**: `solve()` – Single entry point; hides config normalization, C++ invocation, and result construction.
+2. **Factory Pattern**: `SimulationConfig` and config classes (e.g. `NeoHookean`, `Geometry`, `Solver`) – Build JSON/config for the C++ backend.
+3. **Direct C++ binding**: `solve.py` calls the compiled `polyfempy` extension (Route A); there is no separate backend SPI or dummy backend.
 
 ---
 
@@ -753,23 +609,18 @@ solve(vertices, cells, cfg)
     - as_numpy(vertices) → V_np, backend
     - as_numpy(cells) → C_np, _
     ↓
-2. Build settings (config.py)
-    - cfg.to_settings() → settings
+2. Build config / JSON (config.py)
+    - cfg.to_dict() or full JSON from cfg
     ↓
-3. Select backend (backend_base.py)
-    - backend == "dummy" → backend_dummy.solve_impl()
-    - backend == "nanobind" → backend_nanobind.solve_impl()
+3. Call C++ (solve.py)
+    - Import polyfempy; check cpp_backend_available()
+    - Build solver, set mesh or load from geometry, run solve
+    - Parse (sol, pressure) into result dict
     ↓
-4. Backend implementation
-    - Input validation
-    - Callback handling
-    - Run solve
-    - Return result dict
-    ↓
-5. Build result (result.py)
+4. Build result (result.py)
     - Result(backend, vertices, cells, fields, meta)
     ↓
-6. Return result
+5. Return result
     - result.to_backend() → Convert back to original backend
     ↓
 User Code
@@ -825,19 +676,15 @@ Solver Configuration Complete
 1. **Unified Interface**: Provide simple API, hide complexity
 2. **Multi-Backend Support**: Support NumPy/Torch/JAX arrays
 3. **Version Compatibility**: Support different versions of C++ bindings
-4. **Error Isolation**: Errors in batch processing don't affect each other
+4. **Order preservation**: `batch_solve` returns results in the same order as input jobs
 5. **Deterministic Output**: Same input produces same output
-6. **Clear Errors**: All errors have clear prefixes and messages
-
 ### File Responsibilities
 
-- **`solve.py`**: Main solve function, unified entry point
-- **`config.py`**: Configuration class, normalize configuration
-- **`result.py`**: Result container, multi-backend support
-- **`errors.py`**: Error handling, unified error model
-- **`backend_base.py`**: Backend SPI definition, interface contract
-- **`backend_dummy.py`**: Dummy backend implementation, for testing
-- **`backend_nanobind.py`**: Nanobind backend adapter, C++ connection
-- **`batch.py`**: Batch processing, error isolation
-- **`tensor.py`**: Tensor conversion, multi-backend support
+- **`solve.py`**: Main solve function; calls C++ extension directly (Route A)
+- **`config.py`**: Configuration and config classes (materials, BCs, geometry, solver, output, etc.)
+- **`result.py`**: Result container, multi-backend support, meshio/VTK read/write
+- **`selection.py`**: Geometry-based selection for boundary conditions
+- **`batch.py`**: Batch processing (sequential, order-preserving)
+- **`tensor.py`**: Tensor conversion (NumPy/Torch/JAX)
+- **`io.py`**: Mesh I/O (`read_mesh`, `Mesh`; requires meshio)
 

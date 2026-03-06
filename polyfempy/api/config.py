@@ -1,11 +1,25 @@
-﻿from dataclasses import dataclass, field
+from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING, Union, List, Dict, Any, overload
 import json
 
 if TYPE_CHECKING:
     from .selection import Selection
+    # Forward references for classes defined later in this file
+    from typing import TYPE_CHECKING as _TYPE_CHECKING
+else:
+    _TYPE_CHECKING = False
 
-# Normalize PDE names to "Poisson" / "LinearElasticity"
+def _merge_dicts_deep(base: dict, override: dict) -> dict:
+    """Recursively merge override into base (override wins on conflicts)."""
+    result = dict(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _merge_dicts_deep(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 _PDE_ALIASES = {
     "poisson": "Poisson",
     "scalar": "Poisson",
@@ -17,7 +31,6 @@ _PDE_ALIASES = {
     "generictensor": "LinearElasticity",
 }
 
-# Normalize material parameter keys to "E" and "nu"
 _MAT_ALIASES = {
     "e": "E",
     "young": "E",
@@ -29,32 +42,13 @@ _MAT_ALIASES = {
     "poisson_ratio": "nu",
 }
 
-# Parameter promotion configuration: defines which extras parameters should be
-# promoted to top level in to_dict(), and how to validate/convert them.
-# 
-# Format: {param_name: (validator_func, error_msg_template)}
-# - validator_func: (value) -> converted_value, raises ValueError if invalid
-# - error_msg_template: String template with {value} and {type_name} placeholders
-#
-# To add a new parameter:
-# 1. Add an entry to this dictionary
-# 2. Define a validator function that converts/validates the value
-# 3. Provide an error message template
-#
-# Example:
-#   "tolerance": (
-#       lambda v: float(v) if float(v) > 0 else (_ for _ in ()).throw(ValueError("must be positive")),
-#       "extras['tolerance'] must be a positive float, got {value!r} (type: {type_name})"
-#   ),
 def _validate_positive_int(v):
-    """Validate and convert to positive integer."""
     v = int(v)
     if v <= 0:
         raise ValueError("must be positive")
     return v
 
 def _validate_int_or_none(v):
-    """Validate and convert to integer or None."""
     if v is None:
         return None
     return int(v)
@@ -68,40 +62,10 @@ _EXTRAS_PROMOTION_RULES = {
         _validate_int_or_none,
         "extras['random_seed'] must be an integer or None, got {value!r} (type: {type_name})"
     ),
-    # Add new parameters here as needed:
-    # Example: positive float
-    # "tolerance": (
-    #     lambda v: (v := float(v)) if v > 0 else (_ for _ in ()).throw(ValueError("must be positive")),
-    #     "extras['tolerance'] must be a positive float, got {value!r} (type: {type_name})"
-    # ),
-    # Or use a function:
-    # def _validate_positive_float(v):
-    #     v = float(v)
-    #     if v <= 0:
-    #         raise ValueError("must be positive")
-    #     return v
-    # "tolerance": (
-    #     _validate_positive_float,
-    #     "extras['tolerance'] must be a positive float, got {value!r} (type: {type_name})"
-    # ),
 }
 
 
 def _canon_pde(name: str) -> str:
-    """Normalize a PDE name to 'Poisson' or 'LinearElasticity'.
-
-    If the input is empty/None, defaults to 'LinearElasticity'.
-    Aliases such as 'linear elasticity' or 'scalar' are mapped via `_PDE_ALIASES`.
-
-    Args:
-        name: Raw PDE name (case/spacing-insensitive).
-
-    Returns:
-        Normalized PDE name: 'Poisson' or 'LinearElasticity'.
-
-    Notes:
-        - The mapping is conservative: unknown names are returned as-is to allow forward compatibility.
-    """
     if not name:
         return "LinearElasticity"
     key = name.replace(" ", "_").lower()
@@ -109,90 +73,21 @@ def _canon_pde(name: str) -> str:
 
 
 def _canon_materials(mat: dict) -> dict:
-    """Normalize material dictionary keys (e.g., E/nu) without altering values.
-
-    Aliases like 'youngs_modulus' and 'poisson_ratio' are mapped to 'E' and 'nu'.
-    Unknown keys are preserved.
-
-    Args:
-        mat: Material parameters dictionary. May be None.
-
-    Returns:
-        A new dictionary with normalized keys and original values.
-
-    Notes:
-        - Only keys are normalized; values are kept intact.
-        - Typical normalized keys include: 'E', 'nu'.
-    """
     out = {}
     for k, v in (mat or {}).items():
         out[_MAT_ALIASES.get(k.lower(), k)] = v
     return out
 
 
-# ============================================================================
-# Material and Boundary Condition Classes (for better IDE support)
-# ============================================================================
-
 @dataclass
 class Material:
-    """Material parameters class - provides IDE autocomplete support.
-    
-    This class allows users to set material parameters with IDE autocomplete,
-    instead of using dictionaries where IDE cannot suggest available keys.
-    
-    Attributes:
-        E: Young's modulus (optional).
-        nu: Poisson's ratio (optional).
-        rho: Density (optional).
-        type: Material type. Defaults to "LinearElasticity".
-            Supported types include:
-            - "LinearElasticity" (default)
-            - "HookeLinearElasticity"
-            - "SaintVenant"
-            - "NeoHookean"
-            - "MooneyRivlin"
-            - "MooneyRivlin3Param"
-            - "MooneyRivlin3ParamSymbolic"
-            - "UnconstrainedOgden"
-            - "IncompressibleOgden"
-            - "IncompressibleLinearElasticity"
-            - "Stokes"
-            - "NavierStokes"
-            - "OperatorSplitting"
-            - "Laplacian"
-            - "Helmholtz"
-            - "Bilaplacian"
-            - "AMIPS"
-            - "FixedCorotational"
-            And other material types supported by PolyFEM.
-    
-    Example:
-        >>> # Linear elasticity (default)
-        >>> material = Material(E=2100, nu=0.3)
-        >>> cfg = SimulationConfig(materials=material)
-        >>> 
-        >>> # NeoHookean material
-        >>> material = Material(E=2100, nu=0.3, type="NeoHookean")
-        >>> 
-        >>> # SaintVenant material
-        >>> material = Material(E=2100, nu=0.3, type="SaintVenant")
-        >>> 
-        >>> # material.E  # IDE will autocomplete
-        >>> # material.nu  # IDE will autocomplete
-        >>> # material.type  # IDE will autocomplete
-    """
+    """Material params. E, nu, rho. type defaults to LinearElasticity."""
     E: Optional[float] = None
     nu: Optional[float] = None
     rho: Optional[float] = None
     type: str = "LinearElasticity"
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format (for backend compatibility).
-        
-        Returns:
-            Dictionary with material parameters.
-        """
         result = {"type": self.type}
         if self.E is not None:
             result["E"] = self.E
@@ -204,17 +99,6 @@ class Material:
     
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Material":
-        """Create Material from dictionary (backward compatibility).
-        
-        Handles aliases like 'youngs_modulus' -> 'E', 'poisson_ratio' -> 'nu'.
-        
-        Args:
-            d: Dictionary with material parameters.
-            
-        Returns:
-            Material instance.
-        """
-        # Handle aliases
         E = d.get("E") or d.get("e") or d.get("young") or d.get("youngs") or d.get("youngs_modulus") or d.get("young_modulus")
         nu = d.get("nu") or d.get("poisson") or d.get("poisson_ratio")
         return cls(
@@ -225,40 +109,13 @@ class Material:
         )
 
 
-# ============================================================================
-# Specific Material Classes (with @overload support for multiple input types)
-# ============================================================================
-
-# Type alias for flexible parameter types
 _ParamType = Union[float, str, Any]
 _IdType = Union[int, List[int]]
 
 
 @dataclass
 class NeoHookean:
-    """NeoHookean material - provides IDE autocomplete support.
-    
-    Supports two input modes:
-    1. E-nu input (Young's modulus and Poisson's ratio)
-    2. lambda-mu input (Lamé parameters)
-    
-    Attributes:
-        E: Young's modulus (required for E-nu mode).
-        nu: Poisson's ratio (required for E-nu mode).
-        lambda_: First Lamé parameter (required for lambda-mu mode).
-        mu: Second Lamé parameter (shear modulus, required for lambda-mu mode).
-        id: Material ID or list of IDs. Defaults to 0.
-        rho: Density. Defaults to 1.
-        phi: First angle. Defaults to 0.
-        psi: Second angle. Defaults to 0.
-    
-    Example:
-        >>> # E-nu input
-        >>> material = NeoHookean(E=2100, nu=0.3)
-        >>> 
-        >>> # lambda-mu input
-        >>> material = NeoHookean(lambda_=1000, mu=800)
-    """
+    """NeoHookean. Use (E, nu) or (lambda_, mu)."""
     type: str = "NeoHookean"
     id: _IdType = 0
     rho: _ParamType = 1
@@ -274,7 +131,6 @@ class NeoHookean:
     mu: Optional[_ParamType] = None
     
     def __post_init__(self):
-        """Validate that either E-nu or lambda-mu is provided."""
         has_e_nu = self.E is not None and self.nu is not None
         has_lambda_mu = self.lambda_ is not None and self.mu is not None
         
@@ -284,7 +140,6 @@ class NeoHookean:
             raise ValueError("NeoHookean cannot have both (E, nu) and (lambda_, mu)")
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
         result = {"type": self.type}
         if self.E is not None and self.nu is not None:
             result["E"] = self.E
@@ -305,29 +160,7 @@ class NeoHookean:
 
 @dataclass
 class IsochoricNeoHookean:
-    """IsochoricNeoHookean material - provides IDE autocomplete support.
-    
-    Supports two input modes:
-    1. E-nu input (Young's modulus and Poisson's ratio)
-    2. lambda-mu input (Lamé parameters)
-    
-    Attributes:
-        E: Young's modulus (required for E-nu mode).
-        nu: Poisson's ratio (required for E-nu mode).
-        lambda_: First Lamé parameter (required for lambda-mu mode).
-        mu: Second Lamé parameter (shear modulus, required for lambda-mu mode).
-        id: Material ID or list of IDs. Defaults to 0.
-        rho: Density. Defaults to 1.
-        phi: First angle. Defaults to 0.
-        psi: Second angle. Defaults to 0.
-    
-    Example:
-        >>> # E-nu input
-        >>> material = IsochoricNeoHookean(E=2100, nu=0.3)
-        >>> 
-        >>> # lambda-mu input
-        >>> material = IsochoricNeoHookean(lambda_=1000, mu=800)
-    """
+    """IsochoricNeoHookean. Use (E, nu) or (lambda_, mu)."""
     type: str = "IsochoricNeoHookean"
     id: _IdType = 0
     rho: _ParamType = 1
@@ -343,7 +176,6 @@ class IsochoricNeoHookean:
     mu: Optional[_ParamType] = None
     
     def __post_init__(self):
-        """Validate that either E-nu or lambda-mu is provided."""
         has_e_nu = self.E is not None and self.nu is not None
         has_lambda_mu = self.lambda_ is not None and self.mu is not None
         
@@ -353,7 +185,6 @@ class IsochoricNeoHookean:
             raise ValueError("IsochoricNeoHookean cannot have both (E, nu) and (lambda_, mu)")
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
         result = {"type": self.type}
         if self.E is not None and self.nu is not None:
             result["E"] = self.E
@@ -374,18 +205,7 @@ class IsochoricNeoHookean:
 
 @dataclass
 class MooneyRivlin:
-    """MooneyRivlin material - provides IDE autocomplete support.
-    
-    Attributes:
-        c1: First Mooney-Rivlin parameter (required).
-        c2: Second Mooney-Rivlin parameter (required).
-        k: Bulk modulus (required).
-        id: Material ID or list of IDs. Defaults to 0.
-        rho: Density. Defaults to 1.
-    
-    Example:
-        >>> material = MooneyRivlin(c1=0.5, c2=0.1, k=1000)
-    """
+    """MooneyRivlin. c1, c2, k required."""
     c1: _ParamType = field()
     c2: _ParamType = field()
     k: _ParamType = field()
@@ -410,19 +230,7 @@ class MooneyRivlin:
 
 @dataclass
 class MooneyRivlin3Param:
-    """MooneyRivlin3Param material - provides IDE autocomplete support.
-    
-    Attributes:
-        c1: First Mooney-Rivlin parameter (required).
-        c2: Second Mooney-Rivlin parameter (required).
-        c3: Third Mooney-Rivlin parameter (required).
-        d1: First volumetric parameter (required).
-        id: Material ID or list of IDs. Defaults to 0.
-        rho: Density. Defaults to 1.
-    
-    Example:
-        >>> material = MooneyRivlin3Param(c1=0.5, c2=0.1, c3=0.05, d1=1000)
-    """
+    """MooneyRivlin3Param. c1, c2, c3, d1 required."""
     c1: _ParamType = field()
     c2: _ParamType = field()
     c3: _ParamType = field()
@@ -449,19 +257,7 @@ class MooneyRivlin3Param:
 
 @dataclass
 class MooneyRivlin3ParamSymbolic:
-    """MooneyRivlin3ParamSymbolic material - provides IDE autocomplete support.
-    
-    Attributes:
-        c1: First Mooney-Rivlin parameter (required).
-        c2: Second Mooney-Rivlin parameter (required).
-        c3: Third Mooney-Rivlin parameter (required).
-        d1: First volumetric parameter (required).
-        id: Material ID or list of IDs. Defaults to 0.
-        rho: Density. Defaults to 1.
-    
-    Example:
-        >>> material = MooneyRivlin3ParamSymbolic(c1=0.5, c2=0.1, c3=0.05, d1=1000)
-    """
+    """MooneyRivlin3ParamSymbolic. c1, c2, c3, d1 required."""
     c1: _ParamType = field()
     c2: _ParamType = field()
     c3: _ParamType = field()
@@ -598,7 +394,6 @@ class LinearElasticity:
     mu: Optional[_ParamType] = None
     
     def __post_init__(self):
-        """Validate that either E-nu or lambda-mu is provided."""
         has_e_nu = self.E is not None and self.nu is not None
         has_lambda_mu = self.lambda_ is not None and self.mu is not None
         
@@ -608,7 +403,6 @@ class LinearElasticity:
             raise ValueError("LinearElasticity cannot have both (E, nu) and (lambda_, mu)")
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
         result = {"type": self.type}
         if self.E is not None and self.nu is not None:
             result["E"] = self.E
@@ -673,7 +467,6 @@ class HookeLinearElasticity:
             raise ValueError("HookeLinearElasticity cannot have both (E, nu) and elasticity_tensor")
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
         result = {"type": self.type}
         if self.E is not None and self.nu is not None:
             result["E"] = self.E
@@ -739,7 +532,6 @@ class SaintVenant:
             raise ValueError("SaintVenant cannot have both (E, nu) and elasticity_tensor")
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
         result = {"type": self.type}
         if self.E is not None and self.nu is not None:
             result["E"] = self.E
@@ -1298,6 +1090,16 @@ class SimulationConfig:
                    Supports IDE autocomplete when using Material class.
         boundary_conditions: Boundary conditions. Can be BoundaryConditions class or dict.
                             Supports IDE autocomplete when using BoundaryConditions class.
+        geometry: Geometry configuration. Can be Geometry class or dict/list.
+                  Supports IDE autocomplete when using Geometry class.
+        solver: Solver configuration. Can be Solver class or dict.
+                Supports IDE autocomplete when using Solver class.
+        time: Time configuration for transient problems. Can be Time class or dict.
+              Supports IDE autocomplete when using Time class.
+        output: Output configuration. Can be Output class or dict.
+                Supports IDE autocomplete when using Output class.
+        contact: Contact configuration. Can be Contact class or dict.
+                Supports IDE autocomplete when using Contact class.
         extras: Advanced options; passed through if the backend exposes such hooks.
         selection: Optional Selection object for geometric boundary selection.
         problem_type: Optional predefined problem type (e.g., 'Gravity', 'Franke', 'Torsion').
@@ -1307,10 +1109,14 @@ class SimulationConfig:
 
     Example:
         >>> # Using classes (recommended - IDE autocomplete)
+        >>> from polyfempy.api.config import Material, BoundaryConditions, Geometry, Solver, Time, Output, Contact
         >>> material = Material(E=2100, nu=0.3)
         >>> bc = BoundaryConditions()
         >>> bc.add_dirichlet(id=4, value=[0.0, 0.0])
-        >>> cfg = SimulationConfig(materials=material, boundary_conditions=bc)
+        >>> geom = Geometry(meshes=["mesh.obj"])
+        >>> solver = Solver(linear=LinearSolver(solver_type="Eigen::SparseLU"))
+        >>> output = Output(directory="results")
+        >>> cfg = SimulationConfig(materials=material, boundary_conditions=bc, geometry=geom, solver=solver, output=output)
         >>> 
         >>> # Using dict (backward compatible)
         >>> cfg = SimulationConfig(materials={"E": 2100, "nu": 0.3})
@@ -1336,6 +1142,11 @@ class SimulationConfig:
         Dict[str, Any], List[Dict[str, Any]], dict
     ] = field(default_factory=dict)
     boundary_conditions: Union[BoundaryConditions, Dict[str, Any], dict] = field(default_factory=dict)
+    geometry: Optional[Union["Geometry", List[Dict[str, Any]], Dict[str, Any]]] = None
+    solver: Optional[Union["Solver", Dict[str, Any]]] = None
+    time: Optional[Union["Time", Dict[str, Any]]] = None
+    output: Optional[Union["Output", Dict[str, Any]]] = None
+    contact: Optional[Union["Contact", Dict[str, Any]]] = None
     extras: dict = field(default_factory=dict)
     selection: Optional["Selection"] = None
     problem_type: Optional[str] = None
@@ -1379,6 +1190,61 @@ class SimulationConfig:
             return dict(self.problem_params)
         else:
             return {}
+    
+    def _get_geometry_dict(self) -> Optional[Union[List[Dict[str, Any]], Dict[str, Any]]]:
+        """Internal helper: convert geometry to dict format."""
+        if self.geometry is None:
+            return None
+        if isinstance(self.geometry, Geometry):
+            return self.geometry.to_dict()
+        elif isinstance(self.geometry, (list, dict)):
+            return self.geometry
+        else:
+            return None
+    
+    def _get_solver_dict(self) -> Optional[Dict[str, Any]]:
+        """Internal helper: convert solver to dict format."""
+        if self.solver is None:
+            return None
+        if isinstance(self.solver, Solver):
+            return self.solver.to_dict()
+        elif isinstance(self.solver, dict):
+            return dict(self.solver)
+        else:
+            return None
+    
+    def _get_time_dict(self) -> Optional[Dict[str, Any]]:
+        """Internal helper: convert time to dict format."""
+        if self.time is None:
+            return None
+        if isinstance(self.time, Time):
+            return self.time.to_dict()
+        elif isinstance(self.time, dict):
+            return dict(self.time)
+        else:
+            return None
+    
+    def _get_output_dict(self) -> Optional[Dict[str, Any]]:
+        """Internal helper: convert output to dict format."""
+        if self.output is None:
+            return None
+        if isinstance(self.output, Output):
+            return self.output.to_dict()
+        elif isinstance(self.output, dict):
+            return dict(self.output)
+        else:
+            return None
+    
+    def _get_contact_dict(self) -> Optional[Dict[str, Any]]:
+        """Internal helper: convert contact to dict format."""
+        if self.contact is None:
+            return None
+        if isinstance(self.contact, Contact):
+            return self.contact.to_dict()
+        elif isinstance(self.contact, dict):
+            return dict(self.contact)
+        else:
+            return None
 
     def canonicalized(self) -> "SimulationConfig":
         """Return a shallow copy with normalized (canonical) fields.
@@ -1398,6 +1264,11 @@ class SimulationConfig:
             discr_order=int(self.discr_order),
             materials=self._get_materials_dict(),
             boundary_conditions=self._get_boundary_conditions_dict(),
+            geometry=self.geometry,  # Preserve geometry (not canonicalized)
+            solver=self.solver,  # Preserve solver
+            time=self.time,  # Preserve time
+            output=self.output,  # Preserve output
+            contact=self.contact,  # Preserve contact
             extras=dict(self.extras or {}),
             selection=self.selection,  # Selection objects are not copied
             problem_type=self.problem_type,
@@ -1433,12 +1304,44 @@ class SimulationConfig:
                 c.materials if isinstance(c.materials, dict) else dict(c.materials)
             )
         )
+        # Ensure materials is in array format for JSON mode (C++ backend expects array)
+        if isinstance(materials_dict, dict) and not isinstance(materials_dict, list):
+            materials_dict = [materials_dict]
+        elif not isinstance(materials_dict, list):
+            # If materials_dict is not a dict or list, wrap it
+            materials_dict = [materials_dict] if materials_dict else []
+        
         result = {
             "pde": c.pde,
             "discr_order": c.discr_order,
             "materials": materials_dict,
             "boundary_conditions": c.boundary_conditions if isinstance(c.boundary_conditions, dict) else dict(c.boundary_conditions),
         }
+        
+        # Add geometry if provided
+        geometry_dict = c._get_geometry_dict() if hasattr(c, '_get_geometry_dict') else None
+        if geometry_dict is not None:
+            result["geometry"] = geometry_dict
+        
+        # Add solver if provided
+        solver_dict = c._get_solver_dict() if hasattr(c, '_get_solver_dict') else None
+        if solver_dict is not None:
+            result["solver"] = solver_dict
+        
+        # Add time if provided
+        time_dict = c._get_time_dict() if hasattr(c, '_get_time_dict') else None
+        if time_dict is not None:
+            result["time"] = time_dict
+        
+        # Add output if provided
+        output_dict = c._get_output_dict() if hasattr(c, '_get_output_dict') else None
+        if output_dict is not None:
+            result["output"] = output_dict
+        
+        # Add contact if provided
+        contact_dict = c._get_contact_dict() if hasattr(c, '_get_contact_dict') else None
+        if contact_dict is not None:
+            result["contact"] = contact_dict
         
         # Extract common solver parameters from extras to top level for backend compatibility
         if c.extras:
@@ -1529,7 +1432,6 @@ class SimulationConfig:
         - solver (linear, nonlinear, max_iterations, tolerance, etc.)
         - contact (enabled, dhat, mu, epsv, etc.)
         - space (discr_order, etc.)
-        - common (external JSON references)
         - tests (validation settings)
         
         All fields are preserved in the full JSON config for direct use by the solver.
@@ -1605,6 +1507,36 @@ class SimulationConfig:
         else:
             boundary_conditions = boundary_conditions_raw
         
+        # Extract geometry - convert to Geometry if present
+        geometry_raw = full_config.get("geometry")
+        geometry = None
+        if geometry_raw is not None:
+            geometry = Geometry.from_dict(geometry_raw)
+        
+        # Extract solver - convert to Solver if present
+        solver_raw = full_config.get("solver")
+        solver = None
+        if solver_raw is not None and isinstance(solver_raw, dict):
+            solver = Solver.from_dict(solver_raw)
+        
+        # Extract time - convert to Time if present
+        time_raw = full_config.get("time")
+        time = None
+        if time_raw is not None and isinstance(time_raw, dict):
+            time = Time.from_dict(time_raw)
+        
+        # Extract output - convert to Output if present
+        output_raw = full_config.get("output")
+        output = None
+        if output_raw is not None and isinstance(output_raw, dict):
+            output = Output.from_dict(output_raw)
+        
+        # Extract contact - convert to Contact if present
+        contact_raw = full_config.get("contact")
+        contact = None
+        if contact_raw is not None and isinstance(contact_raw, dict):
+            contact = Contact.from_dict(contact_raw)
+        
         # Extract problem_type and problem_params
         problem_type = full_config.get("problem_type")
         problem_params_raw = full_config.get("problem_params", {})
@@ -1632,6 +1564,11 @@ class SimulationConfig:
             discr_order=discr_order,
             materials=materials_dict,
             boundary_conditions=boundary_conditions,
+            geometry=geometry,
+            solver=solver,
+            time=time,
+            output=output,
+            contact=contact,
             extras=extras,
             problem_type=problem_type,
             problem_params=problem_params,
@@ -1656,7 +1593,7 @@ class SimulationConfig:
         with open(json_path, "r") as f:
             config_dict = json.load(f)
         
-        # Store root_path for resolving relative paths (e.g., common.json)
+        # Store root_path for resolving relative paths (e.g., mesh paths)
         config_dict["root_path"] = str(json_path)
         
         cfg = cls.from_json_dict(config_dict)
@@ -2128,5 +2065,533 @@ class SimulationConfig:
             problem_type="FlowWithObstacle",
             problem_params=FlowWithObstacleParams(U=U, time_dependent=time_dependent),
         )
-      
+
+
+# ============================================================================
+# Geometry Configuration Classes
+# ============================================================================
+
+@dataclass
+class GeometryMesh:
+    """Mesh geometry configuration - provides IDE autocomplete support.
+    
+    Attributes:
+        mesh: Path to mesh file (required).
+        volume_selection: Volume selection ID (optional).
+        surface_selection: Surface selection ID (optional).
+        transformation: Transformation matrix or parameters (optional).
+        is_obstacle: Whether this mesh is an obstacle (optional).
+    
+    Example:
+        >>> geom = GeometryMesh(mesh="mesh.obj", volume_selection=1)
+        >>> obstacle = GeometryMesh(mesh="plane.obj", is_obstacle=True)
+    """
+    mesh: str = field()
+    volume_selection: Optional[int] = None
+    surface_selection: Optional[int] = None
+    transformation: Optional[Dict[str, Any]] = None
+    is_obstacle: Optional[bool] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format."""
+        result = {"mesh": self.mesh}
+        if self.volume_selection is not None:
+            result["volume_selection"] = self.volume_selection
+        if self.surface_selection is not None:
+            result["surface_selection"] = self.surface_selection
+        if self.transformation is not None:
+            result["transformation"] = self.transformation
+        if self.is_obstacle is not None:
+            result["is_obstacle"] = self.is_obstacle
+        return result
+
+
+@dataclass
+class Geometry:
+    """Geometry configuration - provides IDE autocomplete support.
+    
+    This class allows users to configure geometry (mesh files, transformations, etc.)
+    with IDE autocomplete, instead of using dictionaries.
+    
+    Attributes:
+        meshes: List of GeometryMesh objects or mesh file paths (strings).
+        transformations: List of transformation dictionaries (optional).
+        selections: Selection configuration (optional).
+    
+    Example:
+        >>> geom = Geometry(meshes=[GeometryMesh(mesh="mesh.obj")])
+        >>> cfg = SimulationConfig(geometry=geom)
+    """
+    meshes: Union[List[GeometryMesh], List[str], GeometryMesh, str] = field(default_factory=list)
+    transformations: Optional[List[Dict[str, Any]]] = None
+    selections: Optional[Dict[str, Any]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format (for backend compatibility).
+        
+        Returns:
+            Dictionary with geometry configuration in PolyFEM JSON format.
+        """
+        result = []
+        
+        # Convert meshes to list format
+        if isinstance(self.meshes, (str, GeometryMesh)):
+            mesh_list = [self.meshes]
+        else:
+            mesh_list = self.meshes
+        
+        for mesh_item in mesh_list:
+            if isinstance(mesh_item, GeometryMesh):
+                mesh_dict = mesh_item.to_dict()
+            elif isinstance(mesh_item, str):
+                mesh_dict = {"mesh": mesh_item}
+            else:
+                mesh_dict = mesh_item if isinstance(mesh_item, dict) else {"mesh": str(mesh_item)}
+            
+            # Add transformation if provided
+            if self.transformations and len(self.transformations) > 0:
+                mesh_dict["transformation"] = self.transformations[0]
+            
+            result.append(mesh_dict)
+        
+        # If no meshes, return empty list (C++ backend expects array)
+        if not result:
+            return []
+        
+        return result
+    
+    @classmethod
+    def from_dict(cls, d: Union[List[Dict[str, Any]], Dict[str, Any]]) -> "Geometry":
+        """Create Geometry from dictionary (backward compatibility).
+        
+        Args:
+            d: Dictionary or list with geometry configuration.
+            
+        Returns:
+            Geometry instance.
+        """
+        if isinstance(d, list):
+            meshes = []
+            for item in d:
+                if isinstance(item, dict):
+                    if "mesh" in item:
+                        meshes.append(GeometryMesh(
+                            mesh=item["mesh"],
+                            volume_selection=item.get("volume_selection"),
+                            surface_selection=item.get("surface_selection"),
+                            transformation=item.get("transformation")
+                        ))
+                    else:
+                        meshes.append(item)
+                else:
+                    meshes.append(item)
+            return cls(meshes=meshes)
+        elif isinstance(d, dict):
+            return cls(meshes=[d])
+        else:
+            return cls(meshes=[])
+
+
+# ============================================================================
+# Solver Configuration Classes
+# ============================================================================
+
+@dataclass
+class LinearSolver:
+    """Linear solver configuration - provides IDE autocomplete support.
+    
+    Attributes:
+        solver_type: Solver type (e.g., "Eigen::SparseLU", "Eigen::SimplicialLDLT", "Eigen::SparseQR").
+        solver_priority: List of solver types to try in order (C++ tries until one is available).
+        precond: Preconditioner type (optional).
+        max_iterations: Maximum iterations (optional).
+        tolerance: Tolerance (optional).
+    
+    Example:
+        >>> solver = LinearSolver(solver_type="Eigen::SparseLU")
+        >>> solver = LinearSolver(solver_priority=["Eigen::PardisoLDLT", "Eigen::SimplicialLDLT"])
+    """
+    solver_type: str = "Eigen::SparseLU"
+    solver_priority: Optional[List[str]] = None  # If set, used instead of solver_type (list format)
+    precond: Optional[str] = None
+    max_iterations: Optional[int] = None
+    tolerance: Optional[float] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format.
+        
+        Note: C++ backend expects "solver" key (not "solver_type") and can accept
+        either a string or a list of strings (for solver priority).
+        """
+        # C++ backend expects "solver" key, and can accept list for priority
+        solver_val = self.solver_priority if self.solver_priority is not None else self.solver_type
+        result = {"solver": solver_val}
+        if self.precond is not None:
+            result["precond"] = self.precond
+        if self.max_iterations is not None:
+            result["max_iterations"] = self.max_iterations
+        if self.tolerance is not None:
+            result["tolerance"] = self.tolerance
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "LinearSolver":
+        """Create LinearSolver from dictionary (handles solver list for priority)."""
+        ld = dict(d)
+        solver_val = ld.pop("solver", ld.pop("solver_type", None))
+        extra = {k: v for k, v in ld.items() if k in ("precond", "max_iterations", "tolerance")}
+        if isinstance(solver_val, list):
+            return cls(solver_priority=solver_val, **extra)
+        if solver_val is not None:
+            return cls(solver_type=solver_val, **extra)
+        return cls(**extra)
+
+
+@dataclass
+class NonlinearSolver:
+    """Nonlinear solver configuration - provides IDE autocomplete support.
+    
+    Attributes:
+        solver_type: Solver type (e.g., "newton", "newton_armijo", "newton_ls", "Newton").
+        max_iterations: Maximum iterations. Defaults to 100.
+        tolerance: Tolerance. Defaults to 1e-6.
+        grad_norm: Gradient norm tolerance (optional).
+        x_delta: Solution delta tolerance (optional).
+        iterations_per_strategy: Iterations per strategy (optional).
+        line_search: Line search configuration (can be string or dict with method).
+    
+    Example:
+        >>> solver = NonlinearSolver(solver_type="newton", max_iterations=50)
+        >>> solver = NonlinearSolver(solver_type="Newton", line_search={"method": "RobustArmijo"})
+    """
+    solver_type: str = "newton"
+    max_iterations: int = 100
+    tolerance: float = 1e-6
+    grad_norm: Optional[float] = None
+    x_delta: Optional[float] = None
+    iterations_per_strategy: Optional[int] = None
+    line_search: Optional[Union[str, Dict[str, Any]]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format. Minimal structure for C++ solver.
+        
+        Only include fields we explicitly set - omit max_iterations/tolerance when default,
+        so C++ inject_defaults adds them. This avoids schema validation failures that
+        occur when Python sends fields not in the root optional list.
+        """
+        result = {"solver": self.solver_type}
+        if self.max_iterations != 100:
+            result["max_iterations"] = self.max_iterations
+        if self.tolerance != 1e-6:
+            result["tolerance"] = self.tolerance
+        if self.grad_norm is not None:
+            result["grad_norm"] = self.grad_norm
+        if self.x_delta is not None:
+            result["x_delta"] = self.x_delta
+        if self.iterations_per_strategy is not None:
+            result["iterations_per_strategy"] = self.iterations_per_strategy
+        if self.line_search is not None:
+            if isinstance(self.line_search, dict):
+                # Schema oneOf fails when method-specific blocks (RobustArmijo, Armijo, etc.) are present.
+                # Only include "method" and shared line_search fields; no method-specific blocks.
+                line_search_cleaned = {}
+                if "method" in self.line_search:
+                    line_search_cleaned["method"] = self.line_search["method"]
+                    # Do NOT include method-specific keys (RobustArmijo, Armijo, etc.) - they cause schema errors
+                    for key in ["default_init_step_size", "max_step_size_iter", "max_step_size_iter_final",
+                               "min_step_size", "min_step_size_final", "step_ratio", "use_grad_norm_tol"]:
+                        if key in self.line_search:
+                            line_search_cleaned[key] = self.line_search[key]
+                else:
+                    # If no method specified, copy as-is (backward compatibility)
+                    line_search_cleaned = self.line_search
+                result["line_search"] = line_search_cleaned
+            else:
+                result["line_search"] = {"method": self.line_search}
+        return result
+
+
+@dataclass
+class Solver:
+    """Solver configuration - provides IDE autocomplete support.
+    
+    This class allows users to configure solver parameters with IDE autocomplete.
+    
+    Attributes:
+        linear: Linear solver configuration (optional).
+        nonlinear: Nonlinear solver configuration (optional).
+        max_threads: Maximum threads. Defaults to 1.
+        advanced: Advanced solver options (optional dict).
+    
+    Example:
+        >>> solver = Solver(
+        ...     linear=LinearSolver(solver_type="Eigen::SparseLU"),
+        ...     nonlinear=NonlinearSolver(max_iterations=50)
+        ... )
+    """
+    linear: Optional[LinearSolver] = None
+    nonlinear: Optional[NonlinearSolver] = None
+    max_threads: int = 1
+    advanced: Optional[Dict[str, Any]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format (for backend compatibility)."""
+        result = {}
+        if self.linear is not None:
+            linear_dict = self.linear.to_dict()
+            # C++ backend expects "solver" key in linear config
+            # If we have "solver_type", convert it to "solver"
+            if "solver_type" in linear_dict:
+                linear_dict["solver"] = linear_dict.pop("solver_type")
+            result["linear"] = linear_dict
+        if self.nonlinear is not None:
+            result["nonlinear"] = self.nonlinear.to_dict()
+        if self.max_threads != 1:
+            result["max_threads"] = self.max_threads
+        if self.advanced is not None:
+            # Support both: advanced as sub-object content {"lump_mass_matrix": ...}
+            # or as from_dict style {"advanced": {...}}
+            if "advanced" in self.advanced:
+                result.update(self.advanced)
+            else:
+                result["advanced"] = self.advanced
+        return result
+    
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Solver":
+        """Create Solver from dictionary (backward compatibility)."""
+        linear = None
+        if "linear" in d:
+            linear = LinearSolver.from_dict(d["linear"]) if isinstance(d["linear"], dict) else d["linear"]
+        
+        nonlinear = None
+        if "nonlinear" in d:
+            if isinstance(d["nonlinear"], dict):
+                # Filter out default solver config fields that cause JSON validation errors
+                nonlinear_dict = {k: v for k, v in d["nonlinear"].items() 
+                                if k not in ["ADAM", "L-BFGS", "L-BFGS-B", "Newton", 
+                                           "StochasticADAM", "StochasticGradientDescent"]}
+                # Map JSON "solver" key to NonlinearSolver.solver_type
+                if "solver" in nonlinear_dict and "solver_type" not in nonlinear_dict:
+                    nonlinear_dict["solver_type"] = nonlinear_dict.pop("solver")
+                nonlinear = NonlinearSolver(**nonlinear_dict)
+            else:
+                nonlinear = d["nonlinear"]
+        
+        return cls(
+            linear=linear,
+            nonlinear=nonlinear,
+            max_threads=d.get("max_threads", 1),
+            advanced={k: v for k, v in d.items() if k not in ["linear", "nonlinear", "max_threads"]}
+        )
+
+
+# ============================================================================
+# Time Configuration Classes
+# ============================================================================
+
+@dataclass
+class Time:
+    """Time configuration for transient problems - provides IDE autocomplete support.
+    
+    Attributes:
+        t0: Initial time. Defaults to 0.0.
+        tend: End time (required).
+        dt: Time step size (required).
+        time_steps: Number of time steps (optional, alternative to dt).
+        integrator: Time integrator type (e.g., "ImplicitEuler", "ImplicitNewmark").
+                   Defaults to "ImplicitEuler".
+    
+    Example:
+        >>> time = Time(t0=0.0, tend=1.0, dt=0.01, integrator="ImplicitEuler")
+    """
+    tend: float = field()
+    dt: Optional[float] = None
+    t0: float = 0.0
+    time_steps: Optional[int] = None
+    integrator: str = "ImplicitEuler"
+    
+    def __post_init__(self):
+        """Validate that either dt or time_steps is provided."""
+        if self.dt is None and self.time_steps is None:
+            raise ValueError("Time requires either dt or time_steps")
+        if self.dt is not None and self.time_steps is not None:
+            raise ValueError("Time cannot have both dt and time_steps")
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format."""
+        result = {
+            "t0": self.t0,
+            "tend": self.tend,
+            "integrator": self.integrator,
+        }
+        if self.dt is not None:
+            result["dt"] = self.dt
+        if self.time_steps is not None:
+            result["time_steps"] = self.time_steps
+        return result
+    
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Time":
+        """Create Time from dictionary (backward compatibility)."""
+        return cls(
+            t0=d.get("t0", 0.0),
+            tend=d.get("tend", 1.0),
+            dt=d.get("dt"),
+            time_steps=d.get("time_steps"),
+            integrator=d.get("integrator", "ImplicitEuler")
+        )
+
+
+# ============================================================================
+# Output Configuration Classes
+# ============================================================================
+
+@dataclass
+class ParaviewOutput:
+    """Paraview output configuration - provides IDE autocomplete support.
+    
+    Attributes:
+        volume: Export volume data. Defaults to True.
+        surface: Export surface data. Defaults to False.
+        wireframe: Export wireframe. Defaults to False.
+        points: Export points. Defaults to False.
+        file_name: Output file name (e.g., "sim.pvd"). Defaults to None.
+        options: Additional options (e.g., contact_forces, friction_forces, velocity, acceleration).
+        vismesh_rel_area: Visualization mesh relative area. Defaults to None.
+    
+    Example:
+        >>> paraview = ParaviewOutput(volume=True, surface=True, file_name="output.pvd")
+    """
+    volume: bool = True
+    surface: bool = False
+    wireframe: bool = False
+    points: bool = False
+    file_name: Optional[str] = None
+    options: Optional[Dict[str, Any]] = None
+    vismesh_rel_area: Optional[float] = None
+    skip_frame: Optional[int] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format."""
+        result = {
+            "volume": self.volume,
+            "surface": self.surface,
+            "wireframe": self.wireframe,
+            "points": self.points,
+        }
+        if self.file_name is not None:
+            result["file_name"] = self.file_name
+        if self.options is not None:
+            result["options"] = self.options
+        if self.vismesh_rel_area is not None:
+            result["vismesh_rel_area"] = self.vismesh_rel_area
+        if self.skip_frame is not None:
+            result["skip_frame"] = self.skip_frame
+        return result
+
+
+@dataclass
+class Output:
+    """Output configuration - provides IDE autocomplete support.
+    
+    Attributes:
+        directory: Output directory. Defaults to "output".
+        paraview: Paraview output configuration (optional).
+        json: Export JSON results (can be bool or string filename). Defaults to True.
+        log: Log configuration (level, etc.).
+        advanced: Advanced output options (e.g., save_time_sequence, save_solve_sequence_debug).
+    
+    Example:
+        >>> output = Output(directory="results", paraview=ParaviewOutput(volume=True))
+    """
+    directory: str = "output"
+    paraview: Optional[ParaviewOutput] = None
+    json: Union[bool, str] = True
+    log: Optional[Dict[str, Any]] = None
+    advanced: Optional[Dict[str, Any]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format (for backend compatibility)."""
+        result = {
+            "directory": self.directory,
+        }
+        if isinstance(self.json, str):
+            result["json"] = self.json
+        elif self.json:
+            result["json"] = True
+        
+        if self.paraview is not None:
+            result["paraview"] = self.paraview.to_dict()
+        if self.log is not None:
+            result["log"] = self.log
+        if self.advanced is not None:
+            result["advanced"] = self.advanced
+        return result
+    
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Output":
+        """Create Output from dictionary (backward compatibility)."""
+        paraview = None
+        if "paraview" in d:
+            if isinstance(d["paraview"], dict):
+                paraview = ParaviewOutput(**d["paraview"])
+            else:
+                paraview = d["paraview"]
+        
+        return cls(
+            directory=d.get("directory", "output"),
+            paraview=paraview,
+            json=d.get("json", True),
+            log=d.get("log"),
+            advanced=d.get("advanced")
+        )
+
+
+# ============================================================================
+# Contact Configuration Classes
+# ============================================================================
+
+@dataclass
+class Contact:
+    """Contact configuration - provides IDE autocomplete support.
+    
+    Attributes:
+        enabled: Enable contact. Defaults to False.
+        dhat: Contact distance threshold. Defaults to 0.01.
+        mu: Friction coefficient. Defaults to 0.0.
+        epsv: Viscosity parameter. Defaults to 0.0.
+        barrier_stiffness: Barrier stiffness. Defaults to 1e3.
+    
+    Example:
+        >>> contact = Contact(enabled=True, dhat=0.01, mu=0.5)
+    """
+    enabled: bool = False
+    dhat: float = 0.01
+    mu: float = 0.0
+    epsv: float = 0.0
+    barrier_stiffness: float = 1e3
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format."""
+        return {
+            "enabled": self.enabled,
+            "dhat": self.dhat,
+            "mu": self.mu,
+            "epsv": self.epsv,
+            "barrier_stiffness": self.barrier_stiffness,
+        }
+    
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Contact":
+        """Create Contact from dictionary (backward compatibility)."""
+        return cls(
+            enabled=d.get("enabled", False),
+            dhat=d.get("dhat", 0.01),
+            mu=d.get("mu", 0.0),
+            epsv=d.get("epsv", 0.0),
+            barrier_stiffness=d.get("barrier_stiffness", 1e3)
+        )
+
+
       

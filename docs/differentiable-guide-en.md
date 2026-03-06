@@ -50,6 +50,35 @@ grad = vertices.grad   # Gradient is computed automatically!
 
 **It's that simple!** No need to manually configure solver, no need to manually set cache, no need to manually call adjoint. All details are automatically handled by `solve_differentiable()`.
 
+### Config input (aligned with solve())
+
+`solve_differentiable()` accepts the same `cfg` styles as the main `solve()` API:
+
+**Option 1: JSON path** (when you have a config file and mesh files)
+
+```python
+result = solve_differentiable(cfg="path/to/config.json", derivative_type="shape")
+# When V, C are omitted, mesh is loaded from config's geometry via load_mesh_from_settings();
+# root_path is set to the JSON file's directory.
+```
+
+**Option 2: API classes** (building config in code)
+
+```python
+from polyfempy.api import SimulationConfig, Geometry, GeometryMesh
+cfg = SimulationConfig(
+    pde="LinearElasticity",
+    geometry=Geometry(meshes=[GeometryMesh(mesh="square.obj", surface_selection=[...])]),
+    materials=[...],
+    boundary_conditions={...},
+)
+cfg.extras["_root_path"] = str(data_dir)   # or pass root_path=str(data_dir)
+result = solve_differentiable(cfg=cfg, derivative_type="shape")
+# After backward, gradients are in result.vertices.grad
+```
+
+**Minimal runnable example**: `examples/differentiable_minimal.py` runs both options and prints forward/backward results; C++ log level is set to off for minimal output.
+
 ---
 
 ## Overview
@@ -311,15 +340,15 @@ The adjoint method is the core algorithm of Differentiable functionality, achiev
 
 This is why `solve_differentiable()` can efficiently compute gradients, even for large-scale optimization problems.
 
-### Relationship Between Differentiable and Backend
+### Relationship Between Differentiable and the C++ Extension
 
-#### Why Does Differentiable Need `nanobind` Backend?
+#### Why Does Differentiable Need the C++ Extension?
 
-**Core Reason**: Differentiable functionality needs direct access to C++ Solver objects and low-level methods, which can only be accessed through `nanobind` backend.
+**Core Reason**: Differentiable functionality needs direct access to C++ Solver objects and low-level methods, which are only available from the compiled `polyfempy` C++ extension (nanobind/pybind11).
 
 ##### 1. Need C++ Solver Object
 
-Differentiable functionality does not go through the new `solve()` API (which uses backend SPI), but directly uses the old `pf.Solver()` API:
+Differentiable does not go through the unified `solve()` entry point (which calls the C++ extension once per solve and does not expose the solver). It uses `pf.Solver()` directly and keeps solver state across forward/backward:
 
 ```python
 # solve_differentiable() internal implementation
@@ -346,7 +375,7 @@ ctx.solver.solve_adjoint(grad_output)  # C++ method
 grad = pf.shape_derivative(ctx.solver)  # C++ method
 ```
 
-These methods only have C++ implementation, must be accessed through `nanobind` backend.
+These methods only have C++ implementation and must be accessed through the compiled `polyfempy` C++ extension.
 
 ##### 3. Need Derivative Computation Functions
 
@@ -355,29 +384,11 @@ Differentiable needs to compute various derivatives:
 - `pf.elastic_material_derivative()`: Material parameter derivative
 - `pf.initial_velocity_derivative()`: Initial velocity derivative
 
-These all need real stiffness matrix, residual, and other intermediate results, which only `nanobind` backend can provide.
+These all need real stiffness matrix, residual, and other intermediate results, which only the C++ extension provides.
 
-#### Backend Check Mechanism
+#### C++ Extension Check
 
-`solve_differentiable()` will force check backend:
-
-```python
-def solve_differentiable(..., backend: str = "nanobind"):
-    if backend != "nanobind":
-        raise ValueError(
-            f"Differentiable simulations require 'nanobind' backend, got '{backend}'. "
-            "Please use backend='nanobind' and ensure the C++ module is built."
-        )
-    
-    # Check if C++ module is available
-    try:
-        import polyfempy as pf
-    except ImportError:
-        raise ImportError(
-            "PolyFEM C++ module is required for differentiable simulations. "
-            "Please build the C++ module first."
-        )
-```
+`solve_differentiable()` checks that the C++ extension is available (e.g. via `polyfempy.cpp_backend_available()` or a direct import); if not built, it raises a clear error telling the user to build the C++ module first.
 
 #### Architecture Comparison
 
@@ -385,64 +396,57 @@ def solve_differentiable(..., backend: str = "nanobind"):
 ```
 User Code
     ↓
-solve() - Unified Interface
+solve() - Unified interface (solve.py)
     ↓
-Backend SPI (backend_base.py)
+Direct call to polyfempy C++ extension (Route A)
     ↓
-backend_nanobind.py
-    ↓
-Return Result Object
+Return Result object
 ```
 
 **Differentiable API**:
 ```
 User Code
     ↓
-solve_differentiable() - High-level Wrapper
+solve_differentiable() - High-level wrapper
     ↓
-Directly Use pf.Solver() (C++ API)
+Direct use of pf.Solver() with state kept (C++ API)
     ↓
-PolyFEMFunction (PyTorch Integration)
+PolyFEMFunction (PyTorch integration)
     ↓
-Return DifferentiableResult Object
+Return DifferentiableResult object
 ```
 
 **Key Differences**:
-- `solve()` goes through backend SPI, uses unified interface
-- `solve_differentiable()` directly uses C++ API, bypasses backend SPI
+- `solve()`: Each call is a single solve; it calls the C++ extension and returns, without exposing the Solver object.
+- `solve_differentiable()`: Needs to keep Solver state across forward/backward, so it uses `pf.Solver()` directly and does not go through the `solve()` wrapper.
 
-#### Why Not Through Backend SPI?
+#### Why Doesn’t solve_differentiable Go Through solve()?
 
-Theoretically, `backend_nanobind.py` could expose Solver object, but this would:
-1. **Break Encapsulation**: Backend SPI is designed as black-box interface, shouldn't expose internal objects
-2. **Increase Complexity**: Need to add special methods to SPI
-3. **Unnecessary**: Differentiable is advanced functionality, directly using C++ API is clearer
+Exposing the Solver in the `solve()` layer or adding a “differentiable mode” there would:
+1. **Increase coupling**: `solve()` is currently a simple “config → solve → result” path; it is not meant to hold state or backward logic.
+2. **Keep responsibilities clear**: Differentiable as a separate module using `pf.Solver()` directly is easier to maintain.
+3. **Same dependency**: Both rely on the same C++ extension; they just use it differently (one-shot vs stateful).
 
 #### Usage Recommendations
 
-1. **Ensure C++ Module is Compiled**:
-   - `solve_differentiable()` needs the C++ extension module `polyfempy` (nanobind or pybind11 backend)
-   - If not compiled, will provide clear error message
-
-2. **Error Handling**:
-   - If C++ module is not compiled, `solve_differentiable()` will raise `ImportError`
-   - If wrong backend is passed, will immediately raise `ValueError`
+1. **Ensure the C++ extension is built**: `solve_differentiable()` depends on the `polyfempy` C++ extension (either nanobind or pybind11 build). If not built, a clear error is shown.
+2. **Error handling**: If the C++ extension is not loaded, an appropriate `ImportError` or module error is raised.
 
 #### Summary
 
 | Aspect | `solve()` | `solve_differentiable()` |
 |--------|-----------|-------------------------|
-| **Backend** | `nanobind` | `nanobind` |
-| **API Path** | Backend SPI | Direct C++ API |
-| **Solver Object** | Not exposed | Directly use `pf.Solver()` |
+| **Entry** | solve.py unified entry | Direct use of `pf.Solver()` |
+| **API path** | solve() → C++ extension | Direct C++ API (keep Solver state) |
+| **Solver object** | Not exposed | Direct use of `pf.Solver()` |
 | **Purpose** | Regular simulation | Gradient computation, optimization |
-| **Dependencies** | Needs C++ module | Needs C++ module |
+| **Dependencies** | Needs C++ extension | Needs C++ extension |
 
 ---
 
 ## API Design
 
-Differentiable functionality is provided as an independent module, separated from the base `solve()` API:
+Differentiable functionality is provided as an independent module, with **cfg forms aligned with solve()** (str path / dict / SimulationConfig):
 
 ```python
 # Base API (all users)
@@ -451,7 +455,11 @@ result = solve(V, C, cfg)
 
 # Differentiable API (users who need gradients)
 from polyfempy.differentiable import solve_differentiable
-result = solve_differentiable(V, C, cfg)
+# Style 1: pass V, C, cfg (in-memory mesh)
+result = solve_differentiable(V, C, cfg, derivative_type="shape")
+# Style 2: pass only cfg; mesh loaded from config's geometry (root_path required)
+result = solve_differentiable(cfg="path/to/config.json", derivative_type="shape")
+result = solve_differentiable(cfg=SimulationConfig(...), root_path=str(data_dir), ...)
 ```
 
 **Design Advantages**:
@@ -798,7 +806,7 @@ This solves the adjoint problem, preparing for subsequent derivative computation
 ### Limitations and Future Improvements
 
 **Current Limitations**:
-- Must use `nanobind` backend, requires compiling C++ module
+- Requires the C++ extension (polyfempy) to be built; otherwise unavailable
 - Can only compute one derivative type at a time
 
 **Future Improvements**:

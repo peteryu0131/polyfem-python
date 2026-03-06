@@ -31,13 +31,16 @@ htmlcov/
 *.vtu
 *.pvd
 *.csv
-examples/output/
+*.npz
+# Ignore output contents but keep folder visible (track examples/output/.gitkeep)
+examples/output/*
+!examples/output/.gitkeep
 # Ignore output JSON files (like sim.json), but keep config files
 sim.json
-examples/output/*.json
 
 # IDE
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.sublime-workspace
 *.sublime-project
@@ -78,3 +81,7 @@ ENV/
 temp-plot.html
 copy_lib
 build_verbose.txt
+
+# OS metadata
+.DS_Store
+Thumbs.db

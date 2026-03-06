@@ -52,6 +52,47 @@ grad = vertices.grad   # Gradient is computed automatically!
 
 **就这么简单！** 不需要手动配置 solver，不需要手动设置缓存，不需要手动调用 adjoint。所有细节都由 `solve_differentiable()` 自动处理。
 
+### 配置输入方式（与 solve() 一致）
+
+`solve_differentiable()` 的 `cfg` 与主 API `solve()` 对齐，支持两种常用方式：
+
+**方式一：JSON 路径**（适合已有配置文件与网格文件）
+
+```python
+result = solve_differentiable(cfg="path/to/config.json", derivative_type="shape")
+# 不传 V、C 时，内部从 config 的 geometry 用 load_mesh_from_settings() 加载网格；
+# root_path 自动取 JSON 所在目录。
+```
+
+**方式二：API 类构建 cfg**（适合在代码里直接拼配置）
+
+```python
+from polyfempy.api import SimulationConfig, Geometry, GeometryMesh
+cfg = SimulationConfig(
+    pde="LinearElasticity",
+    geometry=Geometry(meshes=[GeometryMesh(mesh="square.obj", surface_selection=[...])]),
+    materials=[...],
+    boundary_conditions={...},
+)
+cfg.extras["_root_path"] = str(数据目录)   # 或传 root_path=str(数据目录)
+result = solve_differentiable(cfg=cfg, derivative_type="shape")
+# 反向后梯度在 result.vertices.grad
+```
+
+**最小可运行示例**：`examples/differentiable_minimal.py` 会分别演示上述两种方式并打印前向/反向结果；C++ 端 log 已设为 off，输出简洁。
+
+### load_mesh_from_settings 与 set_mesh(V, C)
+
+`solve_differentiable()` 内部有两种给 C++ 提供网格的方式，由你是否传入 `V`、`C` 决定：
+
+| 条件 | C++ 端做法 | 说明 |
+|------|------------|------|
+| **不传 V、C**，且 cfg 里有 `geometry` | **load_mesh_from_settings()** | 按 config 里的 mesh 路径（相对 path 需有 root_path）从文件加载网格；边界由 surface_selection 等从文件/配置解析。当前**推荐**、稳定。 |
+| **传 V、C** | **set_mesh(V, C)** | 用内存里的顶点 `V` 和单元 `C` 直接设到 C++ mesh；边界不会从文件来，需用 **sidesets_func** 等为边界单元指定 ID（否则可能报 “need Dirichlet nodes”）。部分 C++ 构建在此路径下执行 `solve()` 时会 **bad_alloc**，属已知问题；多步形状优化若依赖此路径可能需等 C++ 修复。 |
+
+- **只做单次可微 + 梯度**：用 cfg（JSON 或 SimulationConfig）+ 不传 V/C 即可，走 load_mesh_from_settings，无需关心 set_mesh。
+- **多步迭代且每步改顶点**：需要每步传新的 `V` 和同一 `C`，即走 set_mesh(V,C) 路径；若遇 bad_alloc，可先只做单次链路或等 C++ 修复。
+
 ---
 
 ## 概述
@@ -313,15 +354,15 @@ dJ/dθ = ∂J/∂θ + λ^T · F_θ
 
 这就是为什么 `solve_differentiable()` 能够高效计算梯度，即使对于大规模优化问题也是如此。
 
-### Differentiable 与 Backend 的关系
+### Differentiable 与 C++ 扩展的关系
 
-#### 为什么 Differentiable 需要 `nanobind` backend？
+#### 为什么 Differentiable 需要 C++ 扩展？
 
-**核心原因**：Differentiable 功能需要直接访问 C++ Solver 对象和底层方法，这些功能只有通过 `nanobind` backend 才能访问。
+**核心原因**：Differentiable 功能需要直接访问 C++ Solver 对象和底层方法，这些只能通过编译出的 `polyfempy` C++ 扩展（nanobind/pybind11）获得。
 
 ##### 1. 需要 C++ Solver 对象
 
-Differentiable 功能不通过新的 `solve()` API（它使用 backend SPI），而是直接使用旧的 `pf.Solver()` API：
+Differentiable 功能不经过统一的 `solve()` 入口（`solve()` 内部会直接调 C++ 扩展但每次调用是“单次求解”），而是直接使用 `pf.Solver()` API 并保持 solver 状态：
 
 ```python
 # solve_differentiable() 内部实现
@@ -348,7 +389,7 @@ ctx.solver.solve_adjoint(grad_output)  # C++ 方法
 grad = pf.shape_derivative(ctx.solver)  # C++ 方法
 ```
 
-这些方法只有 C++ 实现，必须通过 `nanobind` backend 访问。
+这些方法只有 C++ 实现，必须通过已编译的 `polyfempy` C++ 扩展访问。
 
 ##### 3. 需要导数计算功能
 
@@ -357,29 +398,11 @@ Differentiable 需要计算各种导数：
 - `pf.elastic_material_derivative()`：材料参数导数
 - `pf.initial_velocity_derivative()`：初始速度导数
 
-这些都需要真实的刚度矩阵、残差等中间结果，只有 `nanobind` backend 能提供。
+这些都需要真实的刚度矩阵、残差等中间结果，只有 C++ 扩展能提供。
 
-#### Backend 检查机制
+#### C++ 扩展检查
 
-`solve_differentiable()` 会强制检查 backend：
-
-```python
-def solve_differentiable(..., backend: str = "nanobind"):
-    if backend != "nanobind":
-        raise ValueError(
-            f"Differentiable simulations require 'nanobind' backend, got '{backend}'. "
-            "Please use backend='nanobind' and ensure the C++ module is built."
-        )
-    
-    # 检查 C++ 模块是否可用
-    try:
-        import polyfempy as pf
-    except ImportError:
-        raise ImportError(
-            "PolyFEM C++ module is required for differentiable simulations. "
-            "Please build the C++ module first."
-        )
-```
+`solve_differentiable()` 会检查 C++ 扩展是否可用（例如通过 `polyfempy.cpp_backend_available()` 或直接 import）；若未编译则抛出明确错误，提示先构建 C++ 模块。
 
 #### 架构对比
 
@@ -387,11 +410,9 @@ def solve_differentiable(..., backend: str = "nanobind"):
 ```
 用户代码
     ↓
-solve() - 统一接口
+solve() - 统一接口（solve.py）
     ↓
-Backend SPI (backend_base.py)
-    ↓
-backend_nanobind.py
+直接调用 polyfempy C++ 扩展（Route A）
     ↓
 返回 Result 对象
 ```
@@ -402,7 +423,7 @@ backend_nanobind.py
     ↓
 solve_differentiable() - 高级封装
     ↓
-直接使用 pf.Solver() (C++ API)
+直接使用 pf.Solver() 并保持状态（C++ API）
     ↓
 PolyFEMFunction (PyTorch 集成)
     ↓
@@ -410,41 +431,36 @@ PolyFEMFunction (PyTorch 集成)
 ```
 
 **关键区别**：
-- `solve()` 通过 backend SPI，使用统一的接口
-- `solve_differentiable()` 直接使用 C++ API，绕过 backend SPI
+- `solve()`：每次调用是“单次求解”，内部调 C++ 扩展后即返回，不暴露 Solver 对象。
+- `solve_differentiable()`：需要跨 forward/backward 保持 Solver 状态，故直接使用 `pf.Solver()`，不经过 `solve()` 的封装。
 
-#### 为什么不能通过 Backend SPI？
+#### 为什么 solve_differentiable 不经过 solve()？
 
-理论上可以让 `backend_nanobind.py` 暴露 Solver 对象，但这样会：
-1. **破坏封装**：Backend SPI 设计为黑盒接口，不应该暴露内部对象
-2. **增加复杂度**：需要在 SPI 中增加特殊方法
-3. **不必要**：Differentiable 是高级功能，直接使用 C++ API 更清晰
+若在 `solve()` 的封装层暴露 Solver 对象或增加“可微模式”，会：
+1. **增加耦合**：`solve()` 目前是“配置 → 求解 → 结果”的简单路径，不宜承载状态保持与反向传播逻辑。
+2. **职责清晰**：Differentiable 作为独立模块，直接使用 `pf.Solver()` 更易维护。
+3. **依赖一致**：两者都依赖同一 C++ 扩展，只是使用方式不同（单次调用 vs 状态保持）。
 
 #### 使用建议
 
-1. **确保 C++ 模块已编译**：
-   - `solve_differentiable()` 需要 C++ 扩展模块 `polyfempy`（nanobind/pybind11 任一后端）
-   - 如果未编译，会给出清晰的错误提示
-
-2. **错误处理**：
-   - 如果 C++ 模块未编译，`solve_differentiable()` 会抛出 `ImportError`
-   - 如果传入错误的 backend，会立即抛出 `ValueError`
+1. **确保 C++ 扩展已编译**：`solve_differentiable()` 依赖 `polyfempy` 的 C++ 扩展（nanobind 或 pybind11 任一构建均可）。未编译时会给出明确错误。
+2. **错误处理**：若 C++ 扩展未加载，会抛出相应 `ImportError` 或模块提供的错误信息。
 
 #### 总结
 
 | 方面 | `solve()` | `solve_differentiable()` |
 |------|-----------|-------------------------|
-| **Backend** | `nanobind` | `nanobind` |
-| **API 路径** | Backend SPI | 直接 C++ API |
+| **入口** | solve.py 统一入口 | 直接使用 `pf.Solver()` |
+| **API 路径** | solve() → C++ 扩展 | 直接 C++ API（保持 Solver 状态） |
 | **Solver 对象** | 不暴露 | 直接使用 `pf.Solver()` |
 | **用途** | 普通仿真 | 梯度计算、优化 |
-| **依赖** | 需要 C++ 模块 | 需要 C++ 模块 |
+| **依赖** | 需要 C++ 扩展 | 需要 C++ 扩展 |
 
 ---
 
 ## API 设计
 
-Differentiable 功能作为独立模块提供，与基础 `solve()` API 分离：
+Differentiable 功能作为独立模块提供，与基础 `solve()` API 分离，且 **cfg 形式与 solve() 一致**（str 路径 / dict / SimulationConfig）：
 
 ```python
 # 基础 API（所有用户）
@@ -453,7 +469,11 @@ result = solve(V, C, cfg)
 
 # Differentiable API（需要梯度的用户）
 from polyfempy.differentiable import solve_differentiable
-result = solve_differentiable(V, C, cfg)
+# 写法 1：传 V, C, cfg（内存网格）
+result = solve_differentiable(V, C, cfg, derivative_type="shape")
+# 写法 2：只传 cfg，从 config 的 geometry 加载网格（需 root_path）
+result = solve_differentiable(cfg="path/to/config.json", derivative_type="shape")
+result = solve_differentiable(cfg=SimulationConfig(...), root_path=str(data_dir), ...)
 ```
 
 **设计优势**：
@@ -800,7 +820,7 @@ ctx.solver.solve_adjoint(grad_output)
 ### 限制和未来改进
 
 **当前限制**：
-- 必须使用 `nanobind` backend，需要编译 C++ 模块
+- 必须已编译 C++ 扩展（polyfempy），否则无法使用
 - 一次只能计算一种导数类型
 
 **未来改进**：
