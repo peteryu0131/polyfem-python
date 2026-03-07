@@ -13,7 +13,6 @@ Important:
 # torch is an optional dependency, so type checker may not find it
 
 import numpy as np
-from typing import Optional, List, Dict, Any, Union
 
 try:
     import torch  # pyright: ignore[reportMissingImports]

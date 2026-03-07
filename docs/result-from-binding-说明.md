@@ -71,3 +71,44 @@
 - **老师建议**：在 **C++ 绑定**里就把「计算出的 result」整理成 Result 要用的形式（或在绑定里提供单一接口返回这份形式），Python 只负责用这份「已经设置好」的数据显示在 Result class 里。
 - **是否必须改 C++ 绑定**：要**完全**按老师建议做，**需要改 C++ 绑定**；不能改时可以先在 Python 里做「单点拼装」当过渡。
 - **按老师建议做的好处**：契约清晰、Python 不再试探、易扩展、类型和行为更稳定。
+
+---
+
+## 七、已做的改动（按老师建议）
+
+- **C++ `src/state/state.cpp`**：`Solver::solve()` 不再返回 `(sol, pressure)`，而是在算完后在绑定层组装一个 **结果包**（dict）：调用 `get_vertices`、`get_elements`，并放入 `sol`、`pressure`，键为 `vertices`、`cells`、`u`、`p`、`_result_bundle`，然后 **返回该 dict**。这样「计算出的 result」在**绑定的时候**就设置成 Python Result 需要的结构。
+- **Python `polyfempy/api/solve.py`**：若 `solver.solve()` 的返回值是带有 `_result_bundle` 且含 `vertices`、`u` 的 dict，则**直接用该 dict 构造 Result**，不再走原来的「试探 get_vertices / get_elements / get_solution」分支。其他返回形式（如旧版 tuple 或仅有 getter 的接口）仍保留，兼容旧行为。
+
+---
+
+## 八、Result 是不是用户想要的？能包含「所有 result」吗？
+
+### 当前行为：Result 已经是「能拿到的全部」
+
+- **结果包里**（绑定返回）：只放「核心」——`vertices`、`cells`、`u`、`p`。  
+- **构造 Result 时**：对 result_bundle 分支仍然会调 **`_extract_additional_fields(solver, fields, meta)`**，所以会从 solver 再拉一遍：
+  - `stress`（get_stress / get_cauchy_stress）
+  - `strain`（get_strain）
+  - `energy`、`p`、`velocity`、`stats` 等（只要 C++ 暴露了对应 getter）。
+- 因此 **最终传给用户的 `Result`** = 结果包里的核心 + 上述额外字段/meta，即：**当前 C++ 能提供的、我们代码会取的部分，都会放进 Result**。  
+- 用户拿到的就是「我们这边能组装出的最完整 Result」，没有故意少给；若 C++ 没暴露某字段（例如没有 get_stress），那 Result 里本来就没有该字段，和是否用结果包无关。
+
+### 若想「全部都在绑定里设置好」
+
+- 若希望**连 stress、strain、energy 等也一律在绑定里塞进结果包**（完全不在 Python 里再调 getter），可以：
+  - 在 C++ 的 `solve()` 里，在组装 bundle 时再调用 State 上已有的、或后续要加的接口（如 get_stress、get_strain、get_energy 等），
+  - 把能拿到的都放进同一个 dict，再返回。
+- 这样「所有 result」都在绑定层设置好，Python 端对 result_bundle 分支可以不再调 `_extract_additional_fields`（或只补极少数 C++ 暂时没暴露的）。  
+- 代价是：要在 C++ 里维护「要往 bundle 里塞哪些字段」的清单，和 PolyFEM State 的 API 保持一致；新增/删除字段时改 C++ 一处即可。
+
+### 小结与推荐
+
+- **推荐**：**全部在绑定**（所有 result 都在绑定层塞进结果包）更好，契约清晰、Python 不试探、易扩展。
+- **当前实现**：
+  - C++：结果包已包含 `vertices`、`cells`、`u`、`p`；并预留注释，当 polyfem::State 提供 `get_stress`/`get_strain`/`get_energy` 等时，在 `state.cpp` 里取消注释即可把 stress、strain、energy 等一并放入 bundle。
+  - Python：若 bundle 里已有 `stress`、`strain`、`energy`、`v`、`meta`，会从 bundle 填入 `fields`/`meta`；未在 bundle 的仍由 `_extract_additional_fields` 从 solver getter 补全，保证 Result 尽量完整。
+
+| 问题 | 回答 |
+|------|------|
+| 怎么知道 Result 是不是用户想要的？ | 我们这边会把**能拿到的**都放进 Result（先来自 bundle，缺的由 _extract_additional_fields 补）。用户拿到的是当前能力下最完整的 Result。 |
+| 可以写到包括所有 result 吗？ | 可以，且**推荐全部在绑定**。C++ 已对核心 + 可选字段（stress/strain/energy）预留扩展；Python 会使用 bundle 里的全部键并再补 getter 能提供的字段。 |

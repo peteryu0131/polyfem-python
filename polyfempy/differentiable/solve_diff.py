@@ -27,7 +27,6 @@ def solve_differentiable(
     root_path: Optional[str] = None,
     differentiable_params: Optional[List[str]] = None,
     derivative_type: str = "shape",
-    backend: str = "nanobind",
     sidesets_func: Optional[callable] = None
 ) -> DifferentiableResult:
     """Solve with automatic gradient computation.
@@ -55,7 +54,6 @@ def solve_differentiable(
             root_path for resolving mesh files (e.g. root_path=str(Path("data").resolve())).
         differentiable_params: Parameter names to make differentiable. Default: ["geometry"].
         derivative_type: "shape", "periodic_shape", "material", "initial_velocity", etc.
-        backend: Must be "nanobind".
 
     Returns:
         DifferentiableResult with .u, .vertices (backward 后 .vertices.grad 为形状导数).
@@ -65,13 +63,7 @@ def solve_differentiable(
             "PyTorch is required for differentiable simulations. "
             "Please install PyTorch: pip install torch"
         )
-    
-    if backend != "nanobind":
-        raise ValueError(
-            f"Differentiable simulations require 'nanobind' backend, got '{backend}'. "
-            "The 'dummy' backend does not support differentiable operations."
-        )
-    
+
     try:
         import polyfempy as pf
     except ImportError:

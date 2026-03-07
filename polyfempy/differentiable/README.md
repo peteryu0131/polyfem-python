@@ -50,12 +50,11 @@ Main function for differentiable simulations.
 
 ```python
 result = solve_differentiable(
-    V,                    # Vertices (numpy or torch.Tensor)
-    C,                    # Connectivity
+    V,                    # Vertices (numpy or torch.Tensor), or None for config+mesh mode
+    C,                    # Connectivity, or None for config+mesh mode
     cfg,                  # Configuration (dict or SimulationConfig)
     differentiable_params=["geometry"],  # Which parameters are differentiable
     derivative_type="shape",            # Type of derivative
-    backend="nanobind"                  # Must be "nanobind"
 )
 ```
 
@@ -70,11 +69,10 @@ Result container with PyTorch tensors that support `.backward()`.
 ## Requirements
 
 - PyTorch (for gradient computation)
-- PolyFEM C++ module (nanobind backend)
+- PolyFEM C++ module (built with differentiable support)
 
 ## Notes
 
-- Differentiable simulations require the `nanobind` backend (not `dummy`)
 - The C++ module must be built with differentiable support
 - Currently uses the old `pf.Solver()` API internally for direct access to differentiable features
 

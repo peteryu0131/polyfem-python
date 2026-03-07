@@ -432,7 +432,24 @@ void define_solver(py::module_ &m)
             s.save_json(sol);
             s.export_data(sol, pressure);
 
-            return py::make_tuple(sol, pressure);
+            // 在绑定层组装「Result 用的结果包」——全部在绑定设置好（老师建议）
+            Eigen::MatrixXd vertices, elements;
+            s.get_vertices(vertices);
+            s.get_elements(elements);
+            py::dict bundle;
+            bundle["vertices"] = vertices;
+            bundle["cells"] = elements;
+            bundle["u"] = sol;
+            bundle["p"] = pressure;
+            bundle["_result_bundle"] = true;
+
+            // 可选：当 polyfem::State 提供以下 API 时，取消注释即可把「全部 result」放进 bundle
+            // Eigen::MatrixXd stress, strain;
+            // if (s.get_stress(sol, stress)) bundle["stress"] = stress;
+            // if (s.get_strain(sol, strain)) bundle["strain"] = strain;
+            // double energy = s.get_energy(sol); bundle["energy"] = energy;  // 或写入 meta
+
+            return bundle;
           },
           "solve the pde", py::arg("log_level") = int(3))
       .def(

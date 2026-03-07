@@ -45,6 +45,15 @@ class DifferentiableResult:
         self.meta["backend"] = "nanobind"
         self.meta["differentiable"] = True
         self.meta["derivative_type"] = derivative_type
+
+    def release_solver(self) -> None:
+        """Release the C++ Solver reference and detach the solution from the autograd graph.
+
+        Call this after backward() when you no longer need gradients. This allows the
+        C++ Solver to be freed and avoids nanobind's 'leaked instances' message at exit.
+        """
+        self.solver = None
+        self.u = self.u.detach()
     
     def to_numpy(self) -> Dict[str, np.ndarray]:
         """Convert PyTorch tensors to numpy arrays."""

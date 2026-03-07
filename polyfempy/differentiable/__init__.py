@@ -5,7 +5,8 @@ Most users don't need this - only use if you need gradients.
 
 Main exports:
     - solve_differentiable: Differentiable version of solve()
-    - PolyFEMFunction: PyTorch Function wrapper for custom use cases
+    - PolyFEMFunction: PyTorch Function wrapper (use solve_differentiable in most cases)
+    - DifferentiableResult: result container with .u, .vertices, .vertices.grad after backward
 """
 
 # pyright: reportMissingImports=false
@@ -28,13 +29,10 @@ if _TORCH_AVAILABLE:
     from .solve_diff import solve_differentiable
     from .torch_integration import PolyFEMFunction
     from .result_diff import DifferentiableResult
-    from .helpers import create_shape_optimizer, gradient_check
     __all__ = [
         "solve_differentiable",
         "PolyFEMFunction",
         "DifferentiableResult",
-        "create_shape_optimizer",
-        "gradient_check"
     ]
 else:
     __all__ = []
