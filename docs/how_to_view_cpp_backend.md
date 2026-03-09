@@ -241,7 +241,7 @@ print(json.dumps(solver_nonlinear_dict, indent=2))
 
 ### 3. 对比工作示例
 
-对比 `contact_5_cubes.py`（使用 `from_json_file`）和 `python_config_5_cubes.py`（手动构建）的差异。
+参考 `examples/python_config_5_cubes.py`（用 API 类手动构建 cfg）的完整流程。
 
 ## 完整代码流程示例
 

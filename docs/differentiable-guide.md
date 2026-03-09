@@ -5,8 +5,9 @@
 > Note (Route A): Python 统一 `import polyfempy as pf`（稳定的 C++ 扩展模块名）。
 > nanobind/pybind11 只是编译后端差异；且 C++ 绑定 `Solver.solve()` 返回 `(sol, pressure)`，Python 侧必须接收返回值。
 
-**相关文档**：
-- [Differentiable Guide (English)](differentiable-guide-en.md) - English version of this guide
+**相关文档**：[neurips-api-and-ml-roadmap.md](neurips-api-and-ml-roadmap.md)（已做改进、示例、下一步）、[shape-contract.md](shape-contract.md)（result.u 等）。
+
+**演示**：`python examples/differentiable_single_step.py`（可微单步 + 形状梯度）；`python examples/python_config_5_cubes.py`（主 API、结果包）。
 
 ## 目录
 
@@ -79,7 +80,7 @@ result = solve_differentiable(cfg=cfg, derivative_type="shape")
 # 反向后梯度在 result.vertices.grad
 ```
 
-**最小可运行示例**：`examples/differentiable_minimal.py` 会分别演示上述两种方式并打印前向/反向结果；C++ 端 log 已设为 off，输出简洁。
+**可运行示例**：`examples/differentiable_single_step.py` 用 API 类构建 cfg，跑前向+反向+形状梯度；C++ 端 log 已设为 off。
 
 ### load_mesh_from_settings 与 set_mesh(V, C)
 

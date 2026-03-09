@@ -62,7 +62,7 @@
 ### 2.3 物理信息神经网络（PINNs）与 FEM 结合
 
 - **思路**：用 FEM 解作为**强约束或弱约束**：例如在 PINNs 的 loss 里加入「在部分采样点/边界上满足 FEM 解」的项，或用 FEM 残差作为物理 loss；也可用 PolyFEM 解做 curriculum / 预训练。
-- **与 API 的关系**：`solve()` 提供**参考解或残差样本**；API 只需稳定输出场与网格（如 `Result.point_data`、`Result.vertices`），便于与 PyTorch 张量对齐。
+- **与 API 的关系**：`solve()` 提供**参考解或残差样本**；用 **`result.u`**、**`result.vertices`**（或 `point_data`）取场，需 PyTorch 时对普通 Result 调用 **`result.to_torch()`**，便于与 PyTorch 张量对齐。
 - **NeurIPS 相关性**：PINNs、physics-informed learning、hybrid methods 持续有投稿；可强调「FEM + NN」的混合架构与理论/实验。
 
 **可做的点**：
@@ -111,8 +111,8 @@
 
 ### 3.4 结果格式与 PyTorch/JAX 对齐
 
-- **Result 字段**：保证 `Result` / `DifferentiableResult` 的场（如 `u`、应力、应变）能稳定以 NumPy/PyTorch 形式取出，且 shape 一致（例如 (N, dim)），便于与 NN 输入输出对齐。
-- **可选**：提供 `result.to_torch()` 或 `result.to_jax()` 的便捷方法（若已有 `to_backend` 可在此强调），减少用户手写转换。
+- **已落实**：**Shape contract** 见 [shape-contract.md](shape-contract.md)（vertices、u、stress、strain 等 shape 写死）；**Result** 提供 **`.u`**、**`.p`**、**`.stress`**、**`.strain`**，与 DifferentiableResult 一致；**`result.to_torch(include_mesh=True)`** 已实现，普通 Result 可原地转 PyTorch（DifferentiableResult 无需 to_torch）。示例见 `examples/python_config_5_cubes.py`。
+- **可继续**：保证所有场按 shape contract 稳定输出；若需 JAX，可提供 `result.to_jax()` 或沿用 `to_backend("jax")` 的文档说明。
 
 ### 3.5 JAX 可微（中长期）
 
@@ -166,11 +166,11 @@ optimizer.step()  # 更新 V 或其它参数
 2. **两种输入方式**  
    - **方式一**：`solve_differentiable(cfg="path/to/config.json", derivative_type="shape")`。  
    - **方式二**：用 `SimulationConfig`、`Geometry`、`GeometryMesh` 等 API 类构建 `cfg`，再 `solve_differentiable(cfg=cfg, root_path=str(data_dir), ...)`。  
-   - 详见 `examples/differentiable_minimal.py`，脚本会分别跑两种方式并打印前向/反向结果，说明两种写法都可用。
+   - 见 `examples/differentiable_single_step.py`（API 类构建 cfg，前向+反向+形状梯度）。
 
 3. **环境与验证**  
    - 需已安装 PyTorch，并已编译/加载 C++ 扩展（nanobind，且支持 differentiable）。  
-   - 运行 `python examples/differentiable_minimal.py` 可验证前向+反向及 `result.vertices.grad`。  
+   - 运行 `python examples/differentiable_single_step.py` 可验证前向+反向及 `result.vertices.grad`。  
    - C++ 端 log 已设为 off（`set_log_level(6)`），控制台输出已简化。
 
 ---
@@ -181,20 +181,20 @@ optimizer.step()  # 更新 V 或其它参数
 
 | 优先级 | 事项 | 说明 |
 |--------|------|------|
-| 1 | **跑通最小示例** | 若尚未在本地跑通，先完成 C++ 扩展编译并运行 `examples/differentiable_minimal.py`。 |
+| 1 | **跑通最小示例** | 若尚未在本地跑通，先完成 C++ 扩展编译并运行 `examples/differentiable_single_step.py`。 |
 | 2 | **选一个 ML 方向做小实验** | 从第二节选一个方向（如 2.1 形状优化、2.2 神经算子数据生成），用当前 API 做一个小规模实验（单问题/小网格），验证流程并熟悉 `result.u`、`result.vertices.grad` 的用法。 |
 | 3 | **批量化 / DataLoader 示例** | 在 `examples/` 或文档中加一个「多组 (cfg 或 V,C,cfg) 循环 + 合并为 batch / Dataset」的示例，便于神经算子或代理模型的数据管线。 |
 | 4 | **导数类型与配置文档** | 在 differentiable 文档或 docstring 中列出所有 `derivative_type`（shape、material、initial_velocity 等）及对应物理含义，方便写方法描述和实验。 |
 | 5 | **论文/投稿细化** | 确定具体 track（如 ML4PS、NeurIPS 主会应用等），再细化「问题设定 + 方法 + 实验设计」；可把本文档中的「方向综述」与「API 改进清单」拆成两个短文档便于分工。 |
 
-更细的待办清单见 [下一步清单](next-steps.md)。
+更细的待办与相关文档见 [neurips-api-and-ml-roadmap.md](neurips-api-and-ml-roadmap.md) 第五节。
 
 ---
 
 ## 七、总结
 
 - **已有基础**：多后端数组（含 PyTorch/JAX 入出）、可微求解（伴随法、多种导数）、与 PyTorch 优化循环兼容；`solve_differentiable()` 已与 `solve()` 对齐（cfg 支持路径/ dict/SimulationConfig，两种输入方式均有示例）。
-- **当前状态**：最小示例 `examples/differentiable_minimal.py` 已覆盖「JSON 路径」与「API 类构建 cfg」两种用法；C++ 输出已降噪。下一步见第六节与 [next-steps.md](next-steps.md)。
+- **当前状态**：`examples/differentiable_single_step.py` 用 API 类构建 cfg 演示可微单步；下一步见第六节与 [neurips-api-and-ml-roadmap.md](neurips-api-and-ml-roadmap.md)。
 - **可加强点**：批量化与 DataLoader 示例、可微接口与导数类型文档、结果与 PyTorch/JAX 的稳定对齐；中长期可考虑 JAX 可微封装与引用规范。
 - **研究落点**：在「高保真/可微 FEM + ML」交叉处选一个具体问题（如接触形状优化、神经算子误差分析、PINN-FEM 混合），结合当前 API 做实现与实验，即可形成完整故事。
 

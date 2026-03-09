@@ -640,6 +640,5 @@ cfg3 = SimulationConfig(materials=hooke)
 ## 相关文档
 
 - [配置指南](config-guide.md) - SimulationConfig 的完整使用指南
-- [Config Classes Guide (English)](config-classes-en.md) - English version of this guide
 - [API 架构文档](api-architecture.md) - 完整的 API 架构说明
 

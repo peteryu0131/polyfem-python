@@ -54,7 +54,7 @@ __all__ = ["solve", "SimulationConfig", "Result", "Selection", "batch_solve"]
 
 ### 示例
 
-- 示例脚本：仓库根目录下的 `examples/`（如 `examples/python_config_5_cubes.py`、`examples/contact_5_cubes.py`）。
+- 示例脚本：`examples/python_config_5_cubes.py`（主 API）、`examples/differentiable_single_step.py`（可微）。
 
 ---
 
@@ -884,9 +884,8 @@ def _torch_to_numpy_zero_copy(t):
 
 ### 示例文件
 
-- **`examples/python_config_5_cubes.py`**：完整示例——多体几何（5 个立方体 + 平面）、接触、NeoHookean 材料、时间步进、求解器/输出配置、结果读写。
-- **`examples/contact_5_cubes.py`**：接触算例变体。
-- **`examples/README_设计说明.md`**：设计说明（中文）。
+- **`examples/python_config_5_cubes.py`**：主 API 示例——多体几何（5 立方体 + 平面）、接触、NeoHookean、时间步进、结果包（方案 A）、result.u / to_torch。
+- **`examples/differentiable_single_step.py`**：可微示例——cfg 构建、solve_differentiable、loss、backward、形状梯度。
 
 ### 运行示例
 
@@ -894,7 +893,7 @@ def _torch_to_numpy_zero_copy(t):
 
 ```bash
 python examples/python_config_5_cubes.py
-python examples/contact_5_cubes.py
+python examples/differentiable_single_step.py
 ```
 
 ---

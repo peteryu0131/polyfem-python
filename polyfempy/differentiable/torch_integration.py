@@ -56,7 +56,9 @@ class PolyFEMFunction(Function):
         ret = solver.solve()
 
         solutions_np = None
-        if isinstance(ret, (tuple, list)) and len(ret) > 0:
+        if isinstance(ret, dict) and ret.get("_result_bundle") and "u" in ret:
+            solutions_np = np.asarray(ret["u"])
+        elif isinstance(ret, (tuple, list)) and len(ret) > 0:
             solutions_np = np.asarray(ret[0])
         elif hasattr(solver, "get_solutions"):
             solutions_np = np.asarray(solver.get_solutions())

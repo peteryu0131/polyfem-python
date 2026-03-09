@@ -17,8 +17,6 @@
 
 **相关文档**：
 - [Config Classes 使用指南](config-classes.md) - 详细的 Class-Based 配置说明
-- [Configuration Guide (English)](config-guide-en.md) - English version of this guide
-
 ---
 
 ## 快速开始

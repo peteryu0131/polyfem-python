@@ -348,7 +348,7 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
     fields = {}
     meta = {"solver_type": type(solver).__name__}
 
-    # 优先：绑定层返回的「结果包」（全部在绑定设置好，老师建议）
+    # 优先：绑定层返回的「结果包」（方案 A：全部在绑定设置好，不再用 getter 补全）
     if isinstance(ret, dict) and ret.get("_result_bundle") and "vertices" in ret and "u" in ret:
         V_pts = np.asarray(ret["vertices"])
         cells_result = np.asarray(ret["cells"], dtype=np.int32)
@@ -357,16 +357,21 @@ def solve(vertices=None, cells=None, cfg=None, sidesets_func=None, dtype=None):
             p = np.asarray(ret["p"])
             if p.size > 0:
                 fields["p"] = p
-        # 若绑定里已放入 stress/strain/energy 等，从 bundle 取出
-        for key in ("stress", "strain", "energy", "v"):
+        for key in ("stress", "strain", "v"):
             if ret.get(key) is not None:
                 val = np.asarray(ret[key])
                 if val.size > 0:
                     fields[key] = val
+        if ret.get("energy") is not None:
+            e = ret["energy"]
+            if isinstance(e, (int, float)):
+                meta["energy"] = float(e)
+            else:
+                val = np.asarray(e)
+                if val.size > 0:
+                    fields["energy"] = val
         if ret.get("meta") is not None and isinstance(ret["meta"], dict):
             meta.update(ret["meta"])
-        # 绑定未提供的字段仍由 getter 补全（兼容旧版或未在 C++ 暴露的 API）
-        _extract_additional_fields(solver, fields, meta)
         return Result(v_backend, V_pts, cells_result, fields, meta=meta)
 
     if isinstance(ret, (tuple, list)) and len(ret) >= 1:

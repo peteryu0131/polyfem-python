@@ -46,7 +46,11 @@ class _MergedFieldsView:
 
 
 class Result:
-    """Mesh + solution fields. point_data (per-vertex), cell_data (per-element), meshio/VTK compatible."""
+    """Mesh + solution fields. point_data (per-vertex), cell_data (per-element), meshio/VTK compatible.
+
+    Shape contract: vertices (n_vertices, dim), u (n_vertices, dim), stress/strain (n_vertices, 6) if present.
+    Use .u / .p for common fields (aligned with DifferentiableResult); point_data/cell_data for all fields.
+    """
 
     def __init__(self, backend, vertices, cells, fields=None, point_data=None, cell_data=None, meta=None):
         self.backend = backend
@@ -63,7 +67,7 @@ class Result:
                 self._split_fields(dict(fields))
         self.point_data = _PointDataProxy(self)
         self.cell_data = _CellDataProxy(self)
-        self.fields = _MergedFieldsView(self._point_data, self._cell_data)  # backward compat
+        self.fields = _MergedFieldsView(self._point_data, self._cell_data)
 
     def _normalize_cells(self, cells, vertices):
         if isinstance(cells, (list, tuple)) and cells and isinstance(cells[0], (tuple, list)):
@@ -109,6 +113,26 @@ class Result:
     @property
     def V(self):
         return self.vertices
+
+    @property
+    def u(self):
+        """Displacement field, shape (n_vertices, dim). Same convention as DifferentiableResult.u."""
+        return self.field("u")
+
+    @property
+    def p(self):
+        """Pressure field if present (e.g. (n_vertices,) or pressure DOFs)."""
+        return self.field("p")
+
+    @property
+    def stress(self):
+        """Stress per-vertex (n_vertices, 6) in Voigt order, if present."""
+        return self.field("stress")
+
+    @property
+    def strain(self):
+        """Strain per-vertex (n_vertices, 6) in Voigt order, if present."""
+        return self.field("strain")
 
     def _make_contiguous_inplace(self):
         self.vertices = np.ascontiguousarray(self.vertices)
@@ -158,6 +182,26 @@ class Result:
             self.vertices = T.to_backend(self.vertices, self.backend)
             for i, (ct, arr) in enumerate(self._cell_blocks):
                 self._cell_blocks[i] = (ct, T.to_backend(arr, self.backend))
+        return self
+
+    def to_torch(self, include_mesh=True):
+        """Convert all fields (and optionally mesh) to PyTorch and return self.
+
+        Recommended usage for ML:
+            r = solve(...)
+            r.to_torch(include_mesh=True)
+            u = r.u   # (n_vertices, dim)
+        """
+        from . import tensor as T
+        self.backend = "torch"
+        for k, v in list(self._point_data.items()):
+            self._point_data[k] = T.to_backend(v, "torch")
+        for k, v in list(self._cell_data.items()):
+            self._cell_data[k] = T.to_backend(v, "torch")
+        if include_mesh:
+            self.vertices = T.to_backend(self.vertices, "torch")
+            for i, (ct, arr) in enumerate(self._cell_blocks):
+                self._cell_blocks[i] = (ct, T.to_backend(arr, "torch"))
         return self
 
     def magnitude(self, name, out_name=None, eps=0.0):
