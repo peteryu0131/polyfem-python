@@ -1,3 +1,4 @@
 {
-  "explorer.excludeGitIgnore": false
+  "explorer.excludeGitIgnore": false,
+  "python.defaultInterpreterPath": "C:/Users/peter/miniconda3/python.exe"
 }
