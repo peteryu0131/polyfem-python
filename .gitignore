@@ -29,9 +29,14 @@ htmlcov/
 
 # Output files
 *.vtu
+*.vtm
 *.pvd
 *.csv
 *.npz
+# Experiment run exports (Paraview meshes/stats/logs under these dirs)
+experiment/**/outputs_stable/
+experiment/**/outputs_sweep_cases/
+experiment/**/outputs/
 # Ignore output contents but keep folder visible (track examples/output/.gitkeep)
 examples/output/*
 !examples/output/.gitkeep

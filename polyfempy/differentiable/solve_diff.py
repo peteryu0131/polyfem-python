@@ -4,7 +4,7 @@
 # torch is an optional dependency, so type checker may not find it
 
 import numpy as np
-from typing import Optional, List, Dict, Any, Union, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
 if TYPE_CHECKING:
     import torch
@@ -16,8 +16,18 @@ except ImportError:
     _TORCH_AVAILABLE = False
 
 from ..api.config import SimulationConfig
+from .cpp_ext import get_cpp_polyfempy
 from .torch_integration import PolyFEMFunction
 from .result_diff import DifferentiableResult
+
+
+def _solver_set_log_level_off(solver: Any) -> None:
+    """Best-effort: some PolyFEM Python bindings omit ``set_log_level``."""
+    if hasattr(solver, "set_log_level"):
+        try:
+            solver.set_log_level(6)  # 6=off when supported
+        except Exception:
+            pass
 
 
 def solve_differentiable(
@@ -64,14 +74,8 @@ def solve_differentiable(
             "Please install PyTorch: pip install torch"
         )
 
-    try:
-        import polyfempy as pf
-    except ImportError:
-        raise ImportError(
-            "PolyFEM C++ module is required for differentiable simulations. "
-            "Please build the C++ module first."
-        )
-    
+    pf = get_cpp_polyfempy()
+
     import json
     from pathlib import Path
 
@@ -111,7 +115,7 @@ def solve_differentiable(
     if use_load_mesh:
         # --- Config + mesh file path (same as legacy / differentiable_minimal) ---
         solver = pf.Solver()
-        solver.set_log_level(6)  # 6=off，先设再 load/build，减少 C++ 端整段输出
+        _solver_set_log_level_off(solver)
         solver.set_settings(json.dumps(settings), strict_validation=False)
         solver.load_mesh_from_settings()
         solver.build_basis()
@@ -170,7 +174,7 @@ def solve_differentiable(
             differentiable_params = ["geometry"]
 
         solver = pf.Solver()
-        solver.set_log_level(6)  # 6=off，减少 C++ 端输出
+        _solver_set_log_level_off(solver)
         settings_json = json.dumps(settings)
         solver.set_settings(settings_json, strict_validation=False)
         solver.set_mesh(V_np, C_np.astype(np.int32))

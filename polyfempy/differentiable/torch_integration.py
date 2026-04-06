@@ -22,6 +22,8 @@ except ImportError:
     _TORCH_AVAILABLE = False
     Function = object  # Placeholder for type hints
 
+from .cpp_ext import get_cpp_polyfempy
+
 
 class PolyFEMFunction(Function):
     """PyTorch Function wrapper for PolyFEM with automatic gradient computation.
@@ -50,7 +52,7 @@ class PolyFEMFunction(Function):
             solver.assemble()
         
         # Enable derivative caching (required for adjoint)
-        import polyfempy as pf
+        pf = get_cpp_polyfempy()
         solver.set_cache_level(pf.CacheLevel.Derivatives)
         
         ret = solver.solve()
@@ -92,8 +94,8 @@ class PolyFEMFunction(Function):
         if not _TORCH_AVAILABLE:
             raise ImportError("PyTorch is required for differentiable simulations")
         
-        import polyfempy as pf
-        
+        pf = get_cpp_polyfempy()
+
         grad_output_np = grad_output.detach().cpu().numpy()
         ctx.solver.solve_adjoint(grad_output_np)
         
