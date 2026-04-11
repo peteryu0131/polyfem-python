@@ -121,9 +121,12 @@ class CMakeBuild(build_ext):
             
         print("Building with nanobind binding library")
 
-        cfg = 'Debug' if self.debug else 'Release'
-        build_args = ['--config', cfg]
-        cmake_args += ['-DCMAKE_BUILD_TYPE=' + cfg]
+        # Always ship the extension as Release. Debug CMake builds produce a different
+        # binary profile (asserts, no inlining, .pdb beside .pyd) and are easy to mix
+        # with Release VC++ runtimes — a common source of "worked until I tried a debug build".
+        cfg = "Release"
+        build_args = ["--config", cfg]
+        cmake_args += [f"-DCMAKE_BUILD_TYPE={cfg}"]
 
         if platform.system() == "Windows":
             cmake_args += [
