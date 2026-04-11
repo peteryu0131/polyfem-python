@@ -1,5 +1,6 @@
 # Build directories
 build/
+build_debug/
 build.nosync/
 bin/
 bin_rel/
@@ -27,21 +28,19 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Output files
+# Output files (PolyFEM / Paraview; see end of file for experiment/ override)
 *.vtu
 *.vtm
 *.pvd
 *.csv
 *.npz
-# Experiment run exports (Paraview meshes/stats/logs under these dirs)
-experiment/**/outputs_stable/
-experiment/**/outputs_sweep_cases/
-experiment/**/outputs/
+
 # Ignore output contents but keep folder visible (track examples/output/.gitkeep)
 examples/output/*
 !examples/output/.gitkeep
-# Ignore output JSON files (like sim.json), but keep config files
-sim.json
+
+# Local solve dump at repo root only (avoid matching .../experiment/.../sim.json)
+/sim.json
 
 # IDE
 .vscode/*
@@ -55,9 +54,9 @@ sim.json
 *.swo
 *~
 
-# Dependencies
-3rdparty*
-data*
+# Dependencies (repo-root dirs only — avoids ignoring names like data_loader.py)
+/3rdparty/
+/data/
 *libTracyClient.*
 
 # Compiled binaries (Windows)
@@ -90,3 +89,9 @@ build_verbose.txt
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# --- experiment/: nothing ignored except Python cache under it ---
+# Overrides *.csv, *.npz, *.vtu, *.pvd, *.vtm, *.log, *.pyd, etc. for paths under experiment/
+!experiment/
+!experiment/**
+experiment/**/__pycache__/
