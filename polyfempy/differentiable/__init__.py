@@ -5,6 +5,7 @@ Most users don't need this - only use if you need gradients.
 
 Main exports:
     - solve_differentiable: Differentiable version of solve()
+    - solve_differentiable_material: Per-element Lamé (λ, μ) as differentiable inputs
     - PolyFEMFunction: PyTorch Function wrapper (use solve_differentiable in most cases)
     - DifferentiableResult: result container with .u, .vertices, .vertices.grad after backward
 """
@@ -26,13 +27,16 @@ except ImportError:
     _TORCH_AVAILABLE = False
 
 if _TORCH_AVAILABLE:
-    from .solve_diff import solve_differentiable
-    from .torch_integration import PolyFEMFunction
-    from .result_diff import DifferentiableResult
+    from .solve_diff import solve_differentiable, solve_differentiable_material
+    from .torch_integration import PolyFEMFunction, PolyFEMPerElementMaterialFunction
+    from .result_diff import DifferentiableResult, DifferentiableMaterialResult
     __all__ = [
         "solve_differentiable",
+        "solve_differentiable_material",
         "PolyFEMFunction",
+        "PolyFEMPerElementMaterialFunction",
         "DifferentiableResult",
+        "DifferentiableMaterialResult",
     ]
 else:
     __all__ = []
@@ -44,6 +48,24 @@ else:
         )
     
     def PolyFEMFunction(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def solve_differentiable_material(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def PolyFEMPerElementMaterialFunction(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def DifferentiableMaterialResult(*args, **kwargs):
         raise ImportError(
             "PyTorch is required for differentiable simulations. "
             "Please install PyTorch: pip install torch"

@@ -14,13 +14,58 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 #include "binding_wrapper.hpp"
 #include "differentiable/binding.hpp"
 
 using namespace polyfem;
+
+namespace {
+
+// Python calls set_per_element_material (update_lame_params) before solve() or before a
+// standalone build_basis()/assemble() (e.g. torch_integration forward). build_basis() can
+// reinitialize materials from JSON and wipe the per-element Lamé overwrite. Cache the last
+// (λ, μ) per State* and reapply after every exposed build_basis() and at the start of solve().
+std::mutex g_per_elem_lame_mutex;
+std::unordered_map<std::uintptr_t, std::pair<Eigen::VectorXd, Eigen::VectorXd>>
+    g_per_elem_lame_pending;
+
+void clear_per_elem_lame_pending_for_state(const State &s)
+{
+  const std::lock_guard<std::mutex> lk(g_per_elem_lame_mutex);
+  g_per_elem_lame_pending.erase(reinterpret_cast<std::uintptr_t>(&s));
+}
+
+void store_per_elem_lame_pending(State &s, const Eigen::VectorXd &lambda, const Eigen::VectorXd &mu)
+{
+  const std::lock_guard<std::mutex> lk(g_per_elem_lame_mutex);
+  g_per_elem_lame_pending[reinterpret_cast<std::uintptr_t>(&s)] = {lambda, mu};
+}
+
+void reapply_per_elem_lame_after_build_basis(State &s)
+{
+  if (!s.assembler)
+    return;
+  const std::lock_guard<std::mutex> lk(g_per_elem_lame_mutex);
+  const auto it = g_per_elem_lame_pending.find(reinterpret_cast<std::uintptr_t>(&s));
+  if (it == g_per_elem_lame_pending.end())
+    return;
+  const Eigen::VectorXd &L = it->second.first;
+  const Eigen::VectorXd &M = it->second.second;
+  const Eigen::Index nb = Eigen::Index(s.bases.size());
+  if (L.size() != nb || M.size() != nb)
+    return;
+  s.assembler->update_lame_params(L, M);
+}
+
+} // namespace
 
 typedef std::function<Eigen::MatrixXd(double x, double y, double z)> BCFuncV;
 typedef std::function<double(double x, double y, double z)> BCFuncS;
@@ -89,6 +134,47 @@ class PDEs
 
 namespace
 {
+
+  // --- Compile-time detection helpers (so bindings work across PolyFEM versions) ---
+  template <class T, class = void>
+  struct has_get_sampled_mises : std::false_type
+  {
+  };
+  template <class T>
+  struct has_get_sampled_mises<T, std::void_t<decltype(std::declval<T &>().get_sampled_mises(false))>>
+      : std::true_type
+  {
+  };
+
+  template <class T, class = void>
+  struct has_get_sampled_mises_avg : std::false_type
+  {
+  };
+  template <class T>
+  struct has_get_sampled_mises_avg<T, std::void_t<decltype(std::declval<T &>().get_sampled_mises_avg(false))>>
+      : std::true_type
+  {
+  };
+
+  template <class T, class = void>
+  struct has_get_sampled_mises_frames : std::false_type
+  {
+  };
+  template <class T>
+  struct has_get_sampled_mises_frames<T, std::void_t<decltype(std::declval<T &>().get_sampled_mises_frames())>>
+      : std::true_type
+  {
+  };
+
+  template <class T, class = void>
+  struct has_get_sampled_mises_avg_frames : std::false_type
+  {
+  };
+  template <class T>
+  struct has_get_sampled_mises_avg_frames<T, std::void_t<decltype(std::declval<T &>().get_sampled_mises_avg_frames())>>
+      : std::true_type
+  {
+  };
 
   bool load_json(const std::string &json_file, json &out)
   {
@@ -181,6 +267,7 @@ void define_solver(py::module_ &m)
     using namespace polyfem;
 
     init_globals(self);
+    clear_per_elem_lame_pending_for_state(self);
     // py::scoped_ostream_redirect output;
     const std::string json_string = nb::cast<std::string>(py::str(settings));
     self.init(json::parse(json_string), strict_validation);
@@ -212,6 +299,24 @@ void define_solver(py::module_ &m)
       .def(
           "n_bases", [](const State &s) { return s.n_bases; },
           "Number of basis")
+
+      .def(
+          "n_element_assembly_slots",
+          [](const State &s) { return static_cast<int>(s.bases.size()); },
+          "Length required for set_per_element_material (state.bases.size(), one slot per mesh cell "
+          "in assembly order); differs from n_bases() which counts scalar basis functions / nodes.")
+
+      .def(
+          "get_body_ids_for_assembly",
+          [](const State &s) {
+            const auto n = static_cast<Eigen::Index>(s.bases.size());
+            Eigen::VectorXi out(n);
+            for (Eigen::Index e = 0; e < n; ++e)
+              out(e) = static_cast<int>(s.mesh->get_body_id(static_cast<int>(e)));
+            return out;
+          },
+          "Body id per assembly element index e in [0, n_element_assembly_slots), same as "
+          "mesh->get_body_id(e).")
 
       .def(
           "set_log_level",
@@ -418,6 +523,9 @@ void define_solver(py::module_ &m)
             s.stats.compute_mesh_stats(*s.mesh);
 
             s.build_basis();
+            // build_basis() can reload Neo-Hookean parameters from JSON; reapply Python-driven
+            // per-element (λ, μ) if set_per_element_material was used on this State.
+            reapply_per_elem_lame_after_build_basis(s);
 
             s.assemble_rhs();
             s.assemble_mass_mat();
@@ -459,6 +567,7 @@ void define_solver(py::module_ &m)
               throw std::runtime_error("Load mesh first!");
 
             s.build_basis();
+            reapply_per_elem_lame_after_build_basis(s);
           },
           "build finite element basis")
       .def(
@@ -587,6 +696,57 @@ void define_solver(py::module_ &m)
              return sol;
            })
 
+      // ---- Optional: von Mises sampled outputs (if PolyFEM exposes them) ----
+      .def(
+          "get_sampled_mises",
+          [](State &s, const bool boundary_only) {
+            if constexpr (has_get_sampled_mises<State>::value)
+            {
+              return s.get_sampled_mises(boundary_only);
+            }
+            throw std::runtime_error(
+                "get_sampled_mises is not available in this PolyFEM build.");
+          },
+          "returns the von mises stresses on a densely sampled mesh (if available)",
+          py::arg("boundary_only") = bool(false))
+
+      .def(
+          "get_sampled_mises_avg",
+          [](State &s, const bool boundary_only) {
+            if constexpr (has_get_sampled_mises_avg<State>::value)
+            {
+              return s.get_sampled_mises_avg(boundary_only);
+            }
+            throw std::runtime_error(
+                "get_sampled_mises_avg is not available in this PolyFEM build.");
+          },
+          "returns the von mises stresses and averaged stress tensor on a densely sampled mesh (if available)",
+          py::arg("boundary_only") = bool(false))
+
+      .def(
+          "get_sampled_mises_frames",
+          [](State &s) {
+            if constexpr (has_get_sampled_mises_frames<State>::value)
+            {
+              return s.get_sampled_mises_frames();
+            }
+            throw std::runtime_error(
+                "get_sampled_mises_frames is not available in this PolyFEM build.");
+          },
+          "returns von mises stresses per frame on a densely sampled mesh (if available)")
+
+      .def(
+          "get_sampled_mises_avg_frames",
+          [](State &s) {
+            if constexpr (has_get_sampled_mises_avg_frames<State>::value)
+            {
+              return s.get_sampled_mises_avg_frames();
+            }
+            throw std::runtime_error(
+                "get_sampled_mises_avg_frames is not available in this PolyFEM build.");
+          },
+          "returns averaged von mises stresses per frame on a densely sampled mesh (if available)")
+
       .def(
           "compute_errors",
           [](State &s, Eigen::MatrixXd &sol) { s.compute_errors(sol); },
@@ -688,6 +848,7 @@ void define_solver(py::module_ &m)
 
             assert(lambda.size() == self.bases.size());
             assert(mu.size() == self.bases.size());
+            store_per_elem_lame_pending(self, lambda, mu);
             self.assembler->update_lame_params(lambda, mu);
           },
           "set per-element Lame parameters", py::arg("lambda"), py::arg("mu"));

@@ -3,9 +3,11 @@
 #include <polyfem/solver/forms/adjoint_forms/VariableToSimulation.hpp>
 #include <polyfem/State.hpp>
 #include <polyfem/solver/Optimizations.hpp>
+#include <polyfem/utils/JSONUtils.hpp>
 #include <polyfem/utils/MatrixUtils.hpp>
-#include <polyfem/State.hpp>
 #include "binding.hpp"
+
+#include <memory>
 
 using namespace polyfem;
 using namespace polyfem::solver;
@@ -43,7 +45,18 @@ void define_objective(py::module_ &m)
           },
           py::arg("solver"), py::arg("x"), py::arg("wrt"));
 
-  m.def("create_objective", &AdjointOptUtils::create_simple_form,
-        py::arg("obj_type"), py::arg("param_type"), py::arg("solver"),
-        py::arg("parameters"));
+  // Python passes JSON text (e.g. json.dumps(dict)); nanobind does not convert dict/str to
+  // nlohmann::json for this overload, so parse here.
+  m.def(
+      "create_objective",
+      [](const std::string &obj_type, const std::string &param_type, State &solver,
+         const std::string &parameters_json) {
+        // create_simple_form takes shared_ptr<State>; nanobind exposes Solver as State&.
+        // Non-owning shared_ptr: Python keeps the State alive for the whole solve.
+        std::shared_ptr<State> state_ptr(&solver, [](State *) {});
+        return AdjointOptUtils::create_simple_form(
+            obj_type, param_type, state_ptr, json::parse(parameters_json));
+      },
+      py::arg("obj_type"), py::arg("param_type"), py::arg("solver"),
+      py::arg("parameters"));
 }

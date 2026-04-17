@@ -17,8 +17,32 @@ except ImportError:
 
 from ..api.config import SimulationConfig
 from .cpp_ext import get_cpp_polyfempy
-from .torch_integration import PolyFEMFunction
-from .result_diff import DifferentiableResult
+from .torch_integration import PolyFEMFunction, PolyFEMPerElementMaterialFunction
+from .result_diff import DifferentiableResult, DifferentiableMaterialResult
+
+
+def _console_log_level_from_settings(settings: Dict[str, Any]) -> int:
+    """Map ``output.log.level`` string to int 0–6 (same contract as ``api.solve`` → ``solver.solve``)."""
+    log_level = 2
+    out = settings.get("output")
+    if isinstance(out, dict):
+        log = out.get("log")
+        if isinstance(log, dict):
+            raw = log.get("level", "info")
+            log_level_str = raw.strip().lower() if isinstance(raw, str) else str(raw).strip().lower()
+            log_level_map = {
+                "trace": 0,
+                "debug": 1,
+                "info": 2,
+                "warn": 3,
+                "warning": 3,
+                "error": 4,
+                "critical": 5,
+                "off": 6,
+            }
+            if log_level_str in log_level_map:
+                log_level = log_level_map[log_level_str]
+    return log_level
 
 
 def _solver_set_log_level_off(solver: Any) -> None:
@@ -37,7 +61,9 @@ def solve_differentiable(
     root_path: Optional[str] = None,
     differentiable_params: Optional[List[str]] = None,
     derivative_type: str = "shape",
-    sidesets_func: Optional[callable] = None
+    sidesets_func: Optional[callable] = None,
+    *,
+    quiet_polyfem_setup: bool = True,
 ) -> DifferentiableResult:
     """Solve with automatic gradient computation.
 
@@ -64,6 +90,9 @@ def solve_differentiable(
             root_path for resolving mesh files (e.g. root_path=str(Path("data").resolve())).
         differentiable_params: Parameter names to make differentiable. Default: ["geometry"].
         derivative_type: "shape", "periodic_shape", "material", "initial_velocity", etc.
+        quiet_polyfem_setup: If True (default), call ``set_log_level(6)`` right after ``Solver()``
+            so setup is quiet; if False, skip that so console verbosity can follow JSON ``log.level``
+            during ``solve()`` (see ``PolyFEMFunction`` / ``solve_log_level``).
 
     Returns:
         DifferentiableResult with .u, .vertices (backward 后 .vertices.grad 为形状导数).
@@ -113,19 +142,22 @@ def solve_differentiable(
         )
 
     if use_load_mesh:
-        # --- Config + mesh file path (same as legacy / differentiable_minimal) ---
+        # --- Config + mesh file path (disk geometry) ---
+        #
+        # Do **not** call assemble(), set_cache_level(Derivatives), or init_timestepping() here.
+        # PolyFEMFunction.forward runs a single legal sequence: set_vertices → build_basis →
+        # assemble → set_cache_level → solve(log_level=...), and solve()'s internals own
+        # transient timestep setup. A second assemble + init_timestepping before forward used to
+        # duplicate / reorder state vs solve_problem, which on large Neo-Hookean + transient
+        # could leave State inconsistent or SIGSEGV. Same spirit as api.solve: avoid extra
+        # timestep init outside the one solve path.
+        #
         solver = pf.Solver()
-        _solver_set_log_level_off(solver)
+        if quiet_polyfem_setup:
+            _solver_set_log_level_off(solver)
         solver.set_settings(json.dumps(settings), strict_validation=False)
         solver.load_mesh_from_settings()
         solver.build_basis()
-        solver.assemble()
-        solver.set_cache_level(pf.CacheLevel.Derivatives)
-        if "time" in settings and settings["time"]:
-            tcfg = settings["time"]
-            t0 = tcfg.get("t0", 0.0) if isinstance(tcfg, dict) else 0.0
-            dt = tcfg.get("dt", 0.01) if isinstance(tcfg, dict) else 0.01
-            solver.init_timestepping(t0, dt)
         mesh = solver.mesh()
         V_np = np.asarray(mesh.vertices(), dtype=np.float64)
         V_requires_grad = True
@@ -174,7 +206,8 @@ def solve_differentiable(
             differentiable_params = ["geometry"]
 
         solver = pf.Solver()
-        _solver_set_log_level_off(solver)
+        if quiet_polyfem_setup:
+            _solver_set_log_level_off(solver)
         settings_json = json.dumps(settings)
         solver.set_settings(settings_json, strict_validation=False)
         solver.set_mesh(V_np, C_np.astype(np.int32))
@@ -211,14 +244,65 @@ def solve_differentiable(
         V_torch = torch.tensor(V_np, requires_grad=True, dtype=V_dtype, device=V_device)
     else:
         V_torch = torch.tensor(V_np, requires_grad=False, dtype=V_dtype, device=V_device)
-    
-    solutions = PolyFEMFunction.apply(solver, V_torch, derivative_type)
-    
+
+    solve_log_level = _console_log_level_from_settings(settings)
+    solutions = PolyFEMFunction.apply(solver, V_torch, derivative_type, solve_log_level)
+
     return DifferentiableResult(
         u=solutions,
         solver=solver,
         derivative_type=derivative_type,
         differentiable_params=differentiable_params,
         vertices=V_torch,
+    )
+
+
+def solve_differentiable_material(
+    solver: Any,
+    lam: "torch.Tensor",
+    mu: "torch.Tensor",
+    *,
+    forward_solve_cache: str = "derivatives",
+    solve_log_level: int = 2,
+) -> DifferentiableMaterialResult:
+    """Differentiable solve with **per-element Lamé parameters** as PyTorch inputs.
+
+    This does **not** replace ``solve_differentiable`` (vertex-based). Use it when you need
+    ``dL/dλ`` and ``dL/dμ`` from ``elastic_material_derivative`` after ``solve_adjoint``.
+
+    **Scalar Young modulus** ``E``: build ``lam, mu`` from ``E`` (and masks) with ordinary
+    torch ops, then call this function; ``loss.backward()`` propagates to ``E`` via the
+    chain rule.
+
+    Args:
+        solver: Built ``polyfempy`` ``Solver`` (mesh loaded, ``build_basis`` / transient init
+            as required by your problem — same state you would pass to ``solve()``).
+        lam: 1D tensor, length ``n_element_assembly_slots()`` (same as ``set_per_element_material``).
+        mu: Same shape as ``lam``.
+        forward_solve_cache: ``"derivatives"`` (default, adjoint), ``"solution"``, or ``"none"``.
+        solve_log_level: Passed to ``solver.solve(log_level=...)`` when supported.
+
+    Returns:
+        DifferentiableMaterialResult with ``.u`` (displacement) and references ``.lam``, ``.mu``,
+        ``.solver``. After ``loss.backward()``, ``lam.grad`` and ``mu.grad`` are filled.
+    """
+    if not _TORCH_AVAILABLE:
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    u = PolyFEMPerElementMaterialFunction.apply(
+        solver,
+        lam,
+        mu,
+        int(solve_log_level),
+        str(forward_solve_cache),
+    )
+    return DifferentiableMaterialResult(
+        u=u,
+        solver=solver,
+        lam=lam,
+        mu=mu,
     )
 
