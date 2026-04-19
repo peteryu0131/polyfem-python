@@ -61,8 +61,22 @@ void reapply_per_elem_lame_after_build_basis(State &s)
   const Eigen::VectorXd &M = it->second.second;
   const Eigen::Index nb = Eigen::Index(s.bases.size());
   if (L.size() != nb || M.size() != nb)
+  {
+    logger().warn(
+        std::string("reapply_per_elem_lame_after_build_basis: skip — cached λ size ")
+        + std::to_string(static_cast<long long>(L.size())) + " μ size "
+        + std::to_string(static_cast<long long>(M.size())) + " != bases.size() "
+        + std::to_string(static_cast<long long>(nb))
+        + " (JSON materials remain after build_basis; PEM mismatch).");
     return;
-  s.assembler->update_lame_params(L, M);
+  }
+  // NeoHookean stores per-element scalars in N×1 matrices; force column layout so
+  // linear indexing matches element id regardless of Eigen's VectorXd→MatrixXd map.
+  Eigen::MatrixXd Lm(nb, 1);
+  Eigen::MatrixXd Mm(nb, 1);
+  Lm.col(0) = L;
+  Mm.col(0) = M;
+  s.assembler->update_lame_params(Lm, Mm);
 }
 
 } // namespace
@@ -576,6 +590,9 @@ void define_solver(py::module_ &m)
             if (s.bases.size() == 0)
               throw std::runtime_error("Call build_basis() first!");
 
+            // assemble_* reads the current assembler; if PEM was set earlier, ensure λ,μ matrices
+            // are still applied (e.g. after a raw C++ path or a partial basis rebuild).
+            reapply_per_elem_lame_after_build_basis(s);
             s.assemble_rhs();
             s.assemble_mass_mat();
           },
@@ -586,6 +603,7 @@ void define_solver(py::module_ &m)
             if (!s.solve_data.rhs_assembler || s.mass.size() == 0)
               throw std::runtime_error("Call assemble() first!");
 
+            reapply_per_elem_lame_after_build_basis(s);
             s.solution_frames.clear();
             Eigen::MatrixXd sol, pressure;
             s.init_solve(sol, pressure);
@@ -607,6 +625,7 @@ void define_solver(py::module_ &m)
               throw std::runtime_error("Formulation " + s.assembler->name()
                                        + " is not supported!");
 
+            reapply_per_elem_lame_after_build_basis(s);
             s.solve_tensor_nonlinear(sol, t);
             s.cache_transient_adjoint_quantities(
                 t, sol,
@@ -625,6 +644,7 @@ void define_solver(py::module_ &m)
       .def(
           "solve_adjoint",
           [](State &s, const Eigen::MatrixXd &adjoint_rhs) {
+            reapply_per_elem_lame_after_build_basis(s);
             if (adjoint_rhs.cols() != s.diff_cached.size()
                 || adjoint_rhs.rows() != s.diff_cached.u(0).size())
               throw std::runtime_error("Invalid adjoint_rhs shape!");
@@ -641,10 +661,13 @@ void define_solver(py::module_ &m)
                   reduced.setZero(reduced_vec.rows(), adjoint_rhs.cols());
                 reduced.col(i) = reduced_vec;
               }
-              return s.solve_adjoint_cached(reduced);
+              s.solve_adjoint_cached(reduced);
             }
             else
-              return s.solve_adjoint_cached(adjoint_rhs);
+              s.solve_adjoint_cached(adjoint_rhs);
+            // solve_adjoint_cached is void; adjoint is stored in diff_cached. Restore PEM so
+            // elastic_material_derivative() sees the same Neo-Hookean λ,μ as the forward.
+            reapply_per_elem_lame_after_build_basis(s);
           },
           "Solve the adjoint equation given the gradient of objective wrt. PDE solution")
 
@@ -689,6 +712,10 @@ void define_solver(py::module_ &m)
 
       .def("get_solutions",
            [](State &s) {
+             if (s.diff_cached.size() <= 0)
+             {
+               return Eigen::MatrixXd();
+             }
              Eigen::MatrixXd sol(s.diff_cached.u(0).size(),
                                  s.diff_cached.size());
              for (int i = 0; i < sol.cols(); i++)
@@ -849,7 +876,12 @@ void define_solver(py::module_ &m)
             assert(lambda.size() == self.bases.size());
             assert(mu.size() == self.bases.size());
             store_per_elem_lame_pending(self, lambda, mu);
-            self.assembler->update_lame_params(lambda, mu);
+            const Eigen::Index nb = lambda.size();
+            Eigen::MatrixXd Lm(nb, 1);
+            Eigen::MatrixXd Mm(nb, 1);
+            Lm.col(0) = lambda;
+            Mm.col(0) = mu;
+            self.assembler->update_lame_params(Lm, Mm);
           },
           "set per-element Lame parameters", py::arg("lambda"), py::arg("mu"));
 }
@@ -901,6 +933,7 @@ void define_solve(py::module_ &m)
         state.stats.compute_mesh_stats(*state.mesh);
 
         state.build_basis();
+        reapply_per_elem_lame_after_build_basis(state);
 
         state.assemble_rhs();
         state.assemble_mass_mat();
