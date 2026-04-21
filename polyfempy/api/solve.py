@@ -17,52 +17,17 @@ def _process_json_config(full_json, cfg):
 
 
 def _strip_solver_defaults(processed):
-    """Remove default solver config blocks that cause C++ validation errors."""
-    unwanted = ["ADAM", "L-BFGS", "L-BFGS-B", "Newton", "StochasticADAM", "StochasticGradientDescent"]
-    if "solver" not in processed or not isinstance(processed["solver"], dict):
-        return
-    solver_dict = processed["solver"]
-    if "nonlinear" not in solver_dict or not isinstance(solver_dict["nonlinear"], dict):
-        return
-    nonlinear = solver_dict["nonlinear"]
-    for k in unwanted:
-        nonlinear.pop(k, None)
-    # line_search: keep only method + common fields
-    if "line_search" in nonlinear and isinstance(nonlinear["line_search"], dict):
-        ls = nonlinear["line_search"]
-        common_keys = ["default_init_step_size", "max_step_size_iter", "max_step_size_iter_final",
-                      "min_step_size", "min_step_size_final", "step_ratio", "use_grad_norm_tol"]
-        if "method" in ls:
-            nonlinear["line_search"] = {"method": ls["method"], **{k: ls[k] for k in common_keys if k in ls}}
-        else:
-            nonlinear["line_search"] = {k: ls[k] for k in common_keys if k in ls}
+    """No-op: preserve solver.nonlinear method blocks (Newton, …) for parity with C++ JSON."""
+    return
 
 
 def _clean_json_for_cpp(obj, path=""):
-    """Remove nulls and solver default blocks for C++ JSON schema."""
+    """Remove nulls; recurse. Preserves Newton / ADAM / … and full line_search objects."""
     if isinstance(obj, dict):
         cleaned = {}
         for key, value in obj.items():
             current_path = f"{path}.{key}" if path else key
-            if key in ["ADAM", "L-BFGS", "L-BFGS-B", "Newton", "StochasticADAM", "StochasticGradientDescent"]:
-                continue
-            if key == "line_search" and isinstance(value, dict):
-                cleaned_line_search = {}
-                if "method" in value:
-                    cleaned_line_search["method"] = value["method"]
-                    for common_key in ["default_init_step_size", "max_step_size_iter", "max_step_size_iter_final",
-                                     "min_step_size", "min_step_size_final", "step_ratio", "use_grad_norm_tol"]:
-                        if common_key in value:
-                            cleaned_line_search[common_key] = value[common_key]
-                else:
-                    cleaned_line_search = {}
-                    for common_key in ["default_init_step_size", "max_step_size_iter", "max_step_size_iter_final",
-                                     "min_step_size", "min_step_size_final", "step_ratio", "use_grad_norm_tol"]:
-                        if common_key in value:
-                            cleaned_line_search[common_key] = value[common_key]
-                cleaned_value = cleaned_line_search
-            else:
-                cleaned_value = _clean_json_for_cpp(value, current_path)
+            cleaned_value = _clean_json_for_cpp(value, current_path)
             if cleaned_value is not None:
                 cleaned[key] = cleaned_value
         return cleaned

@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Optional, TYPE_CHECKING, Union, List, Dict, Any, overload
 import json
 
@@ -2292,23 +2292,22 @@ class NonlinearSolver:
             result["iterations_per_strategy"] = self.iterations_per_strategy
         if self.line_search is not None:
             if isinstance(self.line_search, dict):
-                # Schema oneOf fails when method-specific blocks (RobustArmijo, Armijo, etc.) are present.
-                # Only include "method" and shared line_search fields; no method-specific blocks.
-                line_search_cleaned = {}
-                if "method" in self.line_search:
-                    line_search_cleaned["method"] = self.line_search["method"]
-                    # Do NOT include method-specific keys (RobustArmijo, Armijo, etc.) - they cause schema errors
-                    for key in ["default_init_step_size", "max_step_size_iter", "max_step_size_iter_final",
-                               "min_step_size", "min_step_size_final", "step_ratio", "use_grad_norm_tol"]:
-                        if key in self.line_search:
-                            line_search_cleaned[key] = self.line_search[key]
-                else:
-                    # If no method specified, copy as-is (backward compatibility)
-                    line_search_cleaned = self.line_search
-                result["line_search"] = line_search_cleaned
+                result["line_search"] = dict(self.line_search)
             else:
                 result["line_search"] = {"method": self.line_search}
         return result
+
+
+_NONLINEAR_METHOD_BLOCK_KEYS = frozenset(
+    {
+        "ADAM",
+        "L-BFGS",
+        "L-BFGS-B",
+        "Newton",
+        "StochasticADAM",
+        "StochasticGradientDescent",
+    }
+)
 
 
 @dataclass
@@ -2322,6 +2321,7 @@ class Solver:
         nonlinear: Nonlinear solver configuration (optional).
         max_threads: Maximum threads. Defaults to 1.
         advanced: Advanced solver options (optional dict).
+        nonlinear_method_blocks: Per-method JSON blocks (e.g. Newton) preserved for C++.
     
     Example:
         >>> solver = Solver(
@@ -2333,7 +2333,8 @@ class Solver:
     nonlinear: Optional[NonlinearSolver] = None
     max_threads: int = 1
     advanced: Optional[Dict[str, Any]] = None
-    
+    nonlinear_method_blocks: Optional[Dict[str, Any]] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format (for backend compatibility)."""
         result = {}
@@ -2345,7 +2346,10 @@ class Solver:
                 linear_dict["solver"] = linear_dict.pop("solver_type")
             result["linear"] = linear_dict
         if self.nonlinear is not None:
-            result["nonlinear"] = self.nonlinear.to_dict()
+            nd = dict(self.nonlinear.to_dict())
+            if self.nonlinear_method_blocks:
+                nd.update(self.nonlinear_method_blocks)
+            result["nonlinear"] = nd
         if self.max_threads != 1:
             result["max_threads"] = self.max_threads
         if self.advanced is not None:
@@ -2365,16 +2369,20 @@ class Solver:
             linear = LinearSolver.from_dict(d["linear"]) if isinstance(d["linear"], dict) else d["linear"]
         
         nonlinear = None
+        nonlinear_method_blocks: Optional[Dict[str, Any]] = None
         if "nonlinear" in d:
             if isinstance(d["nonlinear"], dict):
-                # Filter out default solver config fields that cause JSON validation errors
-                nonlinear_dict = {k: v for k, v in d["nonlinear"].items() 
-                                if k not in ["ADAM", "L-BFGS", "L-BFGS-B", "Newton", 
-                                           "StochasticADAM", "StochasticGradientDescent"]}
-                # Map JSON "solver" key to NonlinearSolver.solver_type
-                if "solver" in nonlinear_dict and "solver_type" not in nonlinear_dict:
-                    nonlinear_dict["solver_type"] = nonlinear_dict.pop("solver")
-                nonlinear = NonlinearSolver(**nonlinear_dict)
+                raw_nl = dict(d["nonlinear"])
+                preserved: Dict[str, Any] = {}
+                for k in list(raw_nl.keys()):
+                    if k in _NONLINEAR_METHOD_BLOCK_KEYS:
+                        preserved[k] = raw_nl.pop(k)
+                nonlinear_method_blocks = preserved or None
+                if "solver" in raw_nl and "solver_type" not in raw_nl:
+                    raw_nl["solver_type"] = raw_nl.pop("solver")
+                _nl_field_names = {f.name for f in fields(NonlinearSolver)}
+                nonlinear_kwargs = {k: v for k, v in raw_nl.items() if k in _nl_field_names}
+                nonlinear = NonlinearSolver(**nonlinear_kwargs)
             else:
                 nonlinear = d["nonlinear"]
         
@@ -2382,7 +2390,8 @@ class Solver:
             linear=linear,
             nonlinear=nonlinear,
             max_threads=d.get("max_threads", 1),
-            advanced={k: v for k, v in d.items() if k not in ["linear", "nonlinear", "max_threads"]}
+            advanced={k: v for k, v in d.items() if k not in ["linear", "nonlinear", "max_threads"]},
+            nonlinear_method_blocks=nonlinear_method_blocks,
         )
 
 

@@ -75,13 +75,13 @@ class CMakeBuild(build_ext):
         # Get include directory from the same Python installation
         python_include_directory = os.path.abspath(sysconfig.get_path('include'))
         
-        # Verify we're not using env directory
-        if 'env' in python_executable.lower() and 'envs' not in python_executable.lower():
+        # Reject only a venv at <repo>/env/bin (old mistaken layout). Names like polyfem_env must work.
+        repo_root = os.path.abspath(os.path.dirname(__file__))
+        bundled_env_bin = os.path.abspath(os.path.join(repo_root, 'env', 'bin'))
+        if os.path.abspath(os.path.dirname(python_executable)) == bundled_env_bin:
             raise RuntimeError(
-                f"ERROR: Detected wrong Python path: {python_executable}\n"
-                f"This appears to be from the project's env directory, not conda environment.\n"
-                f"Please ensure you're using: python -m pip install -e .\n"
-                f"and that conda environment 'polyfem' is activated."
+                f"ERROR: Refusing to build with Python from the repo's ./env: {python_executable}\n"
+                f"Use your own venv/conda env (not {bundled_env_bin})."
             )
 
         cmake_args = [

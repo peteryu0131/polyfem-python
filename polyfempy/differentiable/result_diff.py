@@ -3,7 +3,9 @@
 # pyright: reportMissingImports=false
 # torch is an optional dependency, so type checker may not find it
 
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Optional, Dict, Any, TYPE_CHECKING, Tuple
 import numpy as np
 
 if TYPE_CHECKING:
@@ -14,6 +16,60 @@ try:
     _TORCH_AVAILABLE = True
 except ImportError:
     _TORCH_AVAILABLE = False
+
+
+def scalar_stats_1d(arr: np.ndarray) -> dict[str, float | int]:
+    """mean / max / p95 / n for a 1d sample array."""
+    a = np.asarray(arr, dtype=np.float64).ravel()
+    if a.size == 0:
+        return {"mean": float("nan"), "max": float("nan"), "p95": float("nan"), "n": 0}
+    return {
+        "mean": float(np.mean(a)),
+        "max": float(np.max(a)),
+        "p95": float(np.percentile(a, 95)),
+        "n": int(a.size),
+    }
+
+
+def sampled_mises_flat_from_solver(solver: Any) -> Optional[Tuple[np.ndarray, str]]:
+    """Try PolyFEM Solver methods that expose sampled von Mises (post-solve, not autograd).
+
+    Tries in order: ``get_sampled_mises_avg_frames``, ``get_sampled_mises_frames``,
+    ``get_sampled_mises_avg``, ``get_sampled_mises``. Returns ``(flattened array, method_name)``
+    or ``None`` if nothing works.
+
+    Requires C++ bindings that forward to ``polyfem::State`` when your PolyFEM build provides
+    these members; otherwise methods may be missing or raise at runtime.
+    """
+    names = (
+        "get_sampled_mises_avg_frames",
+        "get_sampled_mises_frames",
+        "get_sampled_mises_avg",
+        "get_sampled_mises",
+    )
+    for name in names:
+        if not hasattr(solver, name):
+            continue
+        fn = getattr(solver, name)
+        if not callable(fn):
+            continue
+        try:
+            out = fn()
+            arr = np.asarray(out)
+            if arr.size == 0:
+                continue
+            return arr.ravel(), name
+        except Exception:
+            continue
+    return None
+
+
+def try_numpy_von_mises_from_stress(solver: Any) -> Optional[np.ndarray]:
+    """Optional path: if bindings expose ``get_stress`` (or similar), compute von Mises in numpy.
+
+    Not wired by default — depends on your ``Solver`` API. Override or extend locally if needed.
+    """
+    return None
 
 
 class DifferentiableResult:

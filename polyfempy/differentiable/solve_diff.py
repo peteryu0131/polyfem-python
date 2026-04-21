@@ -21,6 +21,29 @@ from .torch_integration import PolyFEMFunction
 from .result_diff import DifferentiableResult
 
 
+def _console_log_level_from_settings(settings: dict[str, Any]) -> int:
+    """Match :func:`polyfempy.api.solve.solve` — pass ``Solver.solve(log_level=...)`` from JSON."""
+    log_level = 2
+    output = settings.get("output")
+    if isinstance(output, dict):
+        log = output.get("log")
+        if isinstance(log, dict):
+            log_level_str = log.get("level", "info")
+            log_level_map = {
+                "trace": 0,
+                "debug": 1,
+                "info": 2,
+                "warn": 3,
+                "warning": 3,
+                "error": 4,
+                "critical": 5,
+                "off": 6,
+            }
+            if log_level_str in log_level_map:
+                log_level = log_level_map[log_level_str]
+    return log_level
+
+
 def _solver_set_log_level_off(solver: Any) -> None:
     """Best-effort: some PolyFEM Python bindings omit ``set_log_level``."""
     if hasattr(solver, "set_log_level"):
@@ -37,7 +60,9 @@ def solve_differentiable(
     root_path: Optional[str] = None,
     differentiable_params: Optional[List[str]] = None,
     derivative_type: str = "shape",
-    sidesets_func: Optional[callable] = None
+    sidesets_func: Optional[callable] = None,
+    *,
+    quiet_polyfem_setup: bool = True,
 ) -> DifferentiableResult:
     """Solve with automatic gradient computation.
 
@@ -64,6 +89,9 @@ def solve_differentiable(
             root_path for resolving mesh files (e.g. root_path=str(Path("data").resolve())).
         differentiable_params: Parameter names to make differentiable. Default: ["geometry"].
         derivative_type: "shape", "periodic_shape", "material", "initial_velocity", etc.
+        quiet_polyfem_setup: If True (default), call ``set_log_level(6)`` on the C++ solver right
+            after construction to reduce console noise. If False, skip that so ``output.log`` levels
+            (e.g. debug) can appear on the terminal as PolyFEM configures them.
 
     Returns:
         DifferentiableResult with .u, .vertices (backward 后 .vertices.grad 为形状导数).
@@ -115,17 +143,17 @@ def solve_differentiable(
     if use_load_mesh:
         # --- Config + mesh file path (same as legacy / differentiable_minimal) ---
         solver = pf.Solver()
-        _solver_set_log_level_off(solver)
+        if quiet_polyfem_setup:
+            _solver_set_log_level_off(solver)
         solver.set_settings(json.dumps(settings), strict_validation=False)
         solver.load_mesh_from_settings()
         solver.build_basis()
-        solver.assemble()
-        solver.set_cache_level(pf.CacheLevel.Derivatives)
-        if "time" in settings and settings["time"]:
-            tcfg = settings["time"]
-            t0 = tcfg.get("t0", 0.0) if isinstance(tcfg, dict) else 0.0
-            dt = tcfg.get("dt", 0.01) if isinstance(tcfg, dict) else 0.01
-            solver.init_timestepping(t0, dt)
+        # Match high-level ``api.solve()`` setup: it never calls ``init_timestepping()`` before
+        # ``Solver.solve()``; ``solve_problem`` owns transient initialization. A redundant
+        # ``assemble`` + ``init_timestepping`` here ran *before* ``PolyFEMFunction.forward`` and
+        # could leave the State inconsistent or crash (SIGSEGV) on large NeoHookean+time cases.
+        # Forward applies ``set_vertices`` → ``build_basis`` → ``assemble`` → ``set_cache_level``
+        # → ``solve()`` (which internally builds/assembles again like the solve binding).
         mesh = solver.mesh()
         V_np = np.asarray(mesh.vertices(), dtype=np.float64)
         V_requires_grad = True
@@ -174,7 +202,8 @@ def solve_differentiable(
             differentiable_params = ["geometry"]
 
         solver = pf.Solver()
-        _solver_set_log_level_off(solver)
+        if quiet_polyfem_setup:
+            _solver_set_log_level_off(solver)
         settings_json = json.dumps(settings)
         solver.set_settings(settings_json, strict_validation=False)
         solver.set_mesh(V_np, C_np.astype(np.int32))
@@ -199,20 +228,16 @@ def solve_differentiable(
                 warnings.warn(f"Failed to set boundary IDs: {e}", RuntimeWarning)
         solver.set_settings(settings_json, strict_validation=False)
         solver.build_basis()
-        solver.assemble()
-        solver.set_cache_level(pf.CacheLevel.Derivatives)
-        if "time" in settings and settings["time"]:
-            tcfg = settings["time"]
-            t0 = tcfg.get("t0", 0.0) if isinstance(tcfg, dict) else 0.0
-            dt = tcfg.get("dt", 0.01) if isinstance(tcfg, dict) else 0.01
-            solver.init_timestepping(t0, dt)
+        # Same as config+mesh branch: defer assemble / derivative cache / timestep init to
+        # ``PolyFEMFunction.forward`` so behavior aligns with ``api.solve()``.
     
     if V_requires_grad:
         V_torch = torch.tensor(V_np, requires_grad=True, dtype=V_dtype, device=V_device)
     else:
         V_torch = torch.tensor(V_np, requires_grad=False, dtype=V_dtype, device=V_device)
     
-    solutions = PolyFEMFunction.apply(solver, V_torch, derivative_type)
+    solve_log_level = _console_log_level_from_settings(settings)
+    solutions = PolyFEMFunction.apply(solver, V_torch, derivative_type, solve_log_level)
     
     return DifferentiableResult(
         u=solutions,
