@@ -1,10 +1,12 @@
 #include "local_objectives.hpp"
 
 #include <polyfem/assembler/Assembler.hpp>
+#include <polyfem/assembler/AssemblerData.hpp>
 #include <polyfem/solver/Optimizations.hpp>
 #include <polyfem/solver/forms/adjoint_forms/SpatialIntegralForms.hpp>
 #include <polyfem/solver/forms/parametrization/Parametrizations.hpp>
 #include <polyfem/utils/ElasticityUtils.hpp>
+#include <polyfem/utils/IntegrableFunctional.hpp>
 #include <polyfem/utils/MatrixUtils.hpp>
 
 #include <algorithm>
@@ -96,7 +98,7 @@ Eigen::MatrixXd numerical_von_mises_power_gradient(const Eigen::MatrixXd &sigma,
 class VonMisesForm : public SpatialIntegralForm
 {
 public:
-    VonMisesForm(const VariableToSimulationGroup &variable_to_simulations, const State &state, const json &args)
+    VonMisesForm(const VariableToSimulationGroup &variable_to_simulations, const State &state, const polyfem::json &args)
         : SpatialIntegralForm(variable_to_simulations, state, args)
     {
         set_integral_type(SpatialIntegralType::Volume);
@@ -146,12 +148,12 @@ protected:
             Eigen::MatrixXd grad_u_q;
             for (int q = 0; q < grad_u.rows(); ++q)
             {
-                vector2matrix(grad_u.row(q), grad_u_q);
+                utils::vector2matrix(grad_u.row(q), grad_u_q);
 
                 Eigen::MatrixXd stress;
                 Eigen::MatrixXd grad_unused;
                 state.assembler->compute_stress_grad_multiply_mat(
-                    OptAssemblerData(params.t, dt, params.elem, local_pts.row(q), pts.row(q), grad_u_q),
+                    assembler::OptAssemblerData(params.t, dt, params.elem, local_pts.row(q), pts.row(q), grad_u_q),
                     Eigen::MatrixXd::Zero(grad_u_q.rows(), grad_u_q.cols()),
                     stress,
                     grad_unused);
@@ -184,11 +186,11 @@ protected:
             Eigen::MatrixXd grad_u_q;
             for (int q = 0; q < grad_u.rows(); ++q)
             {
-                vector2matrix(grad_u.row(q), grad_u_q);
+                utils::vector2matrix(grad_u.row(q), grad_u_q);
 
                 Eigen::MatrixXd stress;
                 Eigen::MatrixXd grad_unused;
-                const OptAssemblerData data(params.t, dt, params.elem, local_pts.row(q), pts.row(q), grad_u_q);
+                const assembler::OptAssemblerData data(params.t, dt, params.elem, local_pts.row(q), pts.row(q), grad_u_q);
                 state.assembler->compute_stress_grad_multiply_mat(
                     data,
                     Eigen::MatrixXd::Zero(grad_u_q.rows(), grad_u_q.cols()),
@@ -236,7 +238,7 @@ std::shared_ptr<AdjointForm> create_local_objective(
     const std::string &obj_type,
     const std::string &param_type,
     const std::shared_ptr<State> &state,
-    const json &args)
+    const polyfem::json &args)
 {
     std::shared_ptr<AdjointForm> obj;
 

@@ -13,5 +13,5 @@ std::shared_ptr<polyfem::solver::AdjointForm> create_local_objective(
     const std::string &obj_type,
     const std::string &param_type,
     const std::shared_ptr<polyfem::State> &state,
-    const json &args);
+    const polyfem::json &args);
 }
