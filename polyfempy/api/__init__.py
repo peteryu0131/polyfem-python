@@ -1,24 +1,13 @@
-# Fix UTF-8 encoding for Windows console (prevents Unicode math symbols from showing as garbled text)
-# Fix OpenMP library conflicts (prevents libiomp5md.dll vs libomp.dll conflicts)
-import sys
-import os
-if sys.platform == 'win32':
-    try:
-        import io
-        # Set Python stdout/stderr to UTF-8
-        if hasattr(sys.stdout, 'buffer'):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        if hasattr(sys.stderr, 'buffer'):
-            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-        # Set console code page to UTF-8 (Windows-specific)
-        os.system('chcp 65001 >nul 2>&1')
-    except Exception:
-        pass
-    
-    # Fix OpenMP library conflicts (common when PyTorch and other libraries both link OpenMP)
-    # This allows the program to continue, though ideally only one OpenMP runtime should be linked
-    if 'KMP_DUPLICATE_LIB_OK' not in os.environ:
-        os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+# Apply Windows-only runtime tweaks (UTF-8 console, OpenMP duplicate-lib
+# toleration). The heavy lifting lives in ``_runtime.py`` so callers can invoke
+# it explicitly via ``polyfempy.api.configure_windows_runtime()``. The
+# auto-call here is a backward-compatibility shim only; set
+# ``POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG=1`` in the environment before importing
+# to opt out entirely (useful for library embedders and CI).
+from ._runtime import configure_windows_runtime, should_auto_configure_windows
+
+if should_auto_configure_windows():
+    configure_windows_runtime()
 
 from .solve import solve
 from .config import (
@@ -31,7 +20,7 @@ from .config import (
     Geometry, GeometryMesh,
     Solver, LinearSolver, NonlinearSolver,
     Time,
-    Output, ParaviewOutput,
+    Output, ParaviewOutput, ResultOutput, FallbackOutput,
     Contact,
     GravityParams, TorsionParams, FlowParams, FlowWithObstacleParams,
 )
@@ -43,6 +32,8 @@ from .io import read_mesh, Mesh
 __all__ = [
     "solve", "SimulationConfig", "Result", "Selection", "batch_solve",
     "read_mesh", "Mesh",
+    # Runtime helpers
+    "configure_windows_runtime",
     # Material classes
     "Material", "NeoHookean", "IsochoricNeoHookean", "MooneyRivlin", "MooneyRivlin3Param",
     "MooneyRivlin3ParamSymbolic", "UnconstrainedOgden", "IncompressibleOgden",
@@ -57,7 +48,7 @@ __all__ = [
     # Time class
     "Time",
     # Output classes
-    "Output", "ParaviewOutput",
+    "Output", "ParaviewOutput", "ResultOutput", "FallbackOutput",
     # Contact classes
     "Contact",
     # Problem parameter classes

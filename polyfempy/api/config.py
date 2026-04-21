@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING, Union, List, Dict, Any, overload
+import copy
 import json
+import warnings
 
 if TYPE_CHECKING:
     from .selection import Selection
@@ -63,6 +65,29 @@ _EXTRAS_PROMOTION_RULES = {
         "extras['random_seed'] must be an integer or None, got {value!r} (type: {type_name})"
     ),
 }
+
+_LEGACY_MINIMAL_JSON_KEYS = frozenset({
+    "pde",
+    "discr_order",
+    "materials",
+    "boundary_conditions",
+    "extras",
+})
+
+_FULL_JSON_HINT_KEYS = frozenset({
+    "geometry",
+    "solver",
+    "time",
+    "output",
+    "contact",
+    "problem_type",
+    "problem_params",
+    "selection",
+    "space",
+    "tests",
+    "root_path",
+    "common",
+})
 
 
 def _canon_pde(name: str) -> str:
@@ -1154,20 +1179,19 @@ class SimulationConfig:
 
     # ---------------- Canonicalization ----------------
 
-    def _get_materials_dict(self) -> Dict[str, Any]:
+    def _get_materials_dict(self) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """Internal helper: convert materials to dict format."""
         # Check if it's a material class instance (has to_dict method)
         if hasattr(self.materials, 'to_dict') and callable(getattr(self.materials, 'to_dict')):
             return self.materials.to_dict()
         elif isinstance(self.materials, list) and len(self.materials) > 0:
-            # Handle list of materials (take first one for simple API)
-            first = self.materials[0]
-            if hasattr(first, 'to_dict') and callable(getattr(first, 'to_dict')):
-                return first.to_dict()
-            elif isinstance(first, dict):
-                return _canon_materials(first)
-            else:
-                return {}
+            mats = []
+            for material in self.materials:
+                if hasattr(material, 'to_dict') and callable(getattr(material, 'to_dict')):
+                    mats.append(material.to_dict())
+                elif isinstance(material, dict):
+                    mats.append(_canon_materials(material))
+            return mats
         elif isinstance(self.materials, dict):
             return _canon_materials(self.materials)
         else:
@@ -1292,11 +1316,17 @@ class SimulationConfig:
             - Future nanobind implementations should use this interface
             - Structure is stable and documented
         """
-        # If we have full JSON config stored, return it
+        # Start from stored JSON when available so we preserve JSON-only details
+        # such as units/problem blocks, but still honor Python-side edits to the
+        # dataclass fields after `from_json_file(...)`.
+        result = {}
         if self.extras and "_full_json_config" in self.extras:
-            return dict(self.extras["_full_json_config"])
-        
-        # Otherwise, construct from fields
+            try:
+                result = copy.deepcopy(self.extras["_full_json_config"])
+            except Exception:
+                result = dict(self.extras["_full_json_config"])
+
+        # Construct/overlay from current fields.
         c = self.canonicalized()
         # Handle materials: if it's a material class, use to_dict(); otherwise use dict
         materials_dict = c._get_materials_dict() if hasattr(c, '_get_materials_dict') else (
@@ -1311,12 +1341,12 @@ class SimulationConfig:
             # If materials_dict is not a dict or list, wrap it
             materials_dict = [materials_dict] if materials_dict else []
         
-        result = {
-            "pde": c.pde,
-            "discr_order": c.discr_order,
-            "materials": materials_dict,
-            "boundary_conditions": c.boundary_conditions if isinstance(c.boundary_conditions, dict) else dict(c.boundary_conditions),
-        }
+        result["pde"] = c.pde
+        result["discr_order"] = c.discr_order
+        result["materials"] = materials_dict
+        result["boundary_conditions"] = (
+            c.boundary_conditions if isinstance(c.boundary_conditions, dict) else dict(c.boundary_conditions)
+        )
         
         # Add geometry if provided
         geometry_dict = c._get_geometry_dict() if hasattr(c, '_get_geometry_dict') else None
@@ -1345,13 +1375,19 @@ class SimulationConfig:
         
         # Extract common solver parameters from extras to top level for backend compatibility
         if c.extras:
+            public_extras = {
+                k: v for k, v in c.extras.items()
+                if not str(k).startswith("_")
+            }
+
             # Copy extras but also promote common keys to top level
-            result["extras"] = dict(c.extras)
+            if public_extras:
+                result["extras"] = dict(public_extras)
             
             # Promote parameters according to _EXTRAS_PROMOTION_RULES
             for param_name, (validator, error_template) in _EXTRAS_PROMOTION_RULES.items():
-                if param_name in c.extras:
-                    value = c.extras[param_name]
+                if param_name in public_extras:
+                    value = public_extras[param_name]
                     try:
                         converted_value = validator(value)
                         result[param_name] = converted_value
@@ -1375,48 +1411,245 @@ class SimulationConfig:
 
     # ---------------- JSON I/O ----------------
 
-    def to_json_str(self) -> str:
-        """Serialize the canonical configuration to a compact JSON string.
+    def to_full_json_dict(self) -> dict:
+        """Return the full current configuration as a JSON-ready dictionary.
 
-        The object is first canonicalized to ensure normalized keys and values
-        in the serialized output.
+        This is the explicit, user-facing name for the complete configuration
+        snapshot represented by `to_dict()`. It is useful when the caller wants
+        a full configuration object that can be:
+
+        - serialized with `json.dump(...)`
+        - modified in Python as a plain dict
+        - round-tripped back through `SimulationConfig.from_full_json_dict(...)`
 
         Returns:
-            A compact JSON string representing the canonical configuration.
+            A full JSON-ready configuration dictionary.
 
         Example:
-            >>> cfg = SimulationConfig.linear_elasticity(2100, 0.3)
-            >>> cfg.to_json_str()
-            '{"pde":"LinearElasticity","discr_order":1,"materials":{"E":2100,"nu":0.3},"boundary_conditions":{}}'
+            >>> cfg = SimulationConfig.from_json_file("config.json")
+            >>> d = cfg.to_full_json_dict()
+            >>> cfg2 = SimulationConfig.from_full_json_dict(d)
+        """
+        return self.to_dict()
+
+    def to_full_json_str(self) -> str:
+        """Serialize the full current configuration to JSON.
+
+        This is the recommended JSON export method when the caller expects a
+        round-trippable representation of the current `SimulationConfig`,
+        including geometry, solver, time, output, contact, and any JSON-derived
+        fields preserved by `to_dict()`.
+
+        Returns:
+            A JSON string representing the full current configuration.
+
+        Example:
+            >>> cfg = SimulationConfig.from_json_file("config.json")
+            >>> s = cfg.to_full_json_str()
+            >>> cfg2 = SimulationConfig.from_full_json_str(s)
+        """
+        return json.dumps(self.to_full_json_dict(), separators=(",", ":"))
+
+    def to_minimal_json_dict(self) -> dict:
+        """Serialize the legacy minimal configuration shape to a JSON-ready dict.
+
+        This export intentionally keeps only the small historical subset used by
+        the old `to_json_str()` helper: PDE, discretization order, materials,
+        boundary conditions, and public `extras`.
+
+        It is suitable only for the matching `from_minimal_json_dict()` /
+        `from_minimal_json_str()` compatibility path. For a complete snapshot of
+        the current configuration, use `to_full_json_dict()` instead.
         """
         c = self.canonicalized()
         obj = {
             "pde": c.pde,
             "discr_order": c.discr_order,
             "materials": c.materials if isinstance(c.materials, dict) else c.materials,
-            "boundary_conditions": c.boundary_conditions if isinstance(c.boundary_conditions, dict) else c.boundary_conditions,
+            "boundary_conditions": (
+                c.boundary_conditions if isinstance(c.boundary_conditions, dict) else c.boundary_conditions
+            ),
         }
-        if c.extras:
-            obj["extras"] = c.extras
-        return json.dumps(obj, separators=(",", ":"))
+        public_extras = {
+            k: v for k, v in (c.extras or {}).items()
+            if not str(k).startswith("_")
+        }
+        if public_extras:
+            obj["extras"] = public_extras
+        return obj
+
+    def to_minimal_json_str(self) -> str:
+        """Serialize the legacy minimal configuration shape to JSON.
+
+        This is the explicit name for the old minimal export path. The paired
+        import method is `from_minimal_json_str()`.
+        """
+        return json.dumps(self.to_minimal_json_dict(), separators=(",", ":"))
+
+    def to_json_str(self) -> str:
+        """Serialize a minimal canonical configuration to a compact JSON string.
+
+        This legacy helper only includes a small subset of the configuration:
+        core PDE/material/boundary-condition fields plus `extras`.
+        It does **not** represent the full current configuration and should not
+        be used when the caller expects a complete round-trip of geometry, time,
+        solver, output, or contact settings.
+
+        Prefer `to_full_json_str()` for full configuration export.
+
+        Returns:
+            A compact JSON string representing a minimal canonical configuration.
+
+        Example:
+            >>> cfg = SimulationConfig.linear_elasticity(2100, 0.3)
+            >>> cfg.to_json_str()
+            '{"pde":"LinearElasticity","discr_order":1,"materials":{"E":2100,"nu":0.3},"boundary_conditions":{}}'
+        """
+        warnings.warn(
+            "SimulationConfig.to_json_str() is a deprecated alias for the legacy minimal export; "
+            "use to_minimal_json_str() for the same subset or to_full_json_str() for a round-trippable full export.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.to_minimal_json_str()
 
     @classmethod
-    def from_json_str(cls, s: str) -> "SimulationConfig":
+    def _load_json_object(cls, s: str, *, source: str) -> Dict[str, Any]:
+        d = json.loads(s)
+        if not isinstance(d, dict):
+            raise TypeError(f"{source} expects a JSON object at the top level, got {type(d).__name__}")
+        return d
+
+    @classmethod
+    def _looks_like_legacy_minimal_json_dict(cls, d: Dict[str, Any]) -> bool:
+        keys = set(d.keys())
+        if not keys:
+            return True
+        if keys & _FULL_JSON_HINT_KEYS:
+            return False
+        return keys <= _LEGACY_MINIMAL_JSON_KEYS
+
+    @classmethod
+    def from_full_json_dict(cls, d: dict) -> "SimulationConfig":
+        """Explicit alias for `from_json_dict()` when the input is full JSON."""
+        return cls.from_json_dict(d)
+
+    @classmethod
+    def from_full_json_str(cls, s: str) -> "SimulationConfig":
+        """Deserialize a full PolyFEM JSON string.
+
+        This is the explicit inverse of `to_full_json_str()`.
+        """
+        return cls.from_json_dict(cls._load_json_object(s, source="SimulationConfig.from_full_json_str()"))
+
+    @classmethod
+    def from_minimal_json_dict(cls, d: dict) -> "SimulationConfig":
+        """Deserialize the legacy minimal JSON dictionary shape.
+
+        This only accepts the historical subset produced by
+        `to_minimal_json_dict()` / `to_minimal_json_str()`. If the dictionary
+        contains full-configuration keys such as `geometry` or `time`, use
+        `from_full_json_dict()` instead.
+        """
+        if not isinstance(d, dict):
+            raise TypeError(f"SimulationConfig.from_minimal_json_dict() expects a dict, got {type(d).__name__}")
+
+        full_only = sorted(set(d.keys()) & _FULL_JSON_HINT_KEYS)
+        if full_only:
+            raise ValueError(
+                "SimulationConfig.from_minimal_json_dict() only accepts the legacy minimal schema; "
+                f"found full-configuration keys: {', '.join(full_only)}. "
+                "Use from_full_json_dict() instead."
+            )
+
+        materials_raw = d.get("materials", {})
+        if isinstance(materials_raw, list):
+            materials = [
+                _canon_materials(item) if isinstance(item, dict) else copy.deepcopy(item)
+                for item in materials_raw
+            ]
+        elif isinstance(materials_raw, dict):
+            materials = _canon_materials(materials_raw)
+        else:
+            materials = copy.deepcopy(materials_raw)
+
+        bc_raw = d.get("boundary_conditions", {})
+        if isinstance(bc_raw, dict):
+            boundary_conditions = BoundaryConditions.from_dict(bc_raw)
+        else:
+            boundary_conditions = copy.deepcopy(bc_raw)
+
+        extras_raw = d.get("extras", {})
+        if extras_raw is None:
+            extras = {}
+        elif isinstance(extras_raw, dict):
+            extras = dict(extras_raw)
+        else:
+            raise TypeError(
+                "SimulationConfig.from_minimal_json_dict() expects 'extras' to be a dict when present, "
+                f"got {type(extras_raw).__name__}"
+            )
+
+        discr_order = d.get("discr_order", 1)
+        if discr_order is None:
+            discr_order = 1
+
+        return cls(
+            pde=d.get("pde", "LinearElasticity"),
+            discr_order=int(discr_order),
+            materials=materials,
+            boundary_conditions=boundary_conditions,
+            extras=extras,
+        )
+
+    @classmethod
+    def from_minimal_json_str(cls, s: str) -> "SimulationConfig":
+        """Deserialize the legacy minimal JSON string produced by `to_minimal_json_str()`."""
+        return cls.from_minimal_json_dict(
+            cls._load_json_object(s, source="SimulationConfig.from_minimal_json_str()")
+        )
+
+    @classmethod
+    def from_json_str(cls, s: str, *, kind: str = "auto") -> "SimulationConfig":
         """Deserialize a configuration from a JSON string.
 
-        This expects the format produced by `to_json_str()`.
+        This compatibility helper accepts both:
+
+        - the legacy minimal JSON produced by `to_json_str()`
+        - the full configuration JSON produced by `to_full_json_str()`
 
         Args:
-            s: JSON string produced by `to_json_str()`.
+            s: JSON string representing either a minimal or full configuration.
+            kind: One of `"auto"`, `"full"`, or `"minimal"`. `"auto"` keeps
+                backward compatibility by inspecting the JSON shape, while the
+                explicit modes provide stable semantics.
 
         Returns:
             A `SimulationConfig` instance reconstructed from the JSON.
 
         Notes:
-            - Unknown keys beyond the known fields are ignored.
-            - Canonicalization is not performed here; call `canonicalized()` if needed.
+            - Prefer `from_full_json_str()` for round-trippable full config import.
+            - Prefer `from_minimal_json_str()` only when reading the legacy subset.
+            - `"auto"` mode is kept for backward compatibility and warns because
+              it cannot perfectly infer user intent from every JSON shape.
         """
-        d = json.loads(s)
+        d = cls._load_json_object(s, source="SimulationConfig.from_json_str()")
+
+        if kind == "full":
+            return cls.from_json_dict(d)
+        if kind == "minimal":
+            return cls.from_minimal_json_dict(d)
+        if kind != "auto":
+            raise ValueError(f"kind must be 'auto', 'full', or 'minimal', got {kind!r}")
+
+        warnings.warn(
+            "SimulationConfig.from_json_str() is a compatibility helper with auto-detected semantics; "
+            "use from_full_json_str() for full configs or from_minimal_json_str() for the legacy minimal subset.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if cls._looks_like_legacy_minimal_json_dict(d):
+            return cls.from_minimal_json_dict(d)
         return cls.from_json_dict(d)
     
     @classmethod
@@ -1487,16 +1720,14 @@ class SimulationConfig:
             else:
                 discr_order = int(space_discr)
         
-        # Extract materials - handle both dict and array formats
+        # Extract materials - preserve full array format when provided.
         materials = full_config.get("materials", {})
-        materials_dict = {}
+        materials_dict: Union[Dict[str, Any], List[Dict[str, Any]]] = {}
         if isinstance(materials, list) and len(materials) > 0:
-            # Convert array format to dict (take first material for simple API)
-            first_mat = materials[0]
-            if isinstance(first_mat, dict):
-                materials_dict = {k: v for k, v in first_mat.items() if k != "id"}
-            else:
-                materials_dict = {}
+            materials_dict = []
+            for mat in materials:
+                if isinstance(mat, dict):
+                    materials_dict.append(dict(mat))
         elif isinstance(materials, dict):
             materials_dict = dict(materials)
         
@@ -1607,26 +1838,72 @@ class SimulationConfig:
 
     # ---------------- Validation ----------------
 
+    @staticmethod
+    def _is_numeric_or_unit_wrapped(value: Any) -> bool:
+        """True iff ``value`` is a plain number or a ``{"value": number, "unit": str}``
+        dict (the latter is the form the PolyFEM JSON schema accepts for physical
+        quantities like ``E``)."""
+        if isinstance(value, bool):
+            # ``bool`` is an ``int`` subclass; reject it explicitly so that
+            # ``E=True`` does not silently pass validation.
+            return False
+        if isinstance(value, (int, float)):
+            return True
+        if isinstance(value, dict):
+            inner = value.get("value")
+            return isinstance(inner, (int, float)) and not isinstance(inner, bool)
+        return False
+
+    @classmethod
+    def _validate_material_entry(cls, entry: Dict[str, Any], *, prefix: str) -> None:
+        """Validate a single material dict in place (no return value).
+
+        Accepts both the plain numeric form (``E = 20``) and the unit-wrapped form
+        (``E = {"value": 20, "unit": "MPa"}``) so that JSON configs loaded via
+        ``from_json_dict`` validate cleanly without being rewritten first.
+        """
+        for key in ("E", "nu"):
+            if key not in entry:
+                continue
+            value = entry[key]
+            if cls._is_numeric_or_unit_wrapped(value):
+                continue
+            raise ValueError(
+                f"{prefix}['{key}'] must be a number or a "
+                f"{{'value': number, 'unit': str}} dict, "
+                f"got {type(value).__name__}: {value!r}"
+            )
+
     def validate(self) -> None:
         """Perform lightweight sanity checks on key fields.
 
         Checks include:
-        - `discr_order` must be a positive integer.
-        - If present, `materials['E']` and `materials['nu']` must be numeric.
+        - ``discr_order`` must be a positive integer.
+        - If present, ``E`` / ``nu`` in any material must be either a plain number
+          or a unit-wrapped ``{"value": number, "unit": str}`` dict. Works for
+          both the single-dict form (``materials = {...}``) and the list form
+          (``materials = [{...}, {...}]``) that ``from_json_dict`` produces.
 
         Raises:
             ValueError: If any check fails.
 
         Notes:
-            - Physics-range checks (e.g., 0 < nu < 0.5) can be added here if desired.
-            - Call `canonicalized()` beforehand to normalize aliases.
+            - Physics-range checks (e.g., ``0 < nu < 0.5``) are intentionally
+              not enforced here; this is a shape/type validator only.
+            - Call ``canonicalized()`` beforehand to normalize aliases.
         """
         if not isinstance(self.discr_order, int) or self.discr_order <= 0:
-            raise ValueError(f"discr_order must be a positive integer, got {self.discr_order!r}")
+            raise ValueError(
+                f"discr_order must be a positive integer, got {self.discr_order!r}"
+            )
+
         mats = self._get_materials_dict()
-        for key in ("E", "nu"):
-            if key in mats and not isinstance(mats[key], (int, float)):
-                raise ValueError(f"materials['{key}'] must be a number, got {type(mats[key]).__name__}")
+        if isinstance(mats, dict):
+            self._validate_material_entry(mats, prefix="materials")
+        elif isinstance(mats, list):
+            for idx, entry in enumerate(mats):
+                if isinstance(entry, dict):
+                    self._validate_material_entry(entry, prefix=f"materials[{idx}]")
     
     # ---------------- Convenience methods for setting parameters ----------------
     
@@ -2109,15 +2386,32 @@ class GeometryMesh:
 @dataclass
 class Geometry:
     """Geometry configuration - provides IDE autocomplete support.
-    
+
     This class allows users to configure geometry (mesh files, transformations, etc.)
     with IDE autocomplete, instead of using dictionaries.
-    
+
     Attributes:
         meshes: List of GeometryMesh objects or mesh file paths (strings).
-        transformations: List of transformation dictionaries (optional).
+        transformations: **Deprecated**. Prefer ``GeometryMesh.transformation``
+            for per-mesh transformations — that path matches the PolyFEM JSON
+            schema exactly (``geometry[i].transformation``) and makes it
+            impossible to accidentally broadcast or misalign. When still used,
+            the accepted shapes are:
+
+            * ``None`` or empty list — no-op, each mesh keeps its own
+              ``transformation`` (if any).
+            * Length equal to ``len(meshes)`` — zip-assigned in order, emits
+              a ``DeprecationWarning``.
+            * Length 1 with multiple meshes — broadcast to all meshes, emits a
+              ``DeprecationWarning`` (legacy behavior preserved so old scripts
+              don't silently break).
+
+            Any other length now raises ``ValueError`` — previously the excess
+            entries were silently dropped. Any mesh that already sets
+            ``transformation`` via ``GeometryMesh.transformation`` also raises
+            ``ValueError`` rather than getting quietly overwritten.
         selections: Selection configuration (optional).
-    
+
     Example:
         >>> geom = Geometry(meshes=[GeometryMesh(mesh="mesh.obj")])
         >>> cfg = SimulationConfig(geometry=geom)
@@ -2125,39 +2419,87 @@ class Geometry:
     meshes: Union[List[GeometryMesh], List[str], GeometryMesh, str] = field(default_factory=list)
     transformations: Optional[List[Dict[str, Any]]] = None
     selections: Optional[Dict[str, Any]] = None
-    
+
+    def _normalized_mesh_list(self):
+        if isinstance(self.meshes, (str, GeometryMesh)):
+            return [self.meshes]
+        return list(self.meshes)
+
+    def _resolve_per_mesh_transformations(self, n_meshes: int) -> Optional[List[Optional[Dict[str, Any]]]]:
+        """Return a list of per-mesh transformations (or ``None`` entries) to
+        apply via the top-level ``Geometry.transformations`` path.
+
+        Returns ``None`` when the top-level list should not participate (no
+        value set / empty). Emits ``DeprecationWarning`` for both legal shapes
+        that still use the deprecated broadcast/zip behavior.
+        """
+        ts = self.transformations
+        if ts is None or len(ts) == 0:
+            return None
+
+        if len(ts) == n_meshes:
+            warnings.warn(
+                "Geometry.transformations is deprecated; pass transformation "
+                "per mesh via GeometryMesh.transformation instead. The current "
+                "length-matched list is being zip-assigned to each mesh.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return list(ts)
+
+        if len(ts) == 1 and n_meshes > 1:
+            warnings.warn(
+                "Geometry.transformations with a single entry broadcasts to "
+                "all meshes; this is a deprecated legacy shortcut. Prefer "
+                "GeometryMesh.transformation per mesh for explicit intent.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            return [ts[0]] * n_meshes
+
+        raise ValueError(
+            f"Geometry.transformations must be None, a list of length 1, or a "
+            f"list of length len(meshes)={n_meshes}; got length {len(ts)}. "
+            f"Use GeometryMesh.transformation for per-mesh transformations."
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format (for backend compatibility).
-        
+
         Returns:
-            Dictionary with geometry configuration in PolyFEM JSON format.
+            A list of per-mesh dicts in the PolyFEM JSON geometry format.
         """
-        result = []
-        
-        # Convert meshes to list format
-        if isinstance(self.meshes, (str, GeometryMesh)):
-            mesh_list = [self.meshes]
-        else:
-            mesh_list = self.meshes
-        
-        for mesh_item in mesh_list:
+        mesh_list = self._normalized_mesh_list()
+        if not mesh_list:
+            return []
+
+        per_mesh_xform = self._resolve_per_mesh_transformations(len(mesh_list))
+
+        result: List[Dict[str, Any]] = []
+        for idx, mesh_item in enumerate(mesh_list):
             if isinstance(mesh_item, GeometryMesh):
                 mesh_dict = mesh_item.to_dict()
             elif isinstance(mesh_item, str):
                 mesh_dict = {"mesh": mesh_item}
+            elif isinstance(mesh_item, dict):
+                mesh_dict = dict(mesh_item)
             else:
-                mesh_dict = mesh_item if isinstance(mesh_item, dict) else {"mesh": str(mesh_item)}
-            
-            # Add transformation if provided
-            if self.transformations and len(self.transformations) > 0:
-                mesh_dict["transformation"] = self.transformations[0]
-            
+                mesh_dict = {"mesh": str(mesh_item)}
+
+            if per_mesh_xform is not None:
+                top_xform = per_mesh_xform[idx]
+                if top_xform is not None:
+                    if "transformation" in mesh_dict and mesh_dict["transformation"] is not None:
+                        raise ValueError(
+                            f"meshes[{idx}] already has a transformation from "
+                            f"GeometryMesh.transformation; refusing to silently "
+                            f"overwrite it with Geometry.transformations[{idx}]. "
+                            f"Set only one of the two."
+                        )
+                    mesh_dict["transformation"] = top_xform
+
             result.append(mesh_dict)
-        
-        # If no meshes, return empty list (C++ backend expects array)
-        if not result:
-            return []
-        
+
         return result
     
     @classmethod
@@ -2250,7 +2592,7 @@ class LinearSolver:
 @dataclass
 class NonlinearSolver:
     """Nonlinear solver configuration - provides IDE autocomplete support.
-    
+
     Attributes:
         solver_type: Solver type (e.g., "newton", "newton_armijo", "newton_ls", "Newton").
         max_iterations: Maximum iterations. Defaults to 100.
@@ -2259,10 +2601,20 @@ class NonlinearSolver:
         x_delta: Solution delta tolerance (optional).
         iterations_per_strategy: Iterations per strategy (optional).
         line_search: Line search configuration (can be string or dict with method).
-    
+        method_blocks: PolyFEM JSON lets callers tune the active solver via a
+            method-specific sub-dict whose key is the solver name, e.g.
+            ``"Newton": {"residual_tolerance": 100}`` or ``"ADAM": {...}``.
+            These blocks are preserved here so they round-trip through
+            ``Solver.from_dict`` / ``Solver.to_dict`` without being silently
+            filtered. Construct directly as
+            ``NonlinearSolver(..., method_blocks={"Newton": {"residual_tolerance": 100}})``.
+
     Example:
         >>> solver = NonlinearSolver(solver_type="newton", max_iterations=50)
-        >>> solver = NonlinearSolver(solver_type="Newton", line_search={"method": "RobustArmijo"})
+        >>> solver = NonlinearSolver(
+        ...     solver_type="Newton",
+        ...     method_blocks={"Newton": {"residual_tolerance": 100}},
+        ... )
     """
     solver_type: str = "newton"
     max_iterations: int = 100
@@ -2271,15 +2623,21 @@ class NonlinearSolver:
     x_delta: Optional[float] = None
     iterations_per_strategy: Optional[int] = None
     line_search: Optional[Union[str, Dict[str, Any]]] = None
-    
+    method_blocks: Optional[Dict[str, Dict[str, Any]]] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format. Minimal structure for C++ solver.
-        
+
         Only include fields we explicitly set - omit max_iterations/tolerance when default,
         so C++ inject_defaults adds them. This avoids schema validation failures that
         occur when Python sends fields not in the root optional list.
+
+        Any ``method_blocks`` entries (``Newton`` / ``ADAM`` / ``L-BFGS`` /
+        ``L-BFGS-B`` / ``StochasticADAM`` / ``StochasticGradientDescent``) are
+        written back at the ``nonlinear`` level — that's what the PolyFEM JSON
+        schema expects for per-method tuning such as ``residual_tolerance``.
         """
-        result = {"solver": self.solver_type}
+        result: Dict[str, Any] = {"solver": self.solver_type}
         if self.max_iterations != 100:
             result["max_iterations"] = self.max_iterations
         if self.tolerance != 1e-6:
@@ -2308,6 +2666,16 @@ class NonlinearSolver:
                 result["line_search"] = line_search_cleaned
             else:
                 result["line_search"] = {"method": self.line_search}
+
+        # Per-method tuning blocks (Newton / ADAM / L-BFGS / ...). They must be
+        # emitted at the ``nonlinear`` level — PolyFEM expects them right next
+        # to ``solver`` / ``max_iterations`` etc., not nested anywhere deeper.
+        if self.method_blocks:
+            for block_name, block_value in self.method_blocks.items():
+                if isinstance(block_value, dict):
+                    result[block_name] = dict(block_value)
+                else:
+                    result[block_name] = block_value
         return result
 
 
@@ -2367,14 +2735,30 @@ class Solver:
         nonlinear = None
         if "nonlinear" in d:
             if isinstance(d["nonlinear"], dict):
-                # Filter out default solver config fields that cause JSON validation errors
-                nonlinear_dict = {k: v for k, v in d["nonlinear"].items() 
-                                if k not in ["ADAM", "L-BFGS", "L-BFGS-B", "Newton", 
-                                           "StochasticADAM", "StochasticGradientDescent"]}
+                # PolyFEM JSON lets users override per-method settings with a
+                # sub-dict keyed by the solver name (e.g.
+                # ``"Newton": {"residual_tolerance": 100}``). These blocks
+                # used to be filtered out entirely to dodge schema errors,
+                # which silently discarded the user's intent. Instead,
+                # preserve them on ``NonlinearSolver.method_blocks`` so
+                # ``to_dict()`` can reinstate them for the C++ solver.
+                _METHOD_BLOCK_KEYS = (
+                    "ADAM", "L-BFGS", "L-BFGS-B", "Newton",
+                    "StochasticADAM", "StochasticGradientDescent",
+                )
+                raw_nl = dict(d["nonlinear"])
+                method_blocks: Dict[str, Any] = {}
+                for k in _METHOD_BLOCK_KEYS:
+                    if k in raw_nl:
+                        method_blocks[k] = raw_nl.pop(k)
+
                 # Map JSON "solver" key to NonlinearSolver.solver_type
-                if "solver" in nonlinear_dict and "solver_type" not in nonlinear_dict:
-                    nonlinear_dict["solver_type"] = nonlinear_dict.pop("solver")
-                nonlinear = NonlinearSolver(**nonlinear_dict)
+                if "solver" in raw_nl and "solver_type" not in raw_nl:
+                    raw_nl["solver_type"] = raw_nl.pop("solver")
+
+                if method_blocks:
+                    raw_nl["method_blocks"] = method_blocks
+                nonlinear = NonlinearSolver(**raw_nl)
             else:
                 nonlinear = d["nonlinear"]
         
@@ -2492,6 +2876,90 @@ class ParaviewOutput:
 
 
 @dataclass
+class ResultOutput:
+    """Python-side result request for ``solve()``.
+
+    This does **not** go into the PolyFEM JSON schema. It tells the Python API
+    which result fields the user cares about and whether missing fields should
+    be treated as an error.
+
+    Attributes:
+        fields: Requested result fields, e.g. ``["u", "stress", "von_mises"]``.
+            ``None`` keeps legacy behavior and lets ``solve()`` return whatever
+            is cheaply available.
+        strict: If True, ``solve()`` raises when any requested field is still
+            unavailable after native extraction and any configured fallbacks.
+    """
+
+    fields: Optional[List[str]] = None
+    strict: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.fields is not None:
+            result["fields"] = list(self.fields)
+        if self.strict:
+            result["strict"] = True
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ResultOutput":
+        fields = d.get("fields")
+        if fields is not None:
+            fields = [str(x) for x in fields]
+        return cls(fields=fields, strict=bool(d.get("strict", False)))
+
+
+@dataclass
+class FallbackOutput:
+    """Python-side fallback policy for ``solve()`` result extraction.
+
+    Attributes:
+        sampled_vtu: Controls the temporary-VTU fallback used to recover
+            sampled fields such as ``von_mises`` when the native result bundle
+            does not provide them.
+            - ``"never"``: never use temporary VTU fallback
+            - ``"auto"``: use fallback only when requested fields need it
+            - ``"always"``: always attempt fallback
+        temp_storage: ``"ram"`` prefers ``/dev/shm`` when available, ``"disk"``
+            uses the default temporary directory.
+        keep_temp_files: If True, keep the temporary VTU directory for debugging
+            instead of deleting it immediately.
+    """
+
+    sampled_vtu: str = "never"
+    temp_storage: str = "ram"
+    keep_temp_files: bool = False
+
+    def __post_init__(self):
+        sampled_vtu = str(self.sampled_vtu).strip().lower()
+        if sampled_vtu not in ("never", "auto", "always"):
+            raise ValueError(f"sampled_vtu must be one of never/auto/always, got {self.sampled_vtu!r}")
+        self.sampled_vtu = sampled_vtu
+
+        temp_storage = str(self.temp_storage).strip().lower()
+        if temp_storage not in ("ram", "disk"):
+            raise ValueError(f"temp_storage must be 'ram' or 'disk', got {self.temp_storage!r}")
+        self.temp_storage = temp_storage
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {"sampled_vtu": self.sampled_vtu}
+        if self.temp_storage != "ram":
+            result["temp_storage"] = self.temp_storage
+        if self.keep_temp_files:
+            result["keep_temp_files"] = True
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "FallbackOutput":
+        return cls(
+            sampled_vtu=str(d.get("sampled_vtu", "never")),
+            temp_storage=str(d.get("temp_storage", "ram")),
+            keep_temp_files=bool(d.get("keep_temp_files", False)),
+        )
+
+
+@dataclass
 class Output:
     """Output configuration - provides IDE autocomplete support.
     
@@ -2501,6 +2969,12 @@ class Output:
         json: Export JSON results (can be bool or string filename). Defaults to True.
         log: Log configuration (level, etc.).
         advanced: Advanced output options (e.g., save_time_sequence, save_solve_sequence_debug).
+        save_paraview: Python-side convenience switch. If False, ``to_dict()``
+            disables Paraview sequence output without requiring the caller to
+            manually touch ``advanced.save_time_sequence`` or clear
+            ``paraview.file_name``.
+        result: Python-side result request for ``solve()``.
+        fallback: Python-side result fallback policy for ``solve()``.
     
     Example:
         >>> output = Output(directory="results", paraview=ParaviewOutput(volume=True))
@@ -2510,6 +2984,9 @@ class Output:
     json: Union[bool, str] = True
     log: Optional[Dict[str, Any]] = None
     advanced: Optional[Dict[str, Any]] = None
+    save_paraview: Optional[bool] = None
+    result: Optional[Union[ResultOutput, Dict[str, Any]]] = None
+    fallback: Optional[Union[FallbackOutput, Dict[str, Any]]] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format (for backend compatibility)."""
@@ -2521,13 +2998,69 @@ class Output:
         elif self.json:
             result["json"] = True
         
-        if self.paraview is not None:
-            result["paraview"] = self.paraview.to_dict()
+        paraview_dict = self.paraview.to_dict() if self.paraview is not None else None
+        advanced_dict = dict(self.advanced) if self.advanced is not None else None
+
+        if self.save_paraview is False:
+            if paraview_dict is None:
+                paraview_dict = {}
+            paraview_dict["file_name"] = ""
+            if advanced_dict is None:
+                advanced_dict = {}
+            advanced_dict["save_time_sequence"] = False
+
+        if paraview_dict is not None:
+            result["paraview"] = paraview_dict
         if self.log is not None:
             result["log"] = self.log
-        if self.advanced is not None:
-            result["advanced"] = self.advanced
+        if advanced_dict is not None:
+            result["advanced"] = advanced_dict
         return result
+
+    def runtime_options(self) -> Dict[str, Any]:
+        """Return Python-only runtime output controls for ``solve()``.
+
+        These options are intentionally excluded from ``to_dict()`` because they
+        are not part of the PolyFEM JSON schema.
+        """
+        result_cfg = None
+        if isinstance(self.result, ResultOutput):
+            result_cfg = self.result.to_dict()
+        elif isinstance(self.result, dict):
+            result_cfg = dict(self.result)
+
+        fallback_cfg = None
+        if isinstance(self.fallback, FallbackOutput):
+            fallback_cfg = self.fallback.to_dict()
+        elif isinstance(self.fallback, dict):
+            fallback_cfg = dict(self.fallback)
+
+        out: Dict[str, Any] = {}
+        if result_cfg:
+            out["result"] = result_cfg
+        if fallback_cfg:
+            out["fallback"] = fallback_cfg
+        return out
+
+    def request_results(self, fields: List[str], *, strict: bool = False) -> "Output":
+        """Convenience helper for ``solve()`` result requests."""
+        self.result = ResultOutput(fields=list(fields), strict=bool(strict))
+        return self
+
+    def configure_fallback(
+        self,
+        *,
+        sampled_vtu: str = "auto",
+        temp_storage: str = "ram",
+        keep_temp_files: bool = False,
+    ) -> "Output":
+        """Convenience helper for ``solve()`` fallback behavior."""
+        self.fallback = FallbackOutput(
+            sampled_vtu=sampled_vtu,
+            temp_storage=temp_storage,
+            keep_temp_files=keep_temp_files,
+        )
+        return self
     
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Output":
@@ -2539,12 +3072,23 @@ class Output:
             else:
                 paraview = d["paraview"]
         
+        result_cfg = None
+        if "result" in d and isinstance(d["result"], dict):
+            result_cfg = ResultOutput.from_dict(d["result"])
+
+        fallback_cfg = None
+        if "fallback" in d and isinstance(d["fallback"], dict):
+            fallback_cfg = FallbackOutput.from_dict(d["fallback"])
+
         return cls(
             directory=d.get("directory", "output"),
             paraview=paraview,
             json=d.get("json", True),
             log=d.get("log"),
-            advanced=d.get("advanced")
+            advanced=d.get("advanced"),
+            save_paraview=d.get("save_paraview"),
+            result=result_cfg,
+            fallback=fallback_cfg,
         )
 
 
