@@ -6,6 +6,7 @@
 #include <polyfem/utils/JSONUtils.hpp>
 #include <polyfem/utils/MatrixUtils.hpp>
 #include "binding.hpp"
+#include "local_objectives.hpp"
 
 #include <memory>
 
@@ -54,7 +55,7 @@ void define_objective(py::module_ &m)
         // create_simple_form takes shared_ptr<State>; nanobind exposes Solver as State&.
         // Non-owning shared_ptr: Python keeps the State alive for the whole solve.
         std::shared_ptr<State> state_ptr(&solver, [](State *) {});
-        return AdjointOptUtils::create_simple_form(
+        return polyfempy::differentiable::create_local_objective(
             obj_type, param_type, state_ptr, json::parse(parameters_json));
       },
       py::arg("obj_type"), py::arg("param_type"), py::arg("solver"),

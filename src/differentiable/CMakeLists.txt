@@ -1,6 +1,7 @@
 set(SOURCES
   adjoint.cpp
   diff_cache.cpp
+  local_objectives.cpp
   objective.cpp
   utils.cpp
 )
