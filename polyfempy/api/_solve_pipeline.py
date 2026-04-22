@@ -1010,6 +1010,42 @@ def apply_sampled_vtu_fallback(
         result.meta[f"{name}_location"] = loc
         extracted_any = True
 
+    # Auxiliary per-point metadata worth riding along when the VTU has it.
+    # These don't drive the "should_run_fallback?" decision (that's still
+    # governed by stress / von_mises requests), they just hitchhike when the
+    # fallback already ran for other reasons. Users who want to split the
+    # sampled fields by body — e.g. ``result.stress[result.field("body_ids")==1]``
+    # — need ``body_ids`` to be available without any extra plumbing.
+    #
+    # ``flatten_trailing_singleton`` squeezes a ``(N, 1)`` storage layout back
+    # to ``(N,)`` — PolyFEM's VTU writer stores scalar per-point labels like
+    # ``body_ids`` as ``(N, 1)`` columns, which breaks ``stress[body == 1]``
+    # style boolean indexing on ``(N, k)`` payloads.
+    _AUX_PROBES = (
+        # (field_name, dtype, flatten_trailing_singleton)
+        ("body_ids", np.int32, True),
+        ("velocity", None, False),
+    )
+    for name, dtype, flatten_singleton in _AUX_PROBES:
+        arr, loc = _extract_meshio_array(mesh, name)
+        if arr is None:
+            continue
+        arr = np.asarray(arr)
+        if arr.size == 0:
+            continue
+        if flatten_singleton and arr.ndim == 2 and arr.shape[1] == 1:
+            arr = arr[:, 0]
+        if dtype is not None:
+            arr = arr.astype(dtype, copy=False)
+        result.set_sampled_field(name, arr)
+        result.meta[f"{name}_source"] = "temp_vtu"
+        result.meta[f"{name}_location"] = loc
+        # Intentionally NOT flipping ``extracted_any`` here: auxiliary hitch-
+        # hikers alone don't count as "the fallback found something useful" —
+        # if the caller only asked for body_ids, we don't want the fallback
+        # metadata block (sampled_vtu_fallback=True, etc.) to suggest the
+        # probe VTU provided a primary result.
+
     if extracted_any:
         result.meta["sampled_vtu_fallback"] = True
         result.meta["sampled_vtu_point_count"] = int(
@@ -1053,6 +1089,43 @@ def finalize_result(result: Result, runtime: RuntimeOptions) -> Result:
 # ---------------------------------------------------------------------------
 
 
+def _collect_solver_history(solver, full_json: Optional[dict]):
+    """Pull PolyFEM's in-memory per-timestep frames off the solver.
+
+    Returns a ``HistoryView`` populated from ``solver.solution_frames`` if the
+    C++ binding exposes that attribute (added in the Round-1 nanobind change),
+    otherwise an empty ``HistoryView``. This is strictly additive — callers
+    that don't care about history simply ignore it.
+
+    Time values for each frame are derived from ``full_json["time"]`` when
+    possible (``t0 + i * dt`` ... ``tend``); otherwise we fall back to step
+    indices. The exact number of saved frames is whatever PolyFEM actually
+    populated — we don't second-guess that count.
+    """
+    from .result import HistoryView
+
+    raw = getattr(solver, "solution_frames", None)
+    if raw is None:
+        return HistoryView()
+    try:
+        frames = list(raw)
+    except TypeError:
+        return HistoryView()
+    if not frames:
+        return HistoryView()
+
+    # Best-effort per-step simulation times from the time block.
+    times = None
+    if isinstance(full_json, dict):
+        tcfg = full_json.get("time") or {}
+        if isinstance(tcfg, dict):
+            t0 = float(tcfg.get("t0", 0.0) or 0.0)
+            dt = float(tcfg.get("dt", 0.0) or 0.0)
+            if dt > 0.0:
+                times = [t0 + i * dt for i in range(len(frames))]
+    return HistoryView(frames=frames, times=times)
+
+
 def run_pipeline(
     vertices=None,
     cells=None,
@@ -1073,6 +1146,7 @@ def run_pipeline(
 
     ret = run_solver_stage(solver, full_json)
     native = extract_native_outputs(ret, solver, inputs)
+    history = _collect_solver_history(solver, full_json)
 
     result = Result(
         inputs.v_backend,
@@ -1080,6 +1154,7 @@ def run_pipeline(
         native.cells,
         native.fields,
         meta=native.meta,
+        history=history,
     )
     result = apply_sampled_vtu_fallback(
         result,
@@ -1088,4 +1163,7 @@ def run_pipeline(
         full_json=full_json,
         runtime=runtime,
     )
+    if history.available:
+        result.meta["history_frames"] = len(history)
+        result.meta["history_source"] = "solver.solution_frames"
     return finalize_result(result, runtime)

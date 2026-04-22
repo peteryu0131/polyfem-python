@@ -162,6 +162,59 @@ class ToMeshioExcludesSampledTests(unittest.TestCase):
         self.assertNotIn("von_mises", recorded["point_data"])  # sampled, dropped
 
 
+class FieldByBodyTests(unittest.TestCase):
+    """``Result.field_by_body`` replaces the inline numpy boolean-masking
+    pattern. It must: (a) only work when body_ids is available, (b) only
+    work on fields whose row count matches body_ids, (c) return a dict
+    keyed by int body ids with contiguous sub-arrays."""
+
+    def _sampled_result(self) -> Result:
+        r = _make_native_result()
+        r.set_sampled_field("stress", np.arange(4 * 3, dtype=np.float64).reshape(4, 3))
+        r.set_sampled_field("body_ids", np.array([1, 1, 2, 2], dtype=np.int32))
+        return r
+
+    def test_splits_sampled_field_by_body(self):
+        r = self._sampled_result()
+        out = r.field_by_body("stress")
+
+        self.assertEqual(sorted(out.keys()), [1, 2])
+        self.assertEqual(out[1].shape, (2, 3))
+        self.assertEqual(out[2].shape, (2, 3))
+        np.testing.assert_array_equal(out[1], np.array([[0, 1, 2], [3, 4, 5]]))
+        np.testing.assert_array_equal(out[2], np.array([[6, 7, 8], [9, 10, 11]]))
+
+    def test_keys_are_plain_ints_not_numpy_scalars(self):
+        """Python code often does ``d[1]``; int keys avoid surprises from
+        numpy int scalar types in downstream consumers."""
+        r = self._sampled_result()
+        out = r.field_by_body("stress")
+        for key in out:
+            self.assertIsInstance(key, int)
+
+    def test_raises_when_body_ids_absent(self):
+        r = _make_native_result()
+        r.set_sampled_field("stress", np.zeros((4, 3)))
+        # No body_ids -> can't split.
+        with self.assertRaisesRegex(RuntimeError, "body_ids"):
+            r.field_by_body("stress")
+
+    def test_raises_for_unknown_field(self):
+        r = self._sampled_result()
+        with self.assertRaises(KeyError):
+            r.field_by_body("does_not_exist")
+
+    def test_raises_when_field_row_count_mismatches_body_ids(self):
+        """Splitting a native-mesh field (e.g. u, rows=n_vertices) by a
+        sampled-mesh body_ids (rows=n_sampled) must fail with a clear error,
+        not return a silently-wrong dict."""
+        r = self._sampled_result()
+        # ``u`` on the native mesh lives in _point_data with 3 rows, while
+        # body_ids has 4 rows. Different meshes; splitting doesn't make sense.
+        with self.assertRaisesRegex(ValueError, r"lengths do not match"):
+            r.field_by_body("u")
+
+
 class IntrospectionTests(unittest.TestCase):
     def test_field_names_includes_sampled(self):
         r = _make_native_result(with_native_stress=True)

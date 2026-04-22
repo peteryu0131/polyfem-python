@@ -2,6 +2,7 @@
 #include <polyfem/assembler/AssemblerUtils.hpp>
 #include <polyfem/assembler/GenericProblem.hpp>
 #include <polyfem/io/Evaluator.hpp>
+#include <polyfem/io/OutData.hpp>
 #include <polyfem/io/YamlToJson.hpp>
 #include <polyfem/utils/Logger.hpp>
 #include <polyfem/utils/StringUtils.hpp>
@@ -84,56 +85,11 @@ void reapply_per_elem_lame_after_build_basis(State &s)
 typedef std::function<Eigen::MatrixXd(double x, double y, double z)> BCFuncV;
 typedef std::function<double(double x, double y, double z)> BCFuncS;
 
-// Helper function to clean mutually exclusive solver fields after jse.inject_defaults()
-// C++ backend's jse.inject_defaults() fills ALL default values including mutually
-// exclusive fields (ADAM, L-BFGS, Newton, etc.), causing validation errors.
-// This function removes all but the one actually being used.
+// Post-init hook after jse.inject_defaults(). Left as a no-op so
+// solver.nonlinear JSON (Newton / ADAM / line_search / ...) matches
+// standalone PolyFEM configs and user-supplied method blocks remain intact.
 void clean_mutually_exclusive_solver_fields(json &args) {
-  if (!args.contains("solver") || !args["solver"].is_object()) {
-    return;
-  }
-  
-  auto &solver = args["solver"];
-  
-  // Lambda to clean a nonlinear solver config
-  auto clean_nonlinear_solver = [](json &nonlinear) {
-    if (!nonlinear.is_object()) return;
-    
-    // Remove ALL solver method config blocks (ADAM, L-BFGS, Newton, etc.)
-    std::vector<std::string> solver_keys = {"ADAM", "L-BFGS", "L-BFGS-B",
-                                            "Newton", "StochasticADAM", "StochasticGradientDescent"};
-    for (const auto &key : solver_keys) {
-      if (nonlinear.contains(key)) nonlinear.erase(key);
-    }
-    
-    // Remove advanced, box_constraints, allow_out_of_iterations, first_grad_norm_tol
-    // JSE validation fails when these filled-by-inject_defaults objects are present
-    for (const auto &key : {"advanced", "box_constraints", "allow_out_of_iterations", "first_grad_norm_tol"}) {
-      if (nonlinear.contains(key)) nonlinear.erase(key);
-    }
-    
-    // line_search: keep ONLY "method" - strip all other fields
-    if (nonlinear.contains("line_search") && nonlinear["line_search"].is_object()) {
-      auto &ls = nonlinear["line_search"];
-      std::string method = "RobustArmijo";
-      if (ls.contains("method") && ls["method"].is_string())
-        method = ls["method"].get<std::string>();
-      nonlinear["line_search"] = {{"method", method}};
-    }
-  };
-  
-  // Clean main nonlinear solver
-  if (solver.contains("nonlinear") && solver["nonlinear"].is_object()) {
-    clean_nonlinear_solver(solver["nonlinear"]);
-  }
-  
-  // Also clean augmented_lagrangian/nonlinear (C++ copies nonlinear settings there)
-  if (solver.contains("augmented_lagrangian") && solver["augmented_lagrangian"].is_object()) {
-    auto &aug_lag = solver["augmented_lagrangian"];
-    if (aug_lag.contains("nonlinear") && aug_lag["nonlinear"].is_object()) {
-      clean_nonlinear_solver(aug_lag["nonlinear"]);
-    }
-  }
+  (void)args;
 }
 
 class Assemblers
@@ -189,6 +145,46 @@ namespace
       : std::true_type
   {
   };
+
+  template <class T>
+  auto call_get_sampled_mises(T &s, const bool boundary_only)
+  {
+    if constexpr (has_get_sampled_mises<T>::value)
+      return s.get_sampled_mises(boundary_only);
+    else
+      throw std::runtime_error(
+          "get_sampled_mises is not available in this PolyFEM build.");
+  }
+
+  template <class T>
+  auto call_get_sampled_mises_avg(T &s, const bool boundary_only)
+  {
+    if constexpr (has_get_sampled_mises_avg<T>::value)
+      return s.get_sampled_mises_avg(boundary_only);
+    else
+      throw std::runtime_error(
+          "get_sampled_mises_avg is not available in this PolyFEM build.");
+  }
+
+  template <class T>
+  auto call_get_sampled_mises_frames(T &s)
+  {
+    if constexpr (has_get_sampled_mises_frames<T>::value)
+      return s.get_sampled_mises_frames();
+    else
+      throw std::runtime_error(
+          "get_sampled_mises_frames is not available in this PolyFEM build.");
+  }
+
+  template <class T>
+  auto call_get_sampled_mises_avg_frames(T &s)
+  {
+    if constexpr (has_get_sampled_mises_avg_frames<T>::value)
+      return s.get_sampled_mises_avg_frames();
+    else
+      throw std::runtime_error(
+          "get_sampled_mises_avg_frames is not available in this PolyFEM build.");
+  }
 
   bool load_json(const std::string &json_file, json &out)
   {
@@ -546,8 +542,21 @@ void define_solver(py::module_ &m)
 
             s.set_log_level(static_cast<spdlog::level::level_enum>(log_level));
 
+            // Mirror PolyFEM's ``State::solve()`` wrapping: flip to in-memory
+            // storage so ``save_timestep`` pushes each step's data into
+            // ``state.solution_frames`` instead of writing per-step VTU files.
+            // This is what makes ``solver.solution_frames`` non-empty after
+            // solve() returns, unlocking ``result.history.u / .vm / ...`` on
+            // the Python side. ``export_data`` below resets the flag and
+            // still writes the final outputs configured via the JSON.
+            const bool prev_export_to_file = s.solve_export_to_file;
+            s.solve_export_to_file = false;
+            s.solution_frames.clear();
+
             Eigen::MatrixXd sol, pressure;
             s.solve_problem(sol, pressure);
+
+            s.solve_export_to_file = prev_export_to_file;
 
             s.compute_errors(sol);
 
@@ -723,16 +732,10 @@ void define_solver(py::module_ &m)
              return sol;
            })
 
-      // ---- Optional: von Mises sampled outputs (if PolyFEM exposes them) ----
       .def(
           "get_sampled_mises",
           [](State &s, const bool boundary_only) {
-            if constexpr (has_get_sampled_mises<State>::value)
-            {
-              return s.get_sampled_mises(boundary_only);
-            }
-            throw std::runtime_error(
-                "get_sampled_mises is not available in this PolyFEM build.");
+            return call_get_sampled_mises(s, boundary_only);
           },
           "returns the von mises stresses on a densely sampled mesh (if available)",
           py::arg("boundary_only") = bool(false))
@@ -740,12 +743,7 @@ void define_solver(py::module_ &m)
       .def(
           "get_sampled_mises_avg",
           [](State &s, const bool boundary_only) {
-            if constexpr (has_get_sampled_mises_avg<State>::value)
-            {
-              return s.get_sampled_mises_avg(boundary_only);
-            }
-            throw std::runtime_error(
-                "get_sampled_mises_avg is not available in this PolyFEM build.");
+            return call_get_sampled_mises_avg(s, boundary_only);
           },
           "returns the von mises stresses and averaged stress tensor on a densely sampled mesh (if available)",
           py::arg("boundary_only") = bool(false))
@@ -753,24 +751,14 @@ void define_solver(py::module_ &m)
       .def(
           "get_sampled_mises_frames",
           [](State &s) {
-            if constexpr (has_get_sampled_mises_frames<State>::value)
-            {
-              return s.get_sampled_mises_frames();
-            }
-            throw std::runtime_error(
-                "get_sampled_mises_frames is not available in this PolyFEM build.");
+            return call_get_sampled_mises_frames(s);
           },
           "returns von mises stresses per frame on a densely sampled mesh (if available)")
 
       .def(
           "get_sampled_mises_avg_frames",
           [](State &s) {
-            if constexpr (has_get_sampled_mises_avg_frames<State>::value)
-            {
-              return s.get_sampled_mises_avg_frames();
-            }
-            throw std::runtime_error(
-                "get_sampled_mises_avg_frames is not available in this PolyFEM build.");
+            return call_get_sampled_mises_avg_frames(s);
           },
           "returns averaged von mises stresses per frame on a densely sampled mesh (if available)")
 
@@ -799,6 +787,42 @@ void define_solver(py::module_ &m)
           "exports the solution as vtu", py::arg("path"), py::arg("solution"),
           py::arg("pressure") = Eigen::MatrixXd(), py::arg("time") = double(0.),
           py::arg("dt") = double(0.))
+      .def_prop_ro(
+          "solution_frames",
+          [](State &s) {
+            // Per-timestep solution data accumulated in ``state.solution_frames``
+            // when ``solve_export_to_file`` is false (State::solve() sets this
+            // automatically). One dict per time step, each with:
+            //   - name           : str — the frame name from PolyFEM
+            //   - points         : (n_sampled, dim)   — sampled-mesh vertices
+            //   - connectivity   : (n_sampled_cells, k) — sampled-mesh cells
+            //   - solution       : (n_sampled, dim)   — displacement u at that step
+            //   - pressure       : (n_sampled, 1) or empty — pressure if present
+            //   - scalar_value   : (n_sampled, 1)     — von Mises (per-point)
+            //   - scalar_value_avg : (n_sampled, 1)   — node-averaged von Mises
+            //   - exact / error  : populated only when an exact solution is known
+            //
+            // Zero VTU file I/O — the arrays come straight out of PolyFEM's
+            // in-memory buffers via nanobind's Eigen → numpy zero-copy path.
+            py::list frames;
+            for (const auto &f : s.solution_frames) {
+              py::dict d;
+              d["name"] = f.name;
+              d["points"] = f.points;
+              d["connectivity"] = f.connectivity;
+              d["solution"] = f.solution;
+              d["pressure"] = f.pressure;
+              d["scalar_value"] = f.scalar_value;
+              d["scalar_value_avg"] = f.scalar_value_avg;
+              d["exact"] = f.exact;
+              d["error"] = f.error;
+              frames.append(d);
+            }
+            return frames;
+          },
+          "Per-timestep solution frames populated in memory when "
+          "``output.advanced.save_time_sequence=true``. Returns a list of "
+          "dicts (see docstring inside state.cpp for the exact keys).")
       .def(
           "set_friction_coefficient",
           [](State &self, const double mu) {

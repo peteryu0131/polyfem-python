@@ -156,6 +156,139 @@ class SampledFallbackRoutingTests(unittest.TestCase):
         self.assertEqual(r._sampled_data, {})
         self.assertNotIn("sampled_vtu_fallback", r.meta)
 
+    def test_fallback_hitchhikes_body_ids_when_present_in_vtu(self):
+        """``body_ids`` rides along whenever the fallback runs for stress or
+        von_mises. It must land in ``_sampled_data`` with an int dtype so
+        callers can use it for boolean indexing without casting."""
+        result, native = _native_result_and_outputs()
+        sampled_body = np.array([1, 1, 2, 2], dtype=np.int64)
+        sampled_stress = np.arange(4 * 3, dtype=np.float64).reshape(4, 3)
+        fake_mesh = types.SimpleNamespace(
+            points=np.zeros((4, 2)),
+            point_data={"body_ids": sampled_body},
+            cell_data={},
+        )
+
+        with unittest.mock.patch.object(
+            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
+        ), unittest.mock.patch.object(
+            _p, "_reconstruct_sampled_cauchy_stress",
+            return_value=(sampled_stress, "point"),
+        ):
+            r = apply_sampled_vtu_fallback(
+                result,
+                solver=_FakeSolver(),
+                native=native,
+                full_json=None,
+                runtime=RuntimeOptions(fallback_mode="always"),
+            )
+
+        self.assertIn("body_ids", r._sampled_data)
+        np.testing.assert_array_equal(r._sampled_data["body_ids"], sampled_body)
+        self.assertEqual(r._sampled_data["body_ids"].dtype, np.int32)
+        self.assertEqual(r.meta.get("body_ids_source"), "temp_vtu")
+        # body_ids enables per-body slicing of the primary sampled fields.
+        body = r.field("body_ids")
+        stress_b1 = r.stress[body == 1]
+        stress_b2 = r.stress[body == 2]
+        self.assertEqual(stress_b1.shape, (2, 3))
+        self.assertEqual(stress_b2.shape, (2, 3))
+
+    def test_fallback_flattens_2d_body_ids_to_1d(self):
+        """PolyFEM's VTU writer stores scalar per-point labels like
+        ``body_ids`` as ``(N, 1)`` columns. If we leave it 2-D,
+        ``result.stress[body_ids == 1]`` raises an IndexError because numpy
+        tries to apply a ``(N, 1)`` mask to an ``(N, k)`` payload. The
+        fallback must normalize that to 1-D so per-body slicing just works.
+        """
+        result, native = _native_result_and_outputs()
+        # (N, 1) body_ids — this is what PolyFEM actually writes.
+        sampled_body_2d = np.array([[1], [1], [2], [2]], dtype=np.int64)
+        sampled_stress = np.arange(4 * 3, dtype=np.float64).reshape(4, 3)
+        fake_mesh = types.SimpleNamespace(
+            points=np.zeros((4, 2)),
+            point_data={"body_ids": sampled_body_2d},
+            cell_data={},
+        )
+
+        with unittest.mock.patch.object(
+            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
+        ), unittest.mock.patch.object(
+            _p, "_reconstruct_sampled_cauchy_stress",
+            return_value=(sampled_stress, "point"),
+        ):
+            r = apply_sampled_vtu_fallback(
+                result,
+                solver=_FakeSolver(),
+                native=native,
+                full_json=None,
+                runtime=RuntimeOptions(fallback_mode="always"),
+            )
+
+        stored = r._sampled_data["body_ids"]
+        self.assertEqual(stored.ndim, 1, f"expected 1-D body_ids, got shape {stored.shape}")
+        np.testing.assert_array_equal(stored, np.array([1, 1, 2, 2]))
+
+        # The whole point of the squeeze: downstream boolean indexing must
+        # work without users knowing about the PolyFEM storage quirk.
+        body = r.field("body_ids")
+        stress_b1 = r.stress[body == 1]
+        self.assertEqual(stress_b1.shape, (2, 3))
+
+    def test_fallback_hitchhikes_velocity_when_present_in_vtu(self):
+        """Transient workloads often emit a velocity field on the sampled
+        mesh. Bring it along for the same reason as body_ids."""
+        result, native = _native_result_and_outputs()
+        sampled_velocity = np.ones((4, 2))
+        sampled_stress = np.zeros((4, 3))
+        fake_mesh = types.SimpleNamespace(
+            points=np.zeros((4, 2)),
+            point_data={"velocity": sampled_velocity},
+            cell_data={},
+        )
+
+        with unittest.mock.patch.object(
+            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
+        ), unittest.mock.patch.object(
+            _p, "_reconstruct_sampled_cauchy_stress",
+            return_value=(sampled_stress, "point"),
+        ):
+            r = apply_sampled_vtu_fallback(
+                result,
+                solver=_FakeSolver(),
+                native=native,
+                full_json=None,
+                runtime=RuntimeOptions(fallback_mode="always"),
+            )
+
+        self.assertIn("velocity", r._sampled_data)
+        np.testing.assert_array_equal(r._sampled_data["velocity"], sampled_velocity)
+        self.assertEqual(r.meta.get("velocity_source"), "temp_vtu")
+
+    def test_fallback_omits_body_ids_when_vtu_does_not_have_them(self):
+        """No body_ids in the VTU → no body_ids in the Result, no crash."""
+        result, native = _native_result_and_outputs()
+        fake_mesh = types.SimpleNamespace(
+            points=np.zeros((4, 2)),
+            point_data={},  # nothing at all on the sampled mesh
+            cell_data={},
+        )
+        with unittest.mock.patch.object(
+            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
+        ), unittest.mock.patch.object(
+            _p, "_reconstruct_sampled_cauchy_stress",
+            return_value=(np.zeros((4, 3)), "point"),
+        ):
+            r = apply_sampled_vtu_fallback(
+                result,
+                solver=_FakeSolver(),
+                native=native,
+                full_json=None,
+                runtime=RuntimeOptions(fallback_mode="always"),
+            )
+        self.assertNotIn("body_ids", r._sampled_data)
+        self.assertNotIn("velocity", r._sampled_data)
+
     def test_fallback_does_not_clobber_native_stress_if_present(self):
         """If the native solver already produced stress, the fallback still
         lands in _sampled_data — but ``result.stress`` keeps returning the

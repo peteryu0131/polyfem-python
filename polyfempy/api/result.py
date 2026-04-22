@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, Optional
 
 import numpy as np
 
@@ -51,6 +51,114 @@ class _MergedFieldsView:
         return len(seen)
 
 
+class HistoryView:
+    """Per-timestep view over the solution history populated by the C++ binding.
+
+    Each field here is a **stacked** ndarray whose leading axis is time:
+
+        result.history.u           # (n_steps, n_sampled, dim)
+        result.history.vm          # (n_steps, n_sampled)           — von Mises per point
+        result.history.vm_avg      # (n_steps, n_sampled)           — node-averaged vM
+        result.history.pressure    # (n_steps, n_sampled, 1) or (n_steps, 0, 0)
+        result.history.points      # (n_sampled, dim) — static; sampled mesh is rebuilt once
+        result.history.connectivity  # (n_sampled_cells, k) — static
+        result.history.times       # (n_steps,) best-effort wall/simulation times if known
+        result.history.names       # list of raw PolyFEM frame names
+        len(result.history)        # number of frames
+
+    Empty when the C++ backend didn't populate any frames (static solve, or
+    ``save_time_sequence=False``). ``result.history.available`` is False in that
+    case so callers can branch.
+    """
+
+    _VON_MISES_IS_EMPTY_NONE = "_vm_none"
+
+    def __init__(self, frames=None, times=None):
+        frames = list(frames or [])
+        self._frames = frames
+        self.names = [str(f.get("name", "")) for f in frames]
+
+        # Static (time-invariant) sampled-mesh geometry: use the first frame.
+        if frames:
+            self.points = np.asarray(frames[0].get("points", np.empty((0, 0))))
+            self.connectivity = np.asarray(
+                frames[0].get("connectivity", np.empty((0, 0), dtype=np.int32))
+            )
+        else:
+            self.points = np.empty((0, 0))
+            self.connectivity = np.empty((0, 0), dtype=np.int32)
+
+        # Stacked time-varying fields (first-axis = time).
+        self.u = self._stack(frames, "solution")
+        self.vm = self._stack_scalar(frames, "scalar_value")
+        self.vm_avg = self._stack_scalar(frames, "scalar_value_avg")
+        self.pressure = self._stack(frames, "pressure")
+
+        # Times: if not supplied, fall back to step indices.
+        if times is not None:
+            self.times = np.asarray(times, dtype=np.float64)
+        else:
+            self.times = np.arange(len(frames), dtype=np.float64)
+
+    @staticmethod
+    def _stack(frames, key):
+        arrays = []
+        for f in frames:
+            arr = np.asarray(f.get(key, np.empty((0, 0))))
+            arrays.append(arr)
+        if not arrays:
+            return np.empty((0, 0, 0))
+        try:
+            return np.stack(arrays, axis=0)
+        except Exception:
+            # Per-step shapes differ (very rare — e.g. remeshing); fall back
+            # to a list to avoid silent truncation.
+            return arrays
+
+    @staticmethod
+    def _stack_scalar(frames, key):
+        """Like _stack, but also squeezes a trailing singleton axis so
+        (n_steps, n_sampled, 1) becomes (n_steps, n_sampled) — matches the
+        same flattening convention we use for ``body_ids``."""
+        arr = HistoryView._stack(frames, key)
+        if isinstance(arr, np.ndarray) and arr.ndim == 3 and arr.shape[-1] == 1:
+            arr = arr[..., 0]
+        return arr
+
+    @property
+    def available(self) -> bool:
+        """True when at least one frame was populated."""
+        return len(self._frames) > 0
+
+    def __len__(self) -> int:
+        return len(self._frames)
+
+    def __bool__(self) -> bool:
+        return self.available
+
+    def __getitem__(self, idx: int):
+        return self._frames[idx]
+
+    def field_by_body(self, name: str, body_ids) -> Dict[int, np.ndarray]:
+        """Split a history field (e.g. ``"vm"`` / ``"u"``) by per-sample body_id.
+
+        Returns ``{body_id: array with leading time axis preserved}``. Requires
+        ``body_ids`` to be aligned with the history's sampled mesh (same row
+        count as ``history.points``). Pass ``result.body_ids`` directly.
+        """
+        arr = getattr(self, name, None)
+        if arr is None:
+            raise KeyError(f"history has no field {name!r}")
+        body_ids = np.asarray(body_ids)
+        arr_np = np.asarray(arr)
+        if arr_np.ndim < 2 or arr_np.shape[1] != body_ids.shape[0]:
+            raise ValueError(
+                f"history.{name} has sampled-axis length {arr_np.shape[1] if arr_np.ndim >= 2 else 'N/A'} "
+                f"but body_ids has length {body_ids.shape[0]} — can't split."
+            )
+        return {int(bid): arr_np[:, body_ids == bid] for bid in np.unique(body_ids)}
+
+
 class Result:
     """Mesh + solution fields. meshio/VTK compatible.
 
@@ -62,6 +170,13 @@ class Result:
       with ``vertices`` / ``cells``, it is on a different probe mesh written
       out by the solver). ``to_meshio()`` does **not** emit ``sampled_data``
       because it would attach the array to the wrong mesh.
+
+    Time-history access (when the C++ backend populates per-step frames):
+
+    - ``result.history.u``   — (n_steps, n_sampled, dim)
+    - ``result.history.vm``  — (n_steps, n_sampled) — von Mises per point per step
+    - ``result.history.times`` — (n_steps,)
+    - ``result.body_ids``    — static per-sample body id (if available)
 
     Shape contract (native path):
         ``vertices`` ``(n_vertices, dim)``, ``u`` ``(n_vertices, dim)``,
@@ -83,6 +198,7 @@ class Result:
         cell_data=None,
         sampled_data=None,
         meta=None,
+        history=None,
     ):
         self.backend = backend
         self.vertices = np.ascontiguousarray(np.asarray(vertices))
@@ -101,10 +217,16 @@ class Result:
             if sampled_data
             else {}
         )
+        self.history = history if isinstance(history, HistoryView) else HistoryView(history)
         self.point_data = _PointDataProxy(self)
         self.cell_data = _CellDataProxy(self)
         self.sampled_data = _SampledDataProxy(self)
         self.fields = _MergedFieldsView(self._point_data, self._cell_data, self._sampled_data)
+
+    @property
+    def body_ids(self):
+        """Per-sample body ids (from the sampled-VTU fallback), if available."""
+        return self.field("body_ids")
 
     def _normalize_cells(self, cells, vertices):
         if isinstance(cells, (list, tuple)) and cells and isinstance(cells[0], (tuple, list)):
@@ -289,6 +411,59 @@ class Result:
         arr = np.ascontiguousarray(np.asarray(value))
         self._sampled_data[name] = arr
         return self
+
+    def field_by_body(self, name: str) -> Dict[int, np.ndarray]:
+        """Split a per-point field into chunks keyed by ``body_id``.
+
+        Useful when the sampled-VTU fallback has populated ``body_ids`` on a
+        multi-body mesh (e.g. ``volume_selection=1`` for a lattice and
+        ``volume_selection=2`` for an impactor block): this returns, for each
+        distinct body id, the rows of ``name`` that belong to that body::
+
+            stress_per_body = result.field_by_body("stress")
+            for bid, arr in stress_per_body.items():
+                print(bid, np.abs(arr).max())
+
+        Requires ``result.field("body_ids")`` to exist — currently populated
+        only on the sampled mesh by the fallback, so ``name`` must itself be
+        a sampled-mesh field (``stress`` / ``von_mises`` / ``von_mises_avg``).
+        Splitting a native-mesh field like ``u`` raises ``ValueError`` because
+        the native mesh has no body_ids mapping today.
+
+        Raises:
+            RuntimeError: ``body_ids`` is not available. Enable the
+                sampled-VTU fallback by setting
+                ``output.fallback.sampled_vtu`` to ``"auto"`` or ``"always"``.
+            KeyError: ``name`` is not a known field on this result.
+            ValueError: ``name`` and ``body_ids`` have mismatched row counts
+                (native vs sampled mesh).
+        """
+        body = self.field("body_ids")
+        if body is None:
+            raise RuntimeError(
+                "Cannot split by body: body_ids is not available on this "
+                "Result. Enable the sampled-VTU fallback "
+                "(output.fallback.sampled_vtu='auto' or 'always') so body_ids "
+                "is populated, or supply it via set_sampled_field('body_ids', "
+                "arr) before calling field_by_body()."
+            )
+
+        arr = self.field(name)
+        if arr is None:
+            raise KeyError(f"Field {name!r} is not present on this result")
+
+        body = np.asarray(body)
+        arr = np.asarray(arr)
+        if arr.shape[0] != body.shape[0]:
+            raise ValueError(
+                f"Cannot split {name!r} (rows={arr.shape[0]}) by body_ids "
+                f"(rows={body.shape[0]}): lengths do not match. body_ids is "
+                f"currently stored on the sampled mesh; splitting a native-"
+                f"mesh field like {name!r} would require a native-mesh "
+                f"body_id map, which is not populated."
+            )
+
+        return {int(bid): arr[body == bid] for bid in np.unique(body)}
 
     def remove_field(self, name):
         if name in self._point_data:
