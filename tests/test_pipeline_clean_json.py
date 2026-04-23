@@ -82,6 +82,7 @@ class ProcessJsonConfigTests(unittest.TestCase):
                 "result": {"fields": ["u"]},
                 "fallback": {"sampled_vtu": "auto"},
                 "save_paraview": False,
+                "save_vtu": False,
                 "json": True,
             },
             "materials": [{"type": "LinearElasticity", "E": 20, "nu": 0.3}],
@@ -97,6 +98,7 @@ class ProcessJsonConfigTests(unittest.TestCase):
         self.assertNotIn("result", processed["output"])
         self.assertNotIn("fallback", processed["output"])
         self.assertNotIn("save_paraview", processed["output"])
+        self.assertNotIn("save_vtu", processed["output"])
         # Keys that belong to the C++ schema must survive.
         self.assertEqual(processed["output"].get("directory"), "out")
         self.assertTrue(processed["output"].get("json"))

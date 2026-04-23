@@ -72,13 +72,14 @@ class CMakeBuild(build_ext):
         # Get include directory from the same Python installation
         python_include_directory = os.path.abspath(sysconfig.get_path('include'))
         
-        # Verify we're not using env directory
+        # Accept either conda envs or a user-managed virtualenv. The important
+        # part is to keep CMake pointed at the currently active interpreter.
         if 'env' in python_executable.lower() and 'envs' not in python_executable.lower():
-            raise RuntimeError(
-                f"ERROR: Detected wrong Python path: {python_executable}\n"
-                f"This appears to be from the project's env directory, not conda environment.\n"
-                f"Please ensure you're using: python -m pip install -e .\n"
-                f"and that conda environment 'polyfem' is activated."
+            print(
+                "Warning: building from a virtual environment interpreter:\n"
+                f"  {python_executable}\n"
+                "Proceeding with the active Python because venv-based builds are"
+                " supported on Linux."
             )
 
         cmake_args = [
@@ -161,7 +162,9 @@ class CMakeBuild(build_ext):
             # Add verbose flag to see detailed errors
             verbose_build_args = build_args.copy()
             if platform.system() != "Windows":
-                verbose_build_args += ['--', 'VERBOSE=1']
+                # `build_args` on Unix already contains the generator separator
+                # `--`, so append the make-style verbose flag directly.
+                verbose_build_args += ['VERBOSE=1']
             else:
                 # Windows: use --verbose or capture output
                 verbose_build_args = ['--verbose'] + build_args

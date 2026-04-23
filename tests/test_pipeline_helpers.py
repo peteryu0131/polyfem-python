@@ -21,7 +21,10 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from polyfempy.api._solve_pipeline import (  # noqa: E402
+    _dedupe_history_frames,
+    _extract_history_step_index,
     _extract_additional_fields,
+    _infer_history_times,
     _promote_materials_to_list,
 )
 
@@ -169,6 +172,66 @@ class ExtractAdditionalFieldsTests(unittest.TestCase):
         _extract_additional_fields(FakeSolver(), fields, meta)
         self.assertEqual(fields, {})
         self.assertEqual(meta, {})
+
+
+class InferHistoryTimesTests(unittest.TestCase):
+    def test_extract_history_step_index_only_accepts_step_suffix(self):
+        self.assertEqual(_extract_history_step_index("impact_step_12.vtu"), 12)
+        self.assertEqual(_extract_history_step_index("/tmp/run/impact_step_3.vtu"), 3)
+        self.assertIsNone(_extract_history_step_index("solve_12.vtu"))
+        self.assertIsNone(_extract_history_step_index("initial"))
+
+    def test_dedupes_consecutive_duplicate_steps_keeping_last_frame(self):
+        frames = [
+            {"name": "impact_step_0.vtu", "marker": "first"},
+            {"name": "impact_step_0.vtu", "marker": "second"},
+            {"name": "impact_step_1.vtu", "marker": "third"},
+            {"name": "impact_step_2.vtu", "marker": "fourth"},
+        ]
+        deduped = _dedupe_history_frames(frames)
+        self.assertEqual([f["marker"] for f in deduped], ["second", "third", "fourth"])
+
+    def test_leaves_frames_unchanged_when_names_are_not_step_based(self):
+        frames = [{"name": "solve_0.vtu"}, {"name": "solve_0.vtu"}]
+        deduped = _dedupe_history_frames(frames)
+        self.assertEqual(deduped, frames)
+
+    def test_uses_step_indices_parsed_from_frame_names(self):
+        frames = [
+            {"name": "/tmp/run_177/impact_step_0.vtu"},
+            {"name": "/tmp/run_177/impact_step_0.vtu"},
+            {"name": "/tmp/run_177/impact_step_1.vtu"},
+            {"name": "/tmp/run_177/impact_step_2.vtu"},
+        ]
+        full_json = {"time": {"t0": 0.0, "dt": 0.01, "tend": 0.02}}
+        self.assertEqual(
+            _infer_history_times(frames, full_json),
+            [0.0, 0.0, 0.01, 0.02],
+        )
+
+    def test_respects_skipped_saved_steps(self):
+        frames = [
+            {"name": "impact_step_0.vtu"},
+            {"name": "impact_step_2.vtu"},
+            {"name": "impact_step_4.vtu"},
+        ]
+        full_json = {"time": {"t0": 1.5, "dt": 0.25}}
+        self.assertEqual(
+            _infer_history_times(frames, full_json),
+            [1.5, 2.0, 2.5],
+        )
+
+    def test_falls_back_to_frame_order_when_names_are_not_parseable(self):
+        frames = [{"name": "initial"}, {"name": "after_contact"}, {"name": "final"}]
+        full_json = {"time": {"t0": 0.0, "dt": 0.1}}
+        self.assertEqual(
+            _infer_history_times(frames, full_json),
+            [0.0, 0.1, 0.2],
+        )
+
+    def test_returns_none_without_positive_dt(self):
+        frames = [{"name": "impact_step_0.vtu"}]
+        self.assertIsNone(_infer_history_times(frames, {"time": {"t0": 0.0, "dt": 0.0}}))
 
 
 if __name__ == "__main__":

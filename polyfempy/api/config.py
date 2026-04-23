@@ -1,4 +1,6 @@
 from dataclasses import dataclass, field
+from os import PathLike
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING, Union, List, Dict, Any, overload
 import copy
 import json
@@ -44,6 +46,58 @@ _MAT_ALIASES = {
     "poisson_ratio": "nu",
 }
 
+
+def _has_value(entry: Dict[str, Any], key: str) -> bool:
+    return key in entry and entry[key] is not None
+
+
+def _validate_mode_choice(
+    entry: Dict[str, Any],
+    *,
+    prefix: str,
+    material_type: str,
+    modes: List[tuple[str, tuple[str, ...]]],
+) -> None:
+    """Validate mutually-exclusive material parameterizations.
+
+    The material classes are intentionally IDE-friendly: users can instantiate a
+    blank object and fill fields incrementally. Completeness is enforced here
+    during ``validate()`` / ``solve()``, not at construction time.
+    """
+
+    active_modes: List[str] = []
+    partial_modes: List[tuple[str, List[str], List[str]]] = []
+
+    for label, keys in modes:
+        present = [key for key in keys if _has_value(entry, key)]
+        if len(present) == len(keys):
+            active_modes.append(label)
+        elif present:
+            missing = [key for key in keys if key not in present]
+            partial_modes.append((label, present, missing))
+
+    available = " or ".join(label for label, _ in modes)
+
+    if len(active_modes) > 1 or (active_modes and partial_modes):
+        raise ValueError(
+            f"{prefix} ({material_type}) mixes incompatible parameterizations; "
+            f"use {available}, not multiple modes at once"
+        )
+
+    if partial_modes:
+        label, present, missing = partial_modes[0]
+        raise ValueError(
+            f"{prefix} ({material_type}) has an incomplete {label} parameterization: "
+            f"present {present}, missing {missing}"
+        )
+
+    if not active_modes and entry.get("type") == material_type:
+        raise ValueError(
+            f"{prefix} ({material_type}) is missing a complete parameterization; "
+            f"blank construction is allowed for IDE autocomplete, but solve()/validate() "
+            f"require {available}"
+        )
+
 def _validate_positive_int(v):
     v = int(v)
     if v <= 0:
@@ -80,6 +134,9 @@ _FULL_JSON_HINT_KEYS = frozenset({
     "time",
     "output",
     "contact",
+    "initial_conditions",
+    "constraints",
+    "input",
     "problem_type",
     "problem_params",
     "selection",
@@ -104,6 +161,71 @@ def _canon_materials(mat: dict) -> dict:
     return out
 
 
+def _jsonable_param(value: Any) -> Any:
+    if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+        try:
+            return value.to_dict()
+        except TypeError:
+            return value
+    return value
+
+
+def _to_plain_value(value: Any) -> Any:
+    """Recursively convert nested config objects into JSON-ready plain values."""
+    if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+        try:
+            value = value.to_dict()
+        except TypeError:
+            return value
+
+    if isinstance(value, dict):
+        return {k: _to_plain_value(v) for k, v in value.items()}
+    if isinstance(value, tuple):
+        return [_to_plain_value(v) for v in value]
+    if isinstance(value, list):
+        return [_to_plain_value(v) for v in value]
+    return value
+
+
+def _maybe_add(result: Dict[str, Any], key: str, value: Any) -> None:
+    """Populate ``result[key]`` when ``value`` is meaningfully set."""
+    if value is None:
+        return
+    result[key] = _to_plain_value(value)
+
+
+@dataclass
+class Quantity:
+    """Unit-wrapped scalar value for a Python-first config style.
+
+    Example:
+        >>> Quantity.value(30.0, "MPa")
+        >>> Quantity(30.0, "MPa")
+    """
+
+    amount: float
+    unit: str
+
+    @classmethod
+    def value(cls, amount: float, unit: str) -> "Quantity":
+        return cls(amount=amount, unit=unit)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"value": self.amount, "unit": self.unit}
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Quantity":
+        return cls(amount=float(d["value"]), unit=str(d["unit"]))
+
+
+def _with_optional_unit(value: Optional[float], unit: Optional[str]) -> Any:
+    if value is None:
+        return None
+    if unit:
+        return Quantity.value(float(value), unit)
+    return value
+
+
 @dataclass
 class Material:
     """Material params. E, nu, rho. type defaults to LinearElasticity."""
@@ -115,11 +237,11 @@ class Material:
     def to_dict(self) -> Dict[str, Any]:
         result = {"type": self.type}
         if self.E is not None:
-            result["E"] = self.E
+            result["E"] = _jsonable_param(self.E)
         if self.nu is not None:
-            result["nu"] = self.nu
+            result["nu"] = _jsonable_param(self.nu)
         if self.rho is not None:
-            result["rho"] = self.rho
+            result["rho"] = _jsonable_param(self.rho)
         return result
     
     @classmethod
@@ -140,7 +262,12 @@ _IdType = Union[int, List[int]]
 
 @dataclass
 class NeoHookean:
-    """NeoHookean. Use (E, nu) or (lambda_, mu)."""
+    """NeoHookean material with IDE-friendly incremental construction.
+
+    You can instantiate ``NeoHookean()`` and fill parameters later so IDE
+    autocomplete shows the available knobs. Completeness is enforced by
+    ``SimulationConfig.validate()`` / ``solve()``, not at construction time.
+    """
     type: str = "NeoHookean"
     id: _IdType = 0
     rho: _ParamType = 1
@@ -155,37 +282,77 @@ class NeoHookean:
     lambda_: Optional[_ParamType] = None
     mu: Optional[_ParamType] = None
     
-    def __post_init__(self):
-        has_e_nu = self.E is not None and self.nu is not None
-        has_lambda_mu = self.lambda_ is not None and self.mu is not None
-        
-        if not (has_e_nu or has_lambda_mu):
-            raise ValueError("NeoHookean requires either (E, nu) or (lambda_, mu)")
-        if has_e_nu and has_lambda_mu:
-            raise ValueError("NeoHookean cannot have both (E, nu) and (lambda_, mu)")
-    
     def to_dict(self) -> Dict[str, Any]:
         result = {"type": self.type}
-        if self.E is not None and self.nu is not None:
-            result["E"] = self.E
-            result["nu"] = self.nu
-        elif self.lambda_ is not None and self.mu is not None:
-            result["lambda"] = self.lambda_
-            result["mu"] = self.mu
+        if self.E is not None:
+            result["E"] = _jsonable_param(self.E)
+        if self.nu is not None:
+            result["nu"] = _jsonable_param(self.nu)
+        if self.lambda_ is not None:
+            result["lambda"] = _jsonable_param(self.lambda_)
+        if self.mu is not None:
+            result["mu"] = _jsonable_param(self.mu)
         if self.id != 0:
             result["id"] = self.id
         if self.rho != 1:
-            result["rho"] = self.rho
+            result["rho"] = _jsonable_param(self.rho)
         if self.phi != 0:
-            result["phi"] = self.phi
+            result["phi"] = _jsonable_param(self.phi)
         if self.psi != 0:
-            result["psi"] = self.psi
+            result["psi"] = _jsonable_param(self.psi)
         return result
+
+    @classmethod
+    def young_poisson(
+        cls,
+        *,
+        id: _IdType = 0,
+        E: float,
+        nu: float,
+        rho: Optional[float] = None,
+        E_unit: Optional[str] = None,
+        rho_unit: Optional[str] = None,
+        phi: _ParamType = 0,
+        psi: _ParamType = 0,
+    ) -> "NeoHookean":
+        """Construct a NeoHookean material from the common ``(E, nu)`` inputs."""
+        return cls(
+            id=id,
+            E=_with_optional_unit(E, E_unit),
+            nu=nu,
+            rho=_with_optional_unit(rho, rho_unit) if rho is not None else 1,
+            phi=phi,
+            psi=psi,
+        )
+
+    @classmethod
+    def lame(
+        cls,
+        *,
+        id: _IdType = 0,
+        lambda_: float,
+        mu: float,
+        rho: Optional[float] = None,
+        lambda_unit: Optional[str] = None,
+        mu_unit: Optional[str] = None,
+        rho_unit: Optional[str] = None,
+        phi: _ParamType = 0,
+        psi: _ParamType = 0,
+    ) -> "NeoHookean":
+        """Construct a NeoHookean material from Lamé parameters."""
+        return cls(
+            id=id,
+            lambda_=_with_optional_unit(lambda_, lambda_unit),
+            mu=_with_optional_unit(mu, mu_unit),
+            rho=_with_optional_unit(rho, rho_unit) if rho is not None else 1,
+            phi=phi,
+            psi=psi,
+        )
 
 
 @dataclass
 class IsochoricNeoHookean:
-    """IsochoricNeoHookean. Use (E, nu) or (lambda_, mu)."""
+    """IsochoricNeoHookean with IDE-friendly incremental construction."""
     type: str = "IsochoricNeoHookean"
     id: _IdType = 0
     rho: _ParamType = 1
@@ -200,31 +367,24 @@ class IsochoricNeoHookean:
     lambda_: Optional[_ParamType] = None
     mu: Optional[_ParamType] = None
     
-    def __post_init__(self):
-        has_e_nu = self.E is not None and self.nu is not None
-        has_lambda_mu = self.lambda_ is not None and self.mu is not None
-        
-        if not (has_e_nu or has_lambda_mu):
-            raise ValueError("IsochoricNeoHookean requires either (E, nu) or (lambda_, mu)")
-        if has_e_nu and has_lambda_mu:
-            raise ValueError("IsochoricNeoHookean cannot have both (E, nu) and (lambda_, mu)")
-    
     def to_dict(self) -> Dict[str, Any]:
         result = {"type": self.type}
-        if self.E is not None and self.nu is not None:
-            result["E"] = self.E
-            result["nu"] = self.nu
-        elif self.lambda_ is not None and self.mu is not None:
-            result["lambda"] = self.lambda_
-            result["mu"] = self.mu
+        if self.E is not None:
+            result["E"] = _jsonable_param(self.E)
+        if self.nu is not None:
+            result["nu"] = _jsonable_param(self.nu)
+        if self.lambda_ is not None:
+            result["lambda"] = _jsonable_param(self.lambda_)
+        if self.mu is not None:
+            result["mu"] = _jsonable_param(self.mu)
         if self.id != 0:
             result["id"] = self.id
         if self.rho != 1:
-            result["rho"] = self.rho
+            result["rho"] = _jsonable_param(self.rho)
         if self.phi != 0:
-            result["phi"] = self.phi
+            result["phi"] = _jsonable_param(self.phi)
         if self.psi != 0:
-            result["psi"] = self.psi
+            result["psi"] = _jsonable_param(self.psi)
         return result
 
 
@@ -397,12 +557,9 @@ class LinearElasticity:
         phi: First angle (E-nu mode only). Defaults to 0.
         psi: Second angle (E-nu mode only). Defaults to 0.
     
-    Example:
-        >>> # E-nu input
-        >>> material = LinearElasticity(E=2100, nu=0.3)
-        >>> 
-        >>> # lambda-mu input
-        >>> material = LinearElasticity(lambda_=1000, mu=800)
+    Construction is intentionally permissive so users can start with
+    ``LinearElasticity()`` and fill fields gradually with IDE autocomplete.
+    Parameter completeness is checked later during ``validate()`` / ``solve()``.
     """
     type: str = "LinearElasticity"
     id: _IdType = 0
@@ -418,32 +575,72 @@ class LinearElasticity:
     lambda_: Optional[_ParamType] = None
     mu: Optional[_ParamType] = None
     
-    def __post_init__(self):
-        has_e_nu = self.E is not None and self.nu is not None
-        has_lambda_mu = self.lambda_ is not None and self.mu is not None
-        
-        if not (has_e_nu or has_lambda_mu):
-            raise ValueError("LinearElasticity requires either (E, nu) or (lambda_, mu)")
-        if has_e_nu and has_lambda_mu:
-            raise ValueError("LinearElasticity cannot have both (E, nu) and (lambda_, mu)")
-    
     def to_dict(self) -> Dict[str, Any]:
         result = {"type": self.type}
-        if self.E is not None and self.nu is not None:
-            result["E"] = self.E
-            result["nu"] = self.nu
-            if self.phi != 0:
-                result["phi"] = self.phi
-            if self.psi != 0:
-                result["psi"] = self.psi
-        elif self.lambda_ is not None and self.mu is not None:
-            result["lambda"] = self.lambda_
-            result["mu"] = self.mu
+        if self.E is not None:
+            result["E"] = _jsonable_param(self.E)
+        if self.nu is not None:
+            result["nu"] = _jsonable_param(self.nu)
+        if self.lambda_ is not None:
+            result["lambda"] = _jsonable_param(self.lambda_)
+        if self.mu is not None:
+            result["mu"] = _jsonable_param(self.mu)
         if self.id != 0:
             result["id"] = self.id
         if self.rho != 1:
-            result["rho"] = self.rho
+            result["rho"] = _jsonable_param(self.rho)
+        if self.phi != 0:
+            result["phi"] = _jsonable_param(self.phi)
+        if self.psi != 0:
+            result["psi"] = _jsonable_param(self.psi)
         return result
+
+    @classmethod
+    def young_poisson(
+        cls,
+        *,
+        id: _IdType = 0,
+        E: float,
+        nu: float,
+        rho: Optional[float] = None,
+        E_unit: Optional[str] = None,
+        rho_unit: Optional[str] = None,
+        phi: _ParamType = 0,
+        psi: _ParamType = 0,
+    ) -> "LinearElasticity":
+        """Construct a LinearElasticity material from the common ``(E, nu)`` inputs."""
+        return cls(
+            id=id,
+            E=_with_optional_unit(E, E_unit),
+            nu=nu,
+            rho=_with_optional_unit(rho, rho_unit) if rho is not None else 1,
+            phi=phi,
+            psi=psi,
+        )
+
+    @classmethod
+    def lame(
+        cls,
+        *,
+        id: _IdType = 0,
+        lambda_: float,
+        mu: float,
+        rho: Optional[float] = None,
+        lambda_unit: Optional[str] = None,
+        mu_unit: Optional[str] = None,
+        rho_unit: Optional[str] = None,
+        phi: _ParamType = 0,
+        psi: _ParamType = 0,
+    ) -> "LinearElasticity":
+        """Construct a LinearElasticity material from Lamé parameters."""
+        return cls(
+            id=id,
+            lambda_=_with_optional_unit(lambda_, lambda_unit),
+            mu=_with_optional_unit(mu, mu_unit),
+            rho=_with_optional_unit(rho, rho_unit) if rho is not None else 1,
+            phi=phi,
+            psi=psi,
+        )
 
 
 @dataclass
@@ -462,12 +659,8 @@ class HookeLinearElasticity:
         rho: Density. Defaults to 1.
         fiber_direction: Fiber direction vector. Defaults to [0, 0, 0].
     
-    Example:
-        >>> # E-nu input
-        >>> material = HookeLinearElasticity(E=2100, nu=0.3)
-        >>> 
-        >>> # elasticity_tensor input
-        >>> material = HookeLinearElasticity(elasticity_tensor=[...])
+    Construction is intentionally permissive so users can start with
+    ``HookeLinearElasticity()`` and fill fields incrementally.
     """
     type: str = "HookeLinearElasticity"
     id: _IdType = 0
@@ -481,30 +674,60 @@ class HookeLinearElasticity:
     # elasticity_tensor mode
     elasticity_tensor: Optional[List[float]] = None
     
-    def __post_init__(self):
-        """Validate that either E-nu or elasticity_tensor is provided."""
-        has_e_nu = self.E is not None and self.nu is not None
-        has_tensor = self.elasticity_tensor is not None
-        
-        if not (has_e_nu or has_tensor):
-            raise ValueError("HookeLinearElasticity requires either (E, nu) or elasticity_tensor")
-        if has_e_nu and has_tensor:
-            raise ValueError("HookeLinearElasticity cannot have both (E, nu) and elasticity_tensor")
-    
     def to_dict(self) -> Dict[str, Any]:
         result = {"type": self.type}
-        if self.E is not None and self.nu is not None:
-            result["E"] = self.E
-            result["nu"] = self.nu
-        elif self.elasticity_tensor is not None:
+        if self.E is not None:
+            result["E"] = _jsonable_param(self.E)
+        if self.nu is not None:
+            result["nu"] = _jsonable_param(self.nu)
+        if self.elasticity_tensor is not None:
             result["elasticity_tensor"] = self.elasticity_tensor
         if self.id != 0:
             result["id"] = self.id
         if self.rho != 1:
-            result["rho"] = self.rho
+            result["rho"] = _jsonable_param(self.rho)
         if self.fiber_direction != [0, 0, 0]:
             result["fiber_direction"] = self.fiber_direction
         return result
+
+    @classmethod
+    def young_poisson(
+        cls,
+        *,
+        id: _IdType = 0,
+        E: float,
+        nu: float,
+        rho: Optional[float] = None,
+        E_unit: Optional[str] = None,
+        rho_unit: Optional[str] = None,
+        fiber_direction: Optional[List[float]] = None,
+    ) -> "HookeLinearElasticity":
+        """Construct a HookeLinearElasticity material from the common ``(E, nu)`` inputs."""
+        return cls(
+            id=id,
+            E=_with_optional_unit(E, E_unit),
+            nu=nu,
+            rho=_with_optional_unit(rho, rho_unit) if rho is not None else 1,
+            fiber_direction=list(fiber_direction) if fiber_direction is not None else [0, 0, 0],
+        )
+
+    @classmethod
+    def tensor(
+        cls,
+        *,
+        elasticity_tensor: List[float],
+        id: _IdType = 0,
+        rho: Optional[float] = None,
+        rho_unit: Optional[str] = None,
+        fiber_direction: Optional[List[float]] = None,
+    ) -> "HookeLinearElasticity":
+        """Construct a HookeLinearElasticity material from a full elasticity tensor."""
+        return cls(
+            id=id,
+            elasticity_tensor=list(elasticity_tensor),
+            rho=_with_optional_unit(rho, rho_unit) if rho is not None else 1,
+            fiber_direction=list(fiber_direction) if fiber_direction is not None else [0, 0, 0],
+        )
 
 
 @dataclass
@@ -525,12 +748,8 @@ class SaintVenant:
         psi: Second angle. Defaults to 0.
         fiber_direction: Fiber direction vector. Defaults to [0, 0, 0].
     
-    Example:
-        >>> # E-nu input
-        >>> material = SaintVenant(E=2100, nu=0.3)
-        >>> 
-        >>> # elasticity_tensor input
-        >>> material = SaintVenant(elasticity_tensor=[...])
+    Construction is intentionally permissive so users can start with
+    ``SaintVenant()`` and fill fields incrementally.
     """
     type: str = "SaintVenant"
     id: _IdType = 0
@@ -546,38 +765,72 @@ class SaintVenant:
     # elasticity_tensor mode
     elasticity_tensor: Optional[List[float]] = None
     
-    def __post_init__(self):
-        """Validate that either E-nu or elasticity_tensor is provided."""
-        has_e_nu = self.E is not None and self.nu is not None
-        has_tensor = self.elasticity_tensor is not None
-        
-        if not (has_e_nu or has_tensor):
-            raise ValueError("SaintVenant requires either (E, nu) or elasticity_tensor")
-        if has_e_nu and has_tensor:
-            raise ValueError("SaintVenant cannot have both (E, nu) and elasticity_tensor")
-    
     def to_dict(self) -> Dict[str, Any]:
         result = {"type": self.type}
-        if self.E is not None and self.nu is not None:
-            result["E"] = self.E
-            result["nu"] = self.nu
-            if self.phi != 0:
-                result["phi"] = self.phi
-            if self.psi != 0:
-                result["psi"] = self.psi
-        elif self.elasticity_tensor is not None:
+        if self.E is not None:
+            result["E"] = _jsonable_param(self.E)
+        if self.nu is not None:
+            result["nu"] = _jsonable_param(self.nu)
+        if self.elasticity_tensor is not None:
             result["elasticity_tensor"] = self.elasticity_tensor
-            if self.phi != 0:
-                result["phi"] = self.phi
-            if self.psi != 0:
-                result["psi"] = self.psi
         if self.id != 0:
             result["id"] = self.id
         if self.rho != 1:
-            result["rho"] = self.rho
+            result["rho"] = _jsonable_param(self.rho)
+        if self.phi != 0:
+            result["phi"] = _jsonable_param(self.phi)
+        if self.psi != 0:
+            result["psi"] = _jsonable_param(self.psi)
         if self.fiber_direction != [0, 0, 0]:
             result["fiber_direction"] = self.fiber_direction
         return result
+
+    @classmethod
+    def young_poisson(
+        cls,
+        *,
+        id: _IdType = 0,
+        E: float,
+        nu: float,
+        rho: Optional[float] = None,
+        E_unit: Optional[str] = None,
+        rho_unit: Optional[str] = None,
+        phi: _ParamType = 0,
+        psi: _ParamType = 0,
+        fiber_direction: Optional[List[float]] = None,
+    ) -> "SaintVenant":
+        """Construct a SaintVenant material from the common ``(E, nu)`` inputs."""
+        return cls(
+            id=id,
+            E=_with_optional_unit(E, E_unit),
+            nu=nu,
+            rho=_with_optional_unit(rho, rho_unit) if rho is not None else 1,
+            phi=phi,
+            psi=psi,
+            fiber_direction=list(fiber_direction) if fiber_direction is not None else [0, 0, 0],
+        )
+
+    @classmethod
+    def tensor(
+        cls,
+        *,
+        elasticity_tensor: List[float],
+        id: _IdType = 0,
+        rho: Optional[float] = None,
+        rho_unit: Optional[str] = None,
+        phi: _ParamType = 0,
+        psi: _ParamType = 0,
+        fiber_direction: Optional[List[float]] = None,
+    ) -> "SaintVenant":
+        """Construct a SaintVenant material from a full elasticity tensor."""
+        return cls(
+            id=id,
+            elasticity_tensor=list(elasticity_tensor),
+            rho=_with_optional_unit(rho, rho_unit) if rho is not None else 1,
+            phi=phi,
+            psi=psi,
+            fiber_direction=list(fiber_direction) if fiber_direction is not None else [0, 0, 0],
+        )
 
 
 @dataclass
@@ -788,6 +1041,65 @@ class NeumannBoundary:
 
 
 @dataclass
+class NormalAlignedNeumannBoundary(NeumannBoundary):
+    """Neumann boundary aligned with the outward normal."""
+
+
+@dataclass
+class PressureBoundary(NeumannBoundary):
+    """Pressure boundary condition entry."""
+
+
+@dataclass
+class PressureCavity(NeumannBoundary):
+    """Pressure cavity boundary condition entry."""
+
+
+@dataclass
+class ObstacleDisplacement(DirichletBoundary):
+    """Obstacle displacement entry."""
+
+
+@dataclass
+class PeriodicBoundary:
+    """Periodic boundary-condition options."""
+
+    enabled: bool = False
+    tolerance: float = 1e-5
+    correspondence: List[Any] = field(default_factory=list)
+    fixed_macro_strain: List[float] = field(default_factory=list)
+    linear_displacement_offset: List[float] = field(default_factory=list)
+    force_zero_mean: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.enabled:
+            result["enabled"] = True
+        if self.tolerance != 1e-5:
+            result["tolerance"] = self.tolerance
+        if self.correspondence:
+            result["correspondence"] = _to_plain_value(self.correspondence)
+        if self.fixed_macro_strain:
+            result["fixed_macro_strain"] = list(self.fixed_macro_strain)
+        if self.linear_displacement_offset:
+            result["linear_displacement_offset"] = list(self.linear_displacement_offset)
+        if self.force_zero_mean:
+            result["force_zero_mean"] = True
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PeriodicBoundary":
+        return cls(
+            enabled=bool(d.get("enabled", False)),
+            tolerance=float(d.get("tolerance", 1e-5)),
+            correspondence=list(d.get("correspondence", [])),
+            fixed_macro_strain=list(d.get("fixed_macro_strain", [])),
+            linear_displacement_offset=list(d.get("linear_displacement_offset", [])),
+            force_zero_mean=bool(d.get("force_zero_mean", False)),
+        )
+
+
+@dataclass
 class BoundaryConditions:
     """Boundary conditions container - provides IDE autocomplete support.
     
@@ -808,8 +1120,69 @@ class BoundaryConditions:
     """
     dirichlet_boundary: List[Union[DirichletBoundary, Dict[str, Any]]] = field(default_factory=list)
     neumann_boundary: List[Union[NeumannBoundary, Dict[str, Any]]] = field(default_factory=list)
-    rhs: Optional[List[float]] = None
+    normal_aligned_neumann_boundary: List[Union[NormalAlignedNeumannBoundary, Dict[str, Any]]] = field(default_factory=list)
+    pressure_boundary: List[Union[PressureBoundary, Dict[str, Any]]] = field(default_factory=list)
+    pressure_cavity: List[Union[PressureCavity, Dict[str, Any]]] = field(default_factory=list)
+    obstacle_displacements: List[Union[ObstacleDisplacement, Dict[str, Any]]] = field(default_factory=list)
+    periodic_boundary: Optional[Union[PeriodicBoundary, Dict[str, Any]]] = None
+    rhs: Optional[Any] = None
     pressure: Optional[List[Dict[str, Any]]] = None
+
+    @classmethod
+    def dirichlet_rhs(
+        cls,
+        *,
+        id: Optional[int] = None,
+        selection: Optional[int] = None,
+        value: Optional[List[float]] = None,
+        rhs: Optional[List[float]] = None,
+    ) -> "BoundaryConditions":
+        """Construct the common ``fixed boundary + body force`` pattern."""
+        bc = cls()
+        if id is not None or selection is not None or value is not None:
+            bc.add_dirichlet(id=id, selection=selection, value=value or [])
+        if rhs is not None:
+            bc.set_rhs(rhs)
+        return bc
+
+    @classmethod
+    def neumann_rhs(
+        cls,
+        *,
+        id: Optional[int] = None,
+        selection: Optional[int] = None,
+        value: Optional[List[float]] = None,
+        rhs: Optional[List[float]] = None,
+    ) -> "BoundaryConditions":
+        """Construct the common ``traction boundary + body force`` pattern."""
+        bc = cls()
+        if id is not None or selection is not None or value is not None:
+            bc.add_neumann(id=id, selection=selection, value=value or [])
+        if rhs is not None:
+            bc.set_rhs(rhs)
+        return bc
+
+    @classmethod
+    def periodic(
+        cls,
+        *,
+        tolerance: float = 1e-5,
+        correspondence: Optional[List[Any]] = None,
+        fixed_macro_strain: Optional[List[float]] = None,
+        linear_displacement_offset: Optional[List[float]] = None,
+        force_zero_mean: bool = False,
+    ) -> "BoundaryConditions":
+        """Construct periodic boundary conditions."""
+        return cls(
+            periodic_boundary=PeriodicBoundary(
+                enabled=True,
+                tolerance=tolerance,
+                correspondence=list(correspondence or []),
+                fixed_macro_strain=list(fixed_macro_strain or []),
+                linear_displacement_offset=list(linear_displacement_offset or []),
+                force_zero_mean=force_zero_mean,
+            )
+        )
     
     def add_dirichlet(self, id: Optional[int] = None, selection: Optional[int] = None, 
                      value: List[float] = None) -> "BoundaryConditions":
@@ -843,6 +1216,54 @@ class BoundaryConditions:
         if value is None:
             value = []
         self.neumann_boundary.append(NeumannBoundary(id=id, selection=selection, value=value))
+        return self
+
+    def add_normal_aligned_neumann(
+        self,
+        id: Optional[int] = None,
+        selection: Optional[int] = None,
+        value: List[float] = None,
+    ) -> "BoundaryConditions":
+        if value is None:
+            value = []
+        self.normal_aligned_neumann_boundary.append(
+            NormalAlignedNeumannBoundary(id=id, selection=selection, value=value)
+        )
+        return self
+
+    def add_pressure_boundary(
+        self,
+        id: Optional[int] = None,
+        selection: Optional[int] = None,
+        value: List[float] = None,
+    ) -> "BoundaryConditions":
+        if value is None:
+            value = []
+        self.pressure_boundary.append(PressureBoundary(id=id, selection=selection, value=value))
+        return self
+
+    def add_pressure_cavity(
+        self,
+        id: Optional[int] = None,
+        selection: Optional[int] = None,
+        value: List[float] = None,
+    ) -> "BoundaryConditions":
+        if value is None:
+            value = []
+        self.pressure_cavity.append(PressureCavity(id=id, selection=selection, value=value))
+        return self
+
+    def add_obstacle_displacement(
+        self,
+        id: Optional[int] = None,
+        selection: Optional[int] = None,
+        value: List[float] = None,
+    ) -> "BoundaryConditions":
+        if value is None:
+            value = []
+        self.obstacle_displacements.append(
+            ObstacleDisplacement(id=id, selection=selection, value=value)
+        )
         return self
     
     def set_rhs(self, value: List[float]) -> "BoundaryConditions":
@@ -878,11 +1299,42 @@ class BoundaryConditions:
             ]
         
         if self.rhs is not None:
-            result["rhs"] = self.rhs
-        
+            result["rhs"] = _to_plain_value(self.rhs)
+
         if self.pressure is not None:
             result["pressure"] = self.pressure
-        
+
+        if self.normal_aligned_neumann_boundary:
+            result["normal_aligned_neumann_boundary"] = [
+                bc.to_dict() if hasattr(bc, "to_dict") else bc
+                for bc in self.normal_aligned_neumann_boundary
+            ]
+
+        if self.pressure_boundary:
+            result["pressure_boundary"] = [
+                bc.to_dict() if hasattr(bc, "to_dict") else bc
+                for bc in self.pressure_boundary
+            ]
+
+        if self.pressure_cavity:
+            result["pressure_cavity"] = [
+                bc.to_dict() if hasattr(bc, "to_dict") else bc
+                for bc in self.pressure_cavity
+            ]
+
+        if self.obstacle_displacements:
+            result["obstacle_displacements"] = [
+                bc.to_dict() if hasattr(bc, "to_dict") else bc
+                for bc in self.obstacle_displacements
+            ]
+
+        if self.periodic_boundary is not None:
+            result["periodic_boundary"] = (
+                self.periodic_boundary.to_dict()
+                if isinstance(self.periodic_boundary, PeriodicBoundary)
+                else dict(self.periodic_boundary)
+            )
+
         return result
     
     @classmethod
@@ -923,11 +1375,412 @@ class BoundaryConditions:
         
         if "rhs" in d:
             bc.rhs = d["rhs"]
-        
+
         if "pressure" in d:
             bc.pressure = d["pressure"]
+
+        def _load_entries(name: str, ctor):
+            for item in d.get(name, []):
+                if isinstance(item, dict):
+                    getattr(bc, name).append(
+                        ctor(
+                            id=item.get("id"),
+                            selection=item.get("selection"),
+                            value=item.get("value", []),
+                        )
+                    )
+                else:
+                    getattr(bc, name).append(item)
+
+        _load_entries("normal_aligned_neumann_boundary", NormalAlignedNeumannBoundary)
+        _load_entries("pressure_boundary", PressureBoundary)
+        _load_entries("pressure_cavity", PressureCavity)
+        _load_entries("obstacle_displacements", ObstacleDisplacement)
+
+        if "periodic_boundary" in d and isinstance(d["periodic_boundary"], dict):
+            bc.periodic_boundary = PeriodicBoundary.from_dict(d["periodic_boundary"])
+        elif "periodic_boundary" in d:
+            bc.periodic_boundary = d["periodic_boundary"]
         
         return bc
+
+
+@dataclass
+class InitialConditionEntry:
+    """Initial-condition value assigned by a volume selection ID."""
+
+    id: Optional[int] = None
+    selection: Optional[int] = None
+    value: Any = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {"value": _to_plain_value(self.value)}
+        if self.id is not None:
+            result["id"] = self.id
+        if self.selection is not None:
+            result["selection"] = self.selection
+        return result
+
+
+@dataclass
+class InitialConditions:
+    """Initial conditions for solution, velocity, and acceleration."""
+
+    solution: List[Union[InitialConditionEntry, Dict[str, Any]]] = field(default_factory=list)
+    velocity: List[Union[InitialConditionEntry, Dict[str, Any]]] = field(default_factory=list)
+    acceleration: List[Union[InitialConditionEntry, Dict[str, Any]]] = field(default_factory=list)
+
+    @classmethod
+    def velocity_only(
+        cls,
+        *,
+        id: Optional[int] = None,
+        selection: Optional[int] = None,
+        value: Any = None,
+    ) -> "InitialConditions":
+        """Construct the common ``initial velocity only`` pattern."""
+        return cls().add_velocity(id=id, selection=selection, value=value)
+
+    @classmethod
+    def solution_only(
+        cls,
+        *,
+        id: Optional[int] = None,
+        selection: Optional[int] = None,
+        value: Any = None,
+    ) -> "InitialConditions":
+        """Construct the common ``initial solution only`` pattern."""
+        return cls().add_solution(id=id, selection=selection, value=value)
+
+    @classmethod
+    def acceleration_only(
+        cls,
+        *,
+        id: Optional[int] = None,
+        selection: Optional[int] = None,
+        value: Any = None,
+    ) -> "InitialConditions":
+        """Construct the common ``initial acceleration only`` pattern."""
+        return cls().add_acceleration(id=id, selection=selection, value=value)
+
+    def add_solution(self, *, id: Optional[int] = None, selection: Optional[int] = None, value: Any = None) -> "InitialConditions":
+        self.solution.append(InitialConditionEntry(id=id, selection=selection, value=value))
+        return self
+
+    def add_velocity(self, *, id: Optional[int] = None, selection: Optional[int] = None, value: Any = None) -> "InitialConditions":
+        self.velocity.append(InitialConditionEntry(id=id, selection=selection, value=value))
+        return self
+
+    def add_acceleration(self, *, id: Optional[int] = None, selection: Optional[int] = None, value: Any = None) -> "InitialConditions":
+        self.acceleration.append(InitialConditionEntry(id=id, selection=selection, value=value))
+        return self
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        for key in ("solution", "velocity", "acceleration"):
+            entries = getattr(self, key)
+            if entries:
+                result[key] = [
+                    item.to_dict() if hasattr(item, "to_dict") else _to_plain_value(item)
+                    for item in entries
+                ]
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "InitialConditions":
+        out = cls()
+        for key in ("solution", "velocity", "acceleration"):
+            raw = d.get(key, [])
+            target = getattr(out, key)
+            for item in raw:
+                if isinstance(item, dict):
+                    target.append(
+                        InitialConditionEntry(
+                            id=item.get("id"),
+                            selection=item.get("selection"),
+                            value=item.get("value"),
+                        )
+                    )
+                else:
+                    target.append(item)
+        return out
+
+
+@dataclass
+class SurfaceSelection:
+    """Typed surface-selection descriptor for geometry/body operations."""
+
+    id: Optional[int] = None
+    axis: Optional[int] = None
+    position: Optional[float] = None
+    relative: bool = True
+    center: Optional[List[float]] = None
+    radius: Optional[float] = None
+    box_bounds: Optional[List[List[float]]] = None
+    normal: Optional[List[float]] = None
+    offset: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.id is not None:
+            result["id"] = self.id
+        if self.axis is not None:
+            result["axis"] = self.axis
+        if self.position is not None:
+            result["position"] = self.position
+        if self.relative is not True:
+            result["relative"] = self.relative
+        if self.center is not None:
+            result["center"] = list(self.center)
+        if self.radius is not None:
+            result["radius"] = self.radius
+        if self.box_bounds is not None:
+            result["box"] = [list(v) for v in self.box_bounds]
+        if self.normal is not None:
+            result["normal"] = list(self.normal)
+        if self.offset is not None:
+            result["offset"] = self.offset
+        return result
+
+    @classmethod
+    def position(
+        cls,
+        *,
+        axis: int,
+        position: float,
+        id: Optional[int] = None,
+        relative: bool = True,
+    ) -> "SurfaceSelection":
+        return cls(id=id, axis=axis, position=position, relative=relative)
+
+    @classmethod
+    def sphere(
+        cls,
+        *,
+        center: List[float],
+        radius: float,
+        id: Optional[int] = None,
+    ) -> "SurfaceSelection":
+        return cls(id=id, center=list(center), radius=radius)
+
+    @classmethod
+    def box(
+        cls,
+        *,
+        box_min: List[float],
+        box_max: List[float],
+        id: Optional[int] = None,
+    ) -> "SurfaceSelection":
+        return cls(id=id, box_bounds=[list(box_min), list(box_max)])
+
+    @classmethod
+    def plane(
+        cls,
+        *,
+        normal: List[float],
+        offset: float,
+        id: Optional[int] = None,
+    ) -> "SurfaceSelection":
+        return cls(id=id, normal=list(normal), offset=offset)
+
+
+@dataclass
+class Body:
+    """Python-side helper that keeps one body's IDs and operations aligned."""
+
+    config: Any = field(repr=False)
+    geometry: Any
+    material: Any
+    volume_id: int
+    name: str = ""
+
+    def _require_surface_capable_geometry(self) -> None:
+        if not hasattr(self.geometry, "surface_selection"):
+            raise TypeError(
+                f"Body '{self.name or self.volume_id}' uses geometry type "
+                f"{type(self.geometry).__name__}, which does not support surface selections"
+            )
+
+    def _surface_selection_list(self) -> List[Any]:
+        self._require_surface_capable_geometry()
+        current = getattr(self.geometry, "surface_selection", None)
+        if current is None:
+            current = []
+            setattr(self.geometry, "surface_selection", current)
+        elif not isinstance(current, list):
+            current = [current]
+            setattr(self.geometry, "surface_selection", current)
+        return current
+
+    def _attach_surface_selection(self, selection: Union[SurfaceSelection, Dict[str, Any]]) -> int:
+        entries = self._surface_selection_list()
+        if isinstance(selection, dict):
+            selection_id = selection.get("id")
+            if selection_id is None:
+                selection_id = self.config._next_surface_selection_id()
+                selection = dict(selection)
+                selection["id"] = selection_id
+            entries.append(selection)
+            return int(selection_id)
+
+        if selection.id is None:
+            selection.id = self.config._next_surface_selection_id()
+        entries.append(selection)
+        return int(selection.id)
+
+    def fix_surface(
+        self,
+        selection: Union[SurfaceSelection, Dict[str, Any]],
+        *,
+        value: List[float],
+    ) -> "Body":
+        selection_id = self._attach_surface_selection(selection)
+        self.config._ensure_boundary_conditions_object().add_dirichlet(id=selection_id, value=list(value))
+        return self
+
+    def apply_neumann(
+        self,
+        selection: Union[SurfaceSelection, Dict[str, Any]],
+        *,
+        value: List[float],
+    ) -> "Body":
+        selection_id = self._attach_surface_selection(selection)
+        self.config._ensure_boundary_conditions_object().add_neumann(id=selection_id, value=list(value))
+        return self
+
+    def set_initial_velocity(self, value: Any) -> "Body":
+        self.config._ensure_initial_conditions_object().add_velocity(id=self.volume_id, value=_to_plain_value(value))
+        return self
+
+    def set_initial_solution(self, value: Any) -> "Body":
+        self.config._ensure_initial_conditions_object().add_solution(id=self.volume_id, value=_to_plain_value(value))
+        return self
+
+    def set_initial_acceleration(self, value: Any) -> "Body":
+        self.config._ensure_initial_conditions_object().add_acceleration(id=self.volume_id, value=_to_plain_value(value))
+        return self
+
+
+@dataclass
+class SoftConstraint:
+    """Soft constraint entry."""
+
+    weight: float = 0.0
+    data: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.weight != 0.0:
+            result["weight"] = self.weight
+        if self.data:
+            result["data"] = self.data
+        return result
+
+
+@dataclass
+class Constraints:
+    """Hard/soft solver constraints."""
+
+    hard: List[Any] = field(default_factory=list)
+    soft: List[Union[SoftConstraint, Dict[str, Any]]] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.hard:
+            result["hard"] = _to_plain_value(self.hard)
+        if self.soft:
+            result["soft"] = [
+                item.to_dict() if hasattr(item, "to_dict") else _to_plain_value(item)
+                for item in self.soft
+            ]
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Constraints":
+        soft = [
+            SoftConstraint(weight=item.get("weight", 0.0), data=item.get("data", ""))
+            if isinstance(item, dict)
+            else item
+            for item in d.get("soft", [])
+        ]
+        return cls(hard=list(d.get("hard", [])), soft=soft)
+
+
+@dataclass
+class Space:
+    """Discretization-space configuration."""
+
+    discr_order: Optional[Union[int, List[Dict[str, Any]]]] = None
+    pressure_discr_order: Optional[int] = None
+    use_p_ref: Optional[bool] = None
+    polynomial_type: Optional[str] = None
+    advanced: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        _maybe_add(result, "discr_order", self.discr_order)
+        _maybe_add(result, "pressure_discr_order", self.pressure_discr_order)
+        _maybe_add(result, "use_p_ref", self.use_p_ref)
+        _maybe_add(result, "polynomial_type", self.polynomial_type)
+        _maybe_add(result, "advanced", self.advanced)
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Space":
+        return cls(
+            discr_order=d.get("discr_order"),
+            pressure_discr_order=d.get("pressure_discr_order"),
+            use_p_ref=d.get("use_p_ref"),
+            polynomial_type=d.get("polynomial_type"),
+            advanced=d.get("advanced"),
+        )
+
+
+@dataclass
+class Tests:
+    """Schema-backed validation/test options."""
+
+    margin: float = 1e-5
+    time_steps: int = 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.margin != 1e-5:
+            result["margin"] = self.margin
+        if self.time_steps != 1:
+            result["time_steps"] = self.time_steps
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Tests":
+        return cls(
+            margin=float(d.get("margin", 1e-5)),
+            time_steps=int(d.get("time_steps", 1)),
+        )
+
+
+@dataclass
+class Input:
+    """Input helper block for restart/state files."""
+
+    data: Optional[str] = None
+    state: Optional[str] = None
+    directory: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        _maybe_add(result, "data", self.data)
+        _maybe_add(result, "state", self.state)
+        _maybe_add(result, "directory", self.directory)
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Input":
+        return cls(
+            data=d.get("data"),
+            state=d.get("state"),
+            directory=d.get("directory"),
+        )
 
 
 # ============================================================================
@@ -1097,6 +1950,77 @@ class FlowWithObstacleParams:
         )
 
 
+@dataclass
+class Units:
+    """Physical unit system for wrapped JSON values.
+
+    Example:
+        >>> units = Units(length="cm", mass="g", time="s")
+    """
+
+    length: str = "m"
+    mass: str = "kg"
+    time: str = "s"
+    characteristic_length: Optional[_ParamType] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {
+            "length": self.length,
+            "mass": self.mass,
+            "time": self.time,
+        }
+        if self.characteristic_length is not None:
+            result["characteristic_length"] = _jsonable_param(self.characteristic_length)
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Units":
+        return cls(
+            length=str(d.get("length", "m")),
+            mass=str(d.get("mass", "kg")),
+            time=str(d.get("time", "s")),
+            characteristic_length=d.get("characteristic_length"),
+        )
+
+    @classmethod
+    def set_units(
+        cls,
+        mapping: Optional[Dict[str, Any]] = None,
+        *,
+        length: str = "m",
+        mass: str = "kg",
+        time: str = "s",
+        characteristic_length: Optional[_ParamType] = None,
+    ) -> "Units":
+        """Construct a unit system from explicit named fields.
+
+        Examples:
+            ``Units.set_units(length="cm", mass="g", time="s")``
+            ``Units.set_units({"length": "cm", "mass": "g", "time": "s"})``
+        """
+        if mapping is not None:
+            length = str(mapping.get("length", length))
+            mass = str(mapping.get("mass", mass))
+            time = str(mapping.get("time", time))
+            characteristic_length = mapping.get("characteristic_length", characteristic_length)
+        return cls(
+            length=length,
+            mass=mass,
+            time=time,
+            characteristic_length=characteristic_length,
+        )
+
+    @classmethod
+    def si(cls, *, characteristic_length: Optional[_ParamType] = None) -> "Units":
+        """Construct the default SI unit system."""
+        return cls(length="m", mass="kg", time="s", characteristic_length=characteristic_length)
+
+    @classmethod
+    def cgs(cls, *, characteristic_length: Optional[_ParamType] = None) -> "Units":
+        """Construct the centimeter-gram-second unit system."""
+        return cls(length="cm", mass="g", time="s", characteristic_length=characteristic_length)
+
+
 # Union type for all problem params
 ProblemParams = Union[GravityParams, TorsionParams, FlowParams, FlowWithObstacleParams, Dict[str, Any]]
 
@@ -1117,6 +2041,7 @@ class SimulationConfig:
                             Supports IDE autocomplete when using BoundaryConditions class.
         geometry: Geometry configuration. Can be Geometry class or dict/list.
                   Supports IDE autocomplete when using Geometry class.
+        units: Unit system for wrapped physical quantities (optional).
         solver: Solver configuration. Can be Solver class or dict.
                 Supports IDE autocomplete when using Solver class.
         time: Time configuration for transient problems. Can be Time class or dict.
@@ -1168,10 +2093,16 @@ class SimulationConfig:
     ] = field(default_factory=dict)
     boundary_conditions: Union[BoundaryConditions, Dict[str, Any], dict] = field(default_factory=dict)
     geometry: Optional[Union["Geometry", List[Dict[str, Any]], Dict[str, Any]]] = None
+    units: Optional[Union["Units", Dict[str, Any]]] = None
     solver: Optional[Union["Solver", Dict[str, Any]]] = None
     time: Optional[Union["Time", Dict[str, Any]]] = None
     output: Optional[Union["Output", Dict[str, Any]]] = None
     contact: Optional[Union["Contact", Dict[str, Any]]] = None
+    initial_conditions: Optional[Union["InitialConditions", Dict[str, Any]]] = None
+    constraints: Optional[Union["Constraints", Dict[str, Any]]] = None
+    space: Optional[Union["Space", Dict[str, Any]]] = None
+    tests: Optional[Union["Tests", Dict[str, Any]]] = None
+    input: Optional[Union["Input", Dict[str, Any]]] = None
     extras: dict = field(default_factory=dict)
     selection: Optional["Selection"] = None
     problem_type: Optional[str] = None
@@ -1225,6 +2156,16 @@ class SimulationConfig:
             return self.geometry
         else:
             return None
+
+    def _get_units_dict(self) -> Optional[Dict[str, Any]]:
+        """Internal helper: convert units to dict format."""
+        if self.units is None:
+            return None
+        if isinstance(self.units, Units):
+            return self.units.to_dict()
+        if isinstance(self.units, dict):
+            return dict(self.units)
+        return None
     
     def _get_solver_dict(self) -> Optional[Dict[str, Any]]:
         """Internal helper: convert solver to dict format."""
@@ -1270,6 +2211,51 @@ class SimulationConfig:
         else:
             return None
 
+    def _get_initial_conditions_dict(self) -> Optional[Dict[str, Any]]:
+        if self.initial_conditions is None:
+            return None
+        if isinstance(self.initial_conditions, InitialConditions):
+            return self.initial_conditions.to_dict()
+        if isinstance(self.initial_conditions, dict):
+            return dict(self.initial_conditions)
+        return None
+
+    def _get_constraints_dict(self) -> Optional[Dict[str, Any]]:
+        if self.constraints is None:
+            return None
+        if isinstance(self.constraints, Constraints):
+            return self.constraints.to_dict()
+        if isinstance(self.constraints, dict):
+            return dict(self.constraints)
+        return None
+
+    def _get_space_dict(self) -> Optional[Dict[str, Any]]:
+        if self.space is None:
+            return None
+        if isinstance(self.space, Space):
+            return self.space.to_dict()
+        if isinstance(self.space, dict):
+            return dict(self.space)
+        return None
+
+    def _get_tests_dict(self) -> Optional[Dict[str, Any]]:
+        if self.tests is None:
+            return None
+        if isinstance(self.tests, Tests):
+            return self.tests.to_dict()
+        if isinstance(self.tests, dict):
+            return dict(self.tests)
+        return None
+
+    def _get_input_dict(self) -> Optional[Dict[str, Any]]:
+        if self.input is None:
+            return None
+        if isinstance(self.input, Input):
+            return self.input.to_dict()
+        if isinstance(self.input, dict):
+            return dict(self.input)
+        return None
+
     def canonicalized(self) -> "SimulationConfig":
         """Return a shallow copy with normalized (canonical) fields.
 
@@ -1289,10 +2275,16 @@ class SimulationConfig:
             materials=self._get_materials_dict(),
             boundary_conditions=self._get_boundary_conditions_dict(),
             geometry=self.geometry,  # Preserve geometry (not canonicalized)
+            units=self.units,  # Preserve units
             solver=self.solver,  # Preserve solver
             time=self.time,  # Preserve time
             output=self.output,  # Preserve output
             contact=self.contact,  # Preserve contact
+            initial_conditions=self.initial_conditions,
+            constraints=self.constraints,
+            space=self.space,
+            tests=self.tests,
+            input=self.input,
             extras=dict(self.extras or {}),
             selection=self.selection,  # Selection objects are not copied
             problem_type=self.problem_type,
@@ -1352,6 +2344,10 @@ class SimulationConfig:
         geometry_dict = c._get_geometry_dict() if hasattr(c, '_get_geometry_dict') else None
         if geometry_dict is not None:
             result["geometry"] = geometry_dict
+
+        units_dict = c._get_units_dict() if hasattr(c, '_get_units_dict') else None
+        if units_dict is not None:
+            result["units"] = units_dict
         
         # Add solver if provided
         solver_dict = c._get_solver_dict() if hasattr(c, '_get_solver_dict') else None
@@ -1372,6 +2368,26 @@ class SimulationConfig:
         contact_dict = c._get_contact_dict() if hasattr(c, '_get_contact_dict') else None
         if contact_dict is not None:
             result["contact"] = contact_dict
+
+        initial_conditions_dict = c._get_initial_conditions_dict() if hasattr(c, '_get_initial_conditions_dict') else None
+        if initial_conditions_dict is not None:
+            result["initial_conditions"] = initial_conditions_dict
+
+        constraints_dict = c._get_constraints_dict() if hasattr(c, '_get_constraints_dict') else None
+        if constraints_dict is not None:
+            result["constraints"] = constraints_dict
+
+        space_dict = c._get_space_dict() if hasattr(c, '_get_space_dict') else None
+        if space_dict is not None:
+            result["space"] = space_dict
+
+        tests_dict = c._get_tests_dict() if hasattr(c, '_get_tests_dict') else None
+        if tests_dict is not None:
+            result["tests"] = tests_dict
+
+        input_dict = c._get_input_dict() if hasattr(c, '_get_input_dict') else None
+        if input_dict is not None:
+            result["input"] = input_dict
         
         # Extract common solver parameters from extras to top level for backend compatibility
         if c.extras:
@@ -1743,6 +2759,11 @@ class SimulationConfig:
         geometry = None
         if geometry_raw is not None:
             geometry = Geometry.from_dict(geometry_raw)
+
+        units_raw = full_config.get("units")
+        units = None
+        if units_raw is not None and isinstance(units_raw, dict):
+            units = Units.from_dict(units_raw)
         
         # Extract solver - convert to Solver if present
         solver_raw = full_config.get("solver")
@@ -1767,6 +2788,31 @@ class SimulationConfig:
         contact = None
         if contact_raw is not None and isinstance(contact_raw, dict):
             contact = Contact.from_dict(contact_raw)
+
+        initial_conditions_raw = full_config.get("initial_conditions")
+        initial_conditions = None
+        if initial_conditions_raw is not None and isinstance(initial_conditions_raw, dict):
+            initial_conditions = InitialConditions.from_dict(initial_conditions_raw)
+
+        constraints_raw = full_config.get("constraints")
+        constraints = None
+        if constraints_raw is not None and isinstance(constraints_raw, dict):
+            constraints = Constraints.from_dict(constraints_raw)
+
+        space_raw = full_config.get("space")
+        space = None
+        if space_raw is not None and isinstance(space_raw, dict):
+            space = Space.from_dict(space_raw)
+
+        tests_raw = full_config.get("tests")
+        tests = None
+        if tests_raw is not None and isinstance(tests_raw, dict):
+            tests = Tests.from_dict(tests_raw)
+
+        input_raw = full_config.get("input")
+        input_cfg = None
+        if input_raw is not None and isinstance(input_raw, dict):
+            input_cfg = Input.from_dict(input_raw)
         
         # Extract problem_type and problem_params
         problem_type = full_config.get("problem_type")
@@ -1796,10 +2842,16 @@ class SimulationConfig:
             materials=materials_dict,
             boundary_conditions=boundary_conditions,
             geometry=geometry,
+            units=units,
             solver=solver,
             time=time,
             output=output,
             contact=contact,
+            initial_conditions=initial_conditions,
+            constraints=constraints,
+            space=space,
+            tests=tests,
+            input=input_cfg,
             extras=extras,
             problem_type=problem_type,
             problem_params=problem_params,
@@ -1843,6 +2895,11 @@ class SimulationConfig:
         """True iff ``value`` is a plain number or a ``{"value": number, "unit": str}``
         dict (the latter is the form the PolyFEM JSON schema accepts for physical
         quantities like ``E``)."""
+        if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+            try:
+                value = value.to_dict()
+            except TypeError:
+                pass
         if isinstance(value, bool):
             # ``bool`` is an ``int`` subclass; reject it explicitly so that
             # ``E=True`` does not silently pass validation.
@@ -1862,7 +2919,7 @@ class SimulationConfig:
         (``E = {"value": 20, "unit": "MPa"}``) so that JSON configs loaded via
         ``from_json_dict`` validate cleanly without being rewritten first.
         """
-        for key in ("E", "nu"):
+        for key in ("E", "nu", "lambda", "mu"):
             if key not in entry:
                 continue
             value = entry[key]
@@ -1872,6 +2929,28 @@ class SimulationConfig:
                 f"{prefix}['{key}'] must be a number or a "
                 f"{{'value': number, 'unit': str}} dict, "
                 f"got {type(value).__name__}: {value!r}"
+            )
+
+        material_type = entry.get("type")
+        if material_type in ("NeoHookean", "IsochoricNeoHookean", "LinearElasticity"):
+            _validate_mode_choice(
+                entry,
+                prefix=prefix,
+                material_type=material_type,
+                modes=[
+                    ("(E, nu)", ("E", "nu")),
+                    ("(lambda, mu)", ("lambda", "mu")),
+                ],
+            )
+        elif material_type in ("HookeLinearElasticity", "SaintVenant"):
+            _validate_mode_choice(
+                entry,
+                prefix=prefix,
+                material_type=material_type,
+                modes=[
+                    ("(E, nu)", ("E", "nu")),
+                    ("elasticity_tensor", ("elasticity_tensor",)),
+                ],
             )
 
     def validate(self) -> None:
@@ -1904,8 +2983,157 @@ class SimulationConfig:
             for idx, entry in enumerate(mats):
                 if isinstance(entry, dict):
                     self._validate_material_entry(entry, prefix=f"materials[{idx}]")
+
+        time_cfg = self._get_time_dict()
+        if isinstance(time_cfg, dict):
+            provided = [
+                time_cfg.get("tend") is not None,
+                time_cfg.get("dt") is not None,
+                time_cfg.get("time_steps") is not None,
+            ]
+            if sum(provided) < 2:
+                raise ValueError(
+                    "time requires at least two of tend / dt / time_steps; "
+                    f"got {time_cfg!r}"
+                )
+
+    def _ensure_materials_list(self) -> List[Any]:
+        if isinstance(self.materials, list):
+            return self.materials
+        if self.materials in ({}, None):
+            self.materials = []
+        else:
+            self.materials = [self.materials]
+        return self.materials
+
+    def _ensure_geometry_object(self) -> "Geometry":
+        if self.geometry is None:
+            self.geometry = Geometry(items=[])
+        elif isinstance(self.geometry, Geometry):
+            pass
+        elif isinstance(self.geometry, (list, dict)):
+            self.geometry = Geometry.from_dict(self.geometry)
+        else:
+            raise TypeError(f"Unsupported geometry container type: {type(self.geometry).__name__}")
+        return self.geometry
+
+    def _ensure_boundary_conditions_object(self) -> BoundaryConditions:
+        if not isinstance(self.boundary_conditions, BoundaryConditions):
+            if isinstance(self.boundary_conditions, dict):
+                self.boundary_conditions = BoundaryConditions.from_dict(self.boundary_conditions)
+            else:
+                self.boundary_conditions = BoundaryConditions()
+        return self.boundary_conditions
+
+    def _ensure_initial_conditions_object(self) -> InitialConditions:
+        if not isinstance(self.initial_conditions, InitialConditions):
+            if isinstance(self.initial_conditions, dict):
+                self.initial_conditions = InitialConditions.from_dict(self.initial_conditions)
+            else:
+                self.initial_conditions = InitialConditions()
+        return self.initial_conditions
+
+    @staticmethod
+    def _normalize_scalar_id(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, list):
+            if len(value) != 1:
+                raise ValueError(f"Expected a single body id, got list {value!r}")
+            value = value[0]
+        return int(value)
+
+    def _next_body_id(self) -> int:
+        existing: List[int] = []
+
+        mats = self._get_materials_dict()
+        if isinstance(mats, dict):
+            maybe = self._normalize_scalar_id(mats.get("id"))
+            if maybe is not None:
+                existing.append(maybe)
+        elif isinstance(mats, list):
+            for entry in mats:
+                if isinstance(entry, dict):
+                    maybe = self._normalize_scalar_id(entry.get("id"))
+                    if maybe is not None:
+                        existing.append(maybe)
+
+        geom = self._get_geometry_dict()
+        geom_entries = geom if isinstance(geom, list) else ([geom] if isinstance(geom, dict) else [])
+        for entry in geom_entries:
+            if isinstance(entry, dict):
+                maybe = self._normalize_scalar_id(entry.get("volume_selection"))
+                if maybe is not None:
+                    existing.append(maybe)
+
+        return max(existing or [0]) + 1
+
+    def _next_surface_selection_id(self) -> int:
+        existing: List[int] = []
+        geom = self._get_geometry_dict()
+        geom_entries = geom if isinstance(geom, list) else ([geom] if isinstance(geom, dict) else [])
+        for entry in geom_entries:
+            if not isinstance(entry, dict):
+                continue
+            selections = entry.get("surface_selection")
+            if isinstance(selections, dict):
+                selections = [selections]
+            if isinstance(selections, list):
+                for item in selections:
+                    if isinstance(item, dict) and item.get("id") is not None:
+                        existing.append(int(item["id"]))
+        return max(existing or [0]) + 1
     
     # ---------------- Convenience methods for setting parameters ----------------
+
+    def add_body(
+        self,
+        *,
+        geometry: Any,
+        material: Any,
+        name: str = "",
+        id: Optional[int] = None,
+    ) -> Body:
+        """Add a body and keep material/geometry IDs aligned automatically."""
+        explicit_body_id = self._normalize_scalar_id(id)
+
+        material_id = None
+        if hasattr(material, "id"):
+            material_id = self._normalize_scalar_id(getattr(material, "id"))
+        elif isinstance(material, dict):
+            material_id = self._normalize_scalar_id(material.get("id"))
+
+        geometry_id = None
+        if hasattr(geometry, "volume_selection"):
+            geometry_id = self._normalize_scalar_id(getattr(geometry, "volume_selection"))
+        elif isinstance(geometry, dict):
+            geometry_id = self._normalize_scalar_id(geometry.get("volume_selection"))
+
+        candidate_ids = [v for v in (explicit_body_id, material_id, geometry_id) if v not in (None, 0)]
+        if candidate_ids and len(set(candidate_ids)) > 1:
+            raise ValueError(
+                "Body id mismatch between explicit id / material.id / geometry.volume_selection: "
+                f"{candidate_ids}"
+            )
+
+        body_id = candidate_ids[0] if candidate_ids else self._next_body_id()
+
+        if hasattr(material, "id"):
+            setattr(material, "id", body_id)
+        elif isinstance(material, dict):
+            material = dict(material)
+            material["id"] = body_id
+
+        if hasattr(geometry, "volume_selection"):
+            setattr(geometry, "volume_selection", body_id)
+        elif isinstance(geometry, dict):
+            geometry = dict(geometry)
+            geometry["volume_selection"] = body_id
+
+        self._ensure_materials_list().append(material)
+        self._ensure_geometry_object().add(geometry)
+
+        return Body(config=self, geometry=geometry, material=material, volume_id=body_id, name=name)
     
     def set_material(self, E: Optional[float] = None, nu: Optional[float] = None,
                      rho: Optional[float] = None, material_type: str = "LinearElasticity") -> "SimulationConfig":
@@ -2349,13 +3577,107 @@ class SimulationConfig:
 # ============================================================================
 
 @dataclass
+class GeometryTransformation:
+    """Per-geometry transformation block."""
+
+    translation: List[float] = field(default_factory=list)
+    rotation: List[float] = field(default_factory=list)
+    scale: List[float] = field(default_factory=list)
+    dimensions: int = 1
+    rotation_mode: str = "xyz"
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.translation:
+            result["translation"] = list(self.translation)
+        if self.rotation:
+            result["rotation"] = list(self.rotation)
+        if self.scale:
+            result["scale"] = list(self.scale)
+        if self.dimensions != 1:
+            result["dimensions"] = self.dimensions
+        if self.rotation_mode != "xyz":
+            result["rotation_mode"] = self.rotation_mode
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GeometryTransformation":
+        return cls(
+            translation=list(d.get("translation", [])),
+            rotation=list(d.get("rotation", [])),
+            scale=list(d.get("scale", [])),
+            dimensions=int(d.get("dimensions", 1)),
+            rotation_mode=str(d.get("rotation_mode", "xyz")),
+        )
+
+
+@dataclass
+class GeometryAdvanced:
+    """Advanced per-geometry mesh options."""
+
+    normalize_mesh: bool = False
+    force_linear_geometry: bool = False
+    refinement_location: float = 0.5
+    min_component: int = -1
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.normalize_mesh:
+            result["normalize_mesh"] = True
+        if self.force_linear_geometry:
+            result["force_linear_geometry"] = True
+        if self.refinement_location != 0.5:
+            result["refinement_location"] = self.refinement_location
+        if self.min_component != -1:
+            result["min_component"] = self.min_component
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GeometryAdvanced":
+        return cls(
+            normalize_mesh=bool(d.get("normalize_mesh", False)),
+            force_linear_geometry=bool(d.get("force_linear_geometry", False)),
+            refinement_location=float(d.get("refinement_location", 0.5)),
+            min_component=int(d.get("min_component", -1)),
+        )
+
+
+@dataclass
+class GeometryArray:
+    """Array replication options for a mesh."""
+
+    offset: List[float] = field(default_factory=list)
+    size: List[int] = field(default_factory=list)
+    relative: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.offset:
+            result["offset"] = list(self.offset)
+        if self.size:
+            result["size"] = list(self.size)
+        if self.relative:
+            result["relative"] = True
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GeometryArray":
+        return cls(
+            offset=list(d.get("offset", [])),
+            size=[int(v) for v in d.get("size", [])],
+            relative=bool(d.get("relative", False)),
+        )
+
+
+@dataclass
 class GeometryMesh:
     """Mesh geometry configuration - provides IDE autocomplete support.
     
     Attributes:
         mesh: Path to mesh file (required).
         volume_selection: Volume selection ID (optional).
-        surface_selection: Surface selection ID (optional).
+        surface_selection: Surface selection descriptor (optional). Can be an
+            integer ID or the richer JSON list/dict form used by PolyFEM.
         transformation: Transformation matrix or parameters (optional).
         is_obstacle: Whether this mesh is an obstacle (optional).
     
@@ -2364,23 +3686,290 @@ class GeometryMesh:
         >>> obstacle = GeometryMesh(mesh="plane.obj", is_obstacle=True)
     """
     mesh: str = field()
-    volume_selection: Optional[int] = None
-    surface_selection: Optional[int] = None
-    transformation: Optional[Dict[str, Any]] = None
-    is_obstacle: Optional[bool] = None
+    type: str = "mesh"
+    extract: str = "volume"
+    unit: str = ""
+    array: Optional[Union[GeometryArray, Dict[str, Any]]] = None
+    transformation: Optional[Union[GeometryTransformation, Dict[str, Any]]] = None
+    volume_selection: Optional[Any] = None
+    surface_selection: Optional[Any] = None
+    curve_selection: Optional[Any] = None
+    point_selection: Optional[Any] = None
+    n_refs: int = 0
+    advanced: Optional[Union[GeometryAdvanced, Dict[str, Any]]] = None
+    enabled: bool = True
+    is_obstacle: bool = False
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""
         result = {"mesh": self.mesh}
-        if self.volume_selection is not None:
-            result["volume_selection"] = self.volume_selection
-        if self.surface_selection is not None:
-            result["surface_selection"] = self.surface_selection
+        if self.type != "mesh":
+            result["type"] = self.type
+        if self.extract != "volume":
+            result["extract"] = self.extract
+        if self.unit:
+            result["unit"] = self.unit
+        if self.array is not None:
+            result["array"] = _to_plain_value(self.array)
         if self.transformation is not None:
-            result["transformation"] = self.transformation
-        if self.is_obstacle is not None:
-            result["is_obstacle"] = self.is_obstacle
+            result["transformation"] = _to_plain_value(self.transformation)
+        if self.volume_selection is not None:
+            result["volume_selection"] = _to_plain_value(self.volume_selection)
+        if self.surface_selection is not None:
+            result["surface_selection"] = _to_plain_value(self.surface_selection)
+        if self.curve_selection is not None:
+            result["curve_selection"] = _to_plain_value(self.curve_selection)
+        if self.point_selection is not None:
+            result["point_selection"] = _to_plain_value(self.point_selection)
+        if self.n_refs != 0:
+            result["n_refs"] = self.n_refs
+        if self.advanced is not None:
+            advanced = _to_plain_value(self.advanced)
+            if advanced:
+                result["advanced"] = advanced
+        if not self.enabled:
+            result["enabled"] = False
+        if self.is_obstacle:
+            result["is_obstacle"] = True
         return result
+
+    @classmethod
+    def from_file(
+        cls,
+        mesh: Union[str, PathLike[str]],
+        *,
+        volume_selection: Optional[Any] = None,
+        surface_selection: Optional[Any] = None,
+        curve_selection: Optional[Any] = None,
+        point_selection: Optional[Any] = None,
+        unit: str = "",
+        extract: str = "volume",
+        array: Optional[Union[GeometryArray, Dict[str, Any]]] = None,
+        transformation: Optional[Union[GeometryTransformation, Dict[str, Any]]] = None,
+        n_refs: int = 0,
+        advanced: Optional[Union[GeometryAdvanced, Dict[str, Any]]] = None,
+        enabled: bool = True,
+        is_obstacle: bool = False,
+    ) -> "GeometryMesh":
+        """Construct the most common mesh-backed geometry entry in one call."""
+        return cls(
+            mesh=str(mesh),
+            unit=unit,
+            extract=extract,
+            array=array,
+            transformation=transformation,
+            volume_selection=volume_selection,
+            surface_selection=surface_selection,
+            curve_selection=curve_selection,
+            point_selection=point_selection,
+            n_refs=n_refs,
+            advanced=advanced,
+            enabled=enabled,
+            is_obstacle=is_obstacle,
+        )
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GeometryMesh":
+        array = d.get("array")
+        if isinstance(array, dict):
+            array = GeometryArray.from_dict(array)
+        transformation = d.get("transformation")
+        if isinstance(transformation, dict):
+            transformation = GeometryTransformation.from_dict(transformation)
+        advanced = d.get("advanced")
+        if isinstance(advanced, dict):
+            advanced = GeometryAdvanced.from_dict(advanced)
+        return cls(
+            mesh=d["mesh"],
+            type=d.get("type", "mesh"),
+            extract=d.get("extract", "volume"),
+            unit=d.get("unit", ""),
+            array=array,
+            transformation=transformation,
+            volume_selection=d.get("volume_selection"),
+            surface_selection=d.get("surface_selection"),
+            curve_selection=d.get("curve_selection"),
+            point_selection=d.get("point_selection"),
+            n_refs=int(d.get("n_refs", 0)),
+            advanced=advanced,
+            enabled=bool(d.get("enabled", True)),
+            is_obstacle=bool(d.get("is_obstacle", False)),
+        )
+
+
+@dataclass
+class GeometryMeshArray(GeometryMesh):
+    """Arrayed mesh geometry entry."""
+
+    array: Optional[Union[GeometryArray, Dict[str, Any]]] = None
+
+
+@dataclass
+class GeometryPlane:
+    """Plane geometry object."""
+
+    point: List[float] = field(default_factory=list)
+    normal: List[float] = field(default_factory=list)
+    type: str = "plane"
+    enabled: bool = True
+    is_obstacle: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "point": list(self.point),
+            "normal": list(self.normal),
+        }
+        if self.type != "plane":
+            result["type"] = self.type
+        if not self.enabled:
+            result["enabled"] = False
+        if self.is_obstacle:
+            result["is_obstacle"] = True
+        return result
+
+    @classmethod
+    def obstacle(
+        cls,
+        *,
+        point: List[float],
+        normal: List[float],
+        enabled: bool = True,
+    ) -> "GeometryPlane":
+        """Construct an obstacle plane."""
+        return cls(point=list(point), normal=list(normal), enabled=enabled, is_obstacle=True)
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GeometryPlane":
+        return cls(
+            point=[float(v) for v in d.get("point", [])],
+            normal=[float(v) for v in d.get("normal", [])],
+            type=d.get("type", "plane"),
+            enabled=bool(d.get("enabled", True)),
+            is_obstacle=bool(d.get("is_obstacle", False)),
+        )
+
+
+@dataclass
+class GeometryGround:
+    """Ground plane orthogonal to gravity."""
+
+    height: float = 0.0
+    type: str = "ground"
+    enabled: bool = True
+    is_obstacle: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {"height": self.height}
+        if self.type != "ground":
+            result["type"] = self.type
+        if not self.enabled:
+            result["enabled"] = False
+        if self.is_obstacle:
+            result["is_obstacle"] = True
+        return result
+
+    @classmethod
+    def obstacle(cls, *, height: float = 0.0, enabled: bool = True) -> "GeometryGround":
+        """Construct an obstacle ground plane."""
+        return cls(height=height, enabled=enabled, is_obstacle=True)
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GeometryGround":
+        return cls(
+            height=float(d.get("height", 0.0)),
+            type=d.get("type", "ground"),
+            enabled=bool(d.get("enabled", True)),
+            is_obstacle=bool(d.get("is_obstacle", False)),
+        )
+
+
+@dataclass
+class GeometryMeshSequence:
+    """Animated mesh-sequence geometry."""
+
+    mesh_sequence: Union[str, List[str]] = field(default_factory=list)
+    fps: int = 1
+    type: str = "mesh"
+    extract: str = "volume"
+    unit: str = ""
+    transformation: Optional[Union[GeometryTransformation, Dict[str, Any]]] = None
+    n_refs: int = 0
+    advanced: Optional[Union[GeometryAdvanced, Dict[str, Any]]] = None
+    enabled: bool = True
+    is_obstacle: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "mesh_sequence": _to_plain_value(self.mesh_sequence),
+            "fps": self.fps,
+        }
+        if self.type != "mesh":
+            result["type"] = self.type
+        if self.extract != "volume":
+            result["extract"] = self.extract
+        if self.unit:
+            result["unit"] = self.unit
+        if self.transformation is not None:
+            result["transformation"] = _to_plain_value(self.transformation)
+        if self.n_refs != 0:
+            result["n_refs"] = self.n_refs
+        if self.advanced is not None:
+            advanced = _to_plain_value(self.advanced)
+            if advanced:
+                result["advanced"] = advanced
+        if not self.enabled:
+            result["enabled"] = False
+        if self.is_obstacle:
+            result["is_obstacle"] = True
+        return result
+
+    @classmethod
+    def from_files(
+        cls,
+        mesh_sequence: Union[str, List[str]],
+        *,
+        fps: int = 1,
+        unit: str = "",
+        extract: str = "volume",
+        transformation: Optional[Union[GeometryTransformation, Dict[str, Any]]] = None,
+        n_refs: int = 0,
+        advanced: Optional[Union[GeometryAdvanced, Dict[str, Any]]] = None,
+        enabled: bool = True,
+        is_obstacle: bool = False,
+    ) -> "GeometryMeshSequence":
+        """Construct an animated mesh-sequence geometry entry."""
+        return cls(
+            mesh_sequence=mesh_sequence,
+            fps=fps,
+            unit=unit,
+            extract=extract,
+            transformation=transformation,
+            n_refs=n_refs,
+            advanced=advanced,
+            enabled=enabled,
+            is_obstacle=is_obstacle,
+        )
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GeometryMeshSequence":
+        transformation = d.get("transformation")
+        if isinstance(transformation, dict):
+            transformation = GeometryTransformation.from_dict(transformation)
+        advanced = d.get("advanced")
+        if isinstance(advanced, dict):
+            advanced = GeometryAdvanced.from_dict(advanced)
+        return cls(
+            mesh_sequence=d.get("mesh_sequence", []),
+            fps=int(d.get("fps", 1)),
+            type=d.get("type", "mesh"),
+            extract=d.get("extract", "volume"),
+            unit=d.get("unit", ""),
+            transformation=transformation,
+            n_refs=int(d.get("n_refs", 0)),
+            advanced=advanced,
+            enabled=bool(d.get("enabled", True)),
+            is_obstacle=bool(d.get("is_obstacle", False)),
+        )
 
 
 @dataclass
@@ -2416,14 +4005,36 @@ class Geometry:
         >>> geom = Geometry(meshes=[GeometryMesh(mesh="mesh.obj")])
         >>> cfg = SimulationConfig(geometry=geom)
     """
-    meshes: Union[List[GeometryMesh], List[str], GeometryMesh, str] = field(default_factory=list)
+    meshes: Union[
+        List[Union[GeometryMesh, GeometryMeshArray, GeometryPlane, GeometryGround, GeometryMeshSequence, str, Dict[str, Any]]],
+        GeometryMesh,
+        GeometryMeshArray,
+        GeometryPlane,
+        GeometryGround,
+        GeometryMeshSequence,
+        List[str],
+        str,
+    ] = field(default_factory=list)
+    items: Optional[List[Union[GeometryMesh, GeometryMeshArray, GeometryPlane, GeometryGround, GeometryMeshSequence, str, Dict[str, Any]]]] = None
     transformations: Optional[List[Dict[str, Any]]] = None
     selections: Optional[Dict[str, Any]] = None
 
-    def _normalized_mesh_list(self):
-        if isinstance(self.meshes, (str, GeometryMesh)):
-            return [self.meshes]
-        return list(self.meshes)
+    def add(self, item: Union[GeometryMesh, GeometryMeshArray, GeometryPlane, GeometryGround, GeometryMeshSequence, str, Dict[str, Any]]) -> "Geometry":
+        if self.items is None:
+            if self.meshes and not isinstance(self.meshes, list):
+                self.items = [self.meshes]
+            elif isinstance(self.meshes, list):
+                self.items = list(self.meshes)
+            else:
+                self.items = []
+        self.items.append(item)
+        return self
+
+    def _normalized_item_list(self):
+        source = self.items if self.items is not None else self.meshes
+        if isinstance(source, (str, GeometryMesh, GeometryMeshArray, GeometryPlane, GeometryGround, GeometryMeshSequence)):
+            return [source]
+        return list(source)
 
     def _resolve_per_mesh_transformations(self, n_meshes: int) -> Optional[List[Optional[Dict[str, Any]]]]:
         """Return a list of per-mesh transformations (or ``None`` entries) to
@@ -2469,29 +4080,36 @@ class Geometry:
         Returns:
             A list of per-mesh dicts in the PolyFEM JSON geometry format.
         """
-        mesh_list = self._normalized_mesh_list()
-        if not mesh_list:
+        item_list = self._normalized_item_list()
+        if not item_list:
             return []
 
-        per_mesh_xform = self._resolve_per_mesh_transformations(len(mesh_list))
+        per_mesh_xform = self._resolve_per_mesh_transformations(len(item_list))
 
         result: List[Dict[str, Any]] = []
-        for idx, mesh_item in enumerate(mesh_list):
-            if isinstance(mesh_item, GeometryMesh):
-                mesh_dict = mesh_item.to_dict()
-            elif isinstance(mesh_item, str):
-                mesh_dict = {"mesh": mesh_item}
-            elif isinstance(mesh_item, dict):
-                mesh_dict = dict(mesh_item)
+        for idx, geom_item in enumerate(item_list):
+            if hasattr(geom_item, "to_dict") and callable(getattr(geom_item, "to_dict")):
+                mesh_dict = geom_item.to_dict()
+            elif isinstance(geom_item, str):
+                mesh_dict = {"mesh": geom_item}
+            elif isinstance(geom_item, dict):
+                mesh_dict = dict(geom_item)
             else:
-                mesh_dict = {"mesh": str(mesh_item)}
+                mesh_dict = {"mesh": str(geom_item)}
 
             if per_mesh_xform is not None:
                 top_xform = per_mesh_xform[idx]
                 if top_xform is not None:
+                    supports_transformation = "mesh" in mesh_dict or "mesh_sequence" in mesh_dict
+                    if not supports_transformation:
+                        raise ValueError(
+                            "Geometry.transformations only applies to mesh-like "
+                            "entries (mesh / mesh_array / mesh_sequence). "
+                            f"Entry {idx} does not support transformations."
+                        )
                     if "transformation" in mesh_dict and mesh_dict["transformation"] is not None:
                         raise ValueError(
-                            f"meshes[{idx}] already has a transformation from "
+                            f"items[{idx}] already has a transformation from "
                             f"GeometryMesh.transformation; refusing to silently "
                             f"overwrite it with Geometry.transformations[{idx}]. "
                             f"Set only one of the two."
@@ -2513,30 +4131,175 @@ class Geometry:
             Geometry instance.
         """
         if isinstance(d, list):
-            meshes = []
+            items = []
             for item in d:
                 if isinstance(item, dict):
-                    if "mesh" in item:
-                        meshes.append(GeometryMesh(
-                            mesh=item["mesh"],
-                            volume_selection=item.get("volume_selection"),
-                            surface_selection=item.get("surface_selection"),
-                            transformation=item.get("transformation")
-                        ))
+                    if "mesh_sequence" in item:
+                        items.append(GeometryMeshSequence.from_dict(item))
+                    elif "point" in item and "normal" in item and "mesh" not in item:
+                        items.append(GeometryPlane.from_dict(item))
+                    elif "height" in item and "mesh" not in item:
+                        items.append(GeometryGround.from_dict(item))
+                    elif "mesh" in item and "array" in item:
+                        items.append(GeometryMeshArray.from_dict(item))
+                    elif "mesh" in item:
+                        items.append(GeometryMesh.from_dict(item))
                     else:
-                        meshes.append(item)
+                        items.append(item)
                 else:
-                    meshes.append(item)
-            return cls(meshes=meshes)
+                    items.append(item)
+            return cls(items=items)
         elif isinstance(d, dict):
-            return cls(meshes=[d])
+            return cls(items=[d])
         else:
-            return cls(meshes=[])
+            return cls(items=[])
 
 
 # ============================================================================
 # Solver Configuration Classes
 # ============================================================================
+
+@dataclass
+class LineSearch:
+    """Line-search settings for nonlinear solvers."""
+
+    method: str = "RobustArmijo"
+    default_init_step_size: Optional[float] = None
+    max_step_size_iter: Optional[int] = None
+    max_step_size_iter_final: Optional[int] = None
+    min_step_size: Optional[float] = None
+    min_step_size_final: Optional[float] = None
+    step_ratio: Optional[float] = None
+    use_grad_norm_tol: Optional[bool] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {"method": self.method}
+        for key in (
+            "default_init_step_size",
+            "max_step_size_iter",
+            "max_step_size_iter_final",
+            "min_step_size",
+            "min_step_size_final",
+            "step_ratio",
+            "use_grad_norm_tol",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                result[key] = value
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "LineSearch":
+        kwargs = {key: d.get(key) for key in cls.__dataclass_fields__ if key != "method"}
+        return cls(method=str(d.get("method", "RobustArmijo")), **kwargs)
+
+
+@dataclass
+class AugmentedLagrangian:
+    """Augmented Lagrangian options for Dirichlet/contact handling."""
+
+    initial_weight: float = 1e6
+    scaling: float = 2.0
+    max_weight: Optional[float] = None
+    eta: Optional[float] = None
+    error: float = 1e-2
+
+    def to_dict(self) -> Dict[str, Any]:
+        defaults = type(self)()
+        result: Dict[str, Any] = {}
+        for key in self.__dataclass_fields__:
+            value = getattr(self, key)
+            if value is not None and value != getattr(defaults, key):
+                result[key] = value
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AugmentedLagrangian":
+        defaults = cls()
+        kwargs = {key: d.get(key, getattr(defaults, key)) for key in cls.__dataclass_fields__}
+        return cls(**kwargs)
+
+
+@dataclass
+class SolverContactOptions:
+    """Contact-related solver inner-loop settings."""
+
+    CCD: Optional[Any] = None
+    friction_iterations: Optional[int] = None
+    tangential_adhesion_iterations: Optional[int] = None
+    friction_convergence_tol: Optional[float] = None
+    barrier_stiffness: Optional[Any] = None
+    initial_barrier_stiffness: Optional[Any] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        for key in self.__dataclass_fields__:
+            value = getattr(self, key)
+            if value is not None:
+                result[key] = _to_plain_value(value)
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "SolverContactOptions":
+        kwargs = {key: d.get(key) for key in cls.__dataclass_fields__}
+        return cls(**kwargs)
+
+
+@dataclass
+class RayleighDamping:
+    """Rayleigh damping coefficients."""
+
+    mass: Optional[float] = None
+    stiffness: Optional[float] = None
+    lagging_iterations: int = 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.mass is not None:
+            result["mass"] = self.mass
+        if self.stiffness is not None:
+            result["stiffness"] = self.stiffness
+        if self.lagging_iterations != 1:
+            result["lagging_iterations"] = self.lagging_iterations
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "RayleighDamping":
+        return cls(
+            mass=d.get("mass"),
+            stiffness=d.get("stiffness"),
+            lagging_iterations=int(d.get("lagging_iterations", 1)),
+        )
+
+
+@dataclass
+class SolverAdvanced:
+    """Advanced solver settings."""
+
+    cache_size: int = 900000
+    lump_mass_matrix: bool = False
+    lagged_regularization_weight: float = 0.0
+    lagged_regularization_iterations: int = 1
+    check_inversion: str = "Discrete"
+    jacobian_threshold: float = 0.0
+    characteristic_length: float = -1.0
+    characteristic_force_density: float = 10000.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        defaults = type(self)()
+        result: Dict[str, Any] = {}
+        for key in self.__dataclass_fields__:
+            value = getattr(self, key)
+            if value != getattr(defaults, key):
+                result[key] = value
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "SolverAdvanced":
+        defaults = cls()
+        kwargs = {key: d.get(key, getattr(defaults, key)) for key in cls.__dataclass_fields__}
+        return cls(**kwargs)
+
 
 @dataclass
 class LinearSolver:
@@ -2575,6 +4338,22 @@ class LinearSolver:
         if self.tolerance is not None:
             result["tolerance"] = self.tolerance
         return result
+
+    @classmethod
+    def pardiso_ldlt(
+        cls,
+        *,
+        precond: Optional[str] = None,
+        max_iterations: Optional[int] = None,
+        tolerance: Optional[float] = None,
+    ) -> "LinearSolver":
+        """Construct the common Pardiso LDLT linear-solver setup."""
+        return cls(
+            solver_type="Eigen::PardisoLDLT",
+            precond=precond,
+            max_iterations=max_iterations,
+            tolerance=tolerance,
+        )
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "LinearSolver":
@@ -2622,7 +4401,7 @@ class NonlinearSolver:
     grad_norm: Optional[float] = None
     x_delta: Optional[float] = None
     iterations_per_strategy: Optional[int] = None
-    line_search: Optional[Union[str, Dict[str, Any]]] = None
+    line_search: Optional[Union[str, LineSearch, Dict[str, Any]]] = None
     method_blocks: Optional[Dict[str, Dict[str, Any]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -2649,7 +4428,9 @@ class NonlinearSolver:
         if self.iterations_per_strategy is not None:
             result["iterations_per_strategy"] = self.iterations_per_strategy
         if self.line_search is not None:
-            if isinstance(self.line_search, dict):
+            if isinstance(self.line_search, LineSearch):
+                result["line_search"] = self.line_search.to_dict()
+            elif isinstance(self.line_search, dict):
                 # Schema oneOf fails when method-specific blocks (RobustArmijo, Armijo, etc.) are present.
                 # Only include "method" and shared line_search fields; no method-specific blocks.
                 line_search_cleaned = {}
@@ -2678,6 +4459,33 @@ class NonlinearSolver:
                     result[block_name] = block_value
         return result
 
+    @classmethod
+    def newton(
+        cls,
+        *,
+        max_iterations: int = 100,
+        tolerance: float = 1e-6,
+        grad_norm: Optional[float] = None,
+        x_delta: Optional[float] = None,
+        iterations_per_strategy: Optional[int] = None,
+        line_search: Optional[Union[str, LineSearch, Dict[str, Any]]] = None,
+        residual_tolerance: Optional[float] = None,
+    ) -> "NonlinearSolver":
+        """Construct the common Newton nonlinear-solver setup."""
+        method_blocks = None
+        if residual_tolerance is not None:
+            method_blocks = {"Newton": {"residual_tolerance": residual_tolerance}}
+        return cls(
+            solver_type="Newton",
+            max_iterations=max_iterations,
+            tolerance=tolerance,
+            grad_norm=grad_norm,
+            x_delta=x_delta,
+            iterations_per_strategy=iterations_per_strategy,
+            line_search=line_search,
+            method_blocks=method_blocks,
+        )
+
 
 @dataclass
 class Solver:
@@ -2700,7 +4508,10 @@ class Solver:
     linear: Optional[LinearSolver] = None
     nonlinear: Optional[NonlinearSolver] = None
     max_threads: int = 1
-    advanced: Optional[Dict[str, Any]] = None
+    augmented_lagrangian: Optional[Union[AugmentedLagrangian, Dict[str, Any]]] = None
+    contact: Optional[Union[SolverContactOptions, Dict[str, Any]]] = None
+    rayleigh_damping: Optional[Union[RayleighDamping, Dict[str, Any]]] = None
+    advanced: Optional[Union[SolverAdvanced, Dict[str, Any]]] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format (for backend compatibility)."""
@@ -2716,14 +4527,66 @@ class Solver:
             result["nonlinear"] = self.nonlinear.to_dict()
         if self.max_threads != 1:
             result["max_threads"] = self.max_threads
+        if self.augmented_lagrangian is not None:
+            al_dict = _to_plain_value(self.augmented_lagrangian)
+            if al_dict:
+                result["augmented_lagrangian"] = al_dict
+        if self.contact is not None:
+            contact_dict = _to_plain_value(self.contact)
+            if contact_dict:
+                result["contact"] = contact_dict
+        if self.rayleigh_damping is not None:
+            damping_dict = _to_plain_value(self.rayleigh_damping)
+            if damping_dict:
+                result["rayleigh_damping"] = damping_dict
         if self.advanced is not None:
-            # Support both: advanced as sub-object content {"lump_mass_matrix": ...}
-            # or as from_dict style {"advanced": {...}}
-            if "advanced" in self.advanced:
-                result.update(self.advanced)
-            else:
-                result["advanced"] = self.advanced
+            advanced_dict = _to_plain_value(self.advanced)
+            if isinstance(advanced_dict, dict) and "advanced" in advanced_dict:
+                result.update(advanced_dict)
+            elif advanced_dict:
+                result["advanced"] = advanced_dict
         return result
+
+    @classmethod
+    def newton_contact(
+        cls,
+        *,
+        linear: Optional[LinearSolver] = None,
+        linear_solver: str = "Eigen::PardisoLDLT",
+        max_iterations: int = 100,
+        tolerance: float = 1e-6,
+        grad_norm: Optional[float] = None,
+        x_delta: Optional[float] = None,
+        iterations_per_strategy: Optional[int] = None,
+        line_search: Optional[Union[str, LineSearch, Dict[str, Any]]] = None,
+        residual_tolerance: Optional[float] = None,
+        barrier_stiffness: Optional[Any] = None,
+        max_threads: int = 1,
+        augmented_lagrangian: Optional[Union[AugmentedLagrangian, Dict[str, Any]]] = None,
+        rayleigh_damping: Optional[Union[RayleighDamping, Dict[str, Any]]] = None,
+        advanced: Optional[Union[SolverAdvanced, Dict[str, Any]]] = None,
+    ) -> "Solver":
+        """Construct the common Newton + contact solver stack in one call."""
+        linear_cfg = linear
+        if linear_cfg is None:
+            linear_cfg = LinearSolver(solver_type=linear_solver)
+        return cls(
+            linear=linear_cfg,
+            nonlinear=NonlinearSolver.newton(
+                max_iterations=max_iterations,
+                tolerance=tolerance,
+                grad_norm=grad_norm,
+                x_delta=x_delta,
+                iterations_per_strategy=iterations_per_strategy,
+                line_search=line_search,
+                residual_tolerance=residual_tolerance,
+            ),
+            max_threads=max_threads,
+            augmented_lagrangian=augmented_lagrangian,
+            contact=SolverContactOptions(barrier_stiffness=barrier_stiffness),
+            rayleigh_damping=rayleigh_damping,
+            advanced=advanced,
+        )
     
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Solver":
@@ -2755,24 +4618,107 @@ class Solver:
                 # Map JSON "solver" key to NonlinearSolver.solver_type
                 if "solver" in raw_nl and "solver_type" not in raw_nl:
                     raw_nl["solver_type"] = raw_nl.pop("solver")
+                if "line_search" in raw_nl and isinstance(raw_nl["line_search"], dict):
+                    raw_nl["line_search"] = LineSearch.from_dict(raw_nl["line_search"])
 
                 if method_blocks:
                     raw_nl["method_blocks"] = method_blocks
                 nonlinear = NonlinearSolver(**raw_nl)
             else:
                 nonlinear = d["nonlinear"]
+
+        augmented_lagrangian = None
+        if "augmented_lagrangian" in d:
+            if isinstance(d["augmented_lagrangian"], dict):
+                augmented_lagrangian = AugmentedLagrangian.from_dict(d["augmented_lagrangian"])
+            else:
+                augmented_lagrangian = d["augmented_lagrangian"]
+
+        solver_contact = None
+        if "contact" in d:
+            if isinstance(d["contact"], dict):
+                solver_contact = SolverContactOptions.from_dict(d["contact"])
+            else:
+                solver_contact = d["contact"]
+
+        rayleigh_damping = None
+        if "rayleigh_damping" in d:
+            if isinstance(d["rayleigh_damping"], dict):
+                rayleigh_damping = RayleighDamping.from_dict(d["rayleigh_damping"])
+            else:
+                rayleigh_damping = d["rayleigh_damping"]
+
+        advanced = None
+        if "advanced" in d and isinstance(d["advanced"], dict):
+            advanced = SolverAdvanced.from_dict(d["advanced"])
+        else:
+            advanced = {
+                k: v for k, v in d.items()
+                if k not in [
+                    "linear", "nonlinear", "max_threads",
+                    "augmented_lagrangian", "contact", "rayleigh_damping"
+                ]
+            }
+            if not advanced:
+                advanced = None
         
         return cls(
             linear=linear,
             nonlinear=nonlinear,
             max_threads=d.get("max_threads", 1),
-            advanced={k: v for k, v in d.items() if k not in ["linear", "nonlinear", "max_threads"]}
+            augmented_lagrangian=augmented_lagrangian,
+            contact=solver_contact,
+            rayleigh_damping=rayleigh_damping,
+            advanced=advanced,
         )
 
 
 # ============================================================================
 # Time Configuration Classes
 # ============================================================================
+
+@dataclass
+class BDFIntegrator:
+    """Backwards differentiation formula integrator options."""
+
+    type: str = "BDF"
+    steps: int = 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {"type": self.type}
+        if self.steps != 1:
+            result["steps"] = self.steps
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "BDFIntegrator":
+        return cls(type=str(d.get("type", "BDF")), steps=int(d.get("steps", 1)))
+
+
+@dataclass
+class ImplicitNewmarkIntegrator:
+    """Implicit Newmark integrator options."""
+
+    type: str = "ImplicitNewmark"
+    gamma: float = 0.5
+    beta: float = 0.25
+
+    def to_dict(self) -> Dict[str, Any]:
+        result = {"type": self.type}
+        if self.gamma != 0.5:
+            result["gamma"] = self.gamma
+        if self.beta != 0.25:
+            result["beta"] = self.beta
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ImplicitNewmarkIntegrator":
+        return cls(
+            type=str(d.get("type", "ImplicitNewmark")),
+            gamma=float(d.get("gamma", 0.5)),
+            beta=float(d.get("beta", 0.25)),
+        )
+
 
 @dataclass
 class Time:
@@ -2789,47 +4735,185 @@ class Time:
     Example:
         >>> time = Time(t0=0.0, tend=1.0, dt=0.01, integrator="ImplicitEuler")
     """
-    tend: float = field()
+    tend: Optional[float] = None
     dt: Optional[float] = None
     t0: float = 0.0
     time_steps: Optional[int] = None
-    integrator: str = "ImplicitEuler"
-    
-    def __post_init__(self):
-        """Validate that either dt or time_steps is provided."""
-        if self.dt is None and self.time_steps is None:
-            raise ValueError("Time requires either dt or time_steps")
-        if self.dt is not None and self.time_steps is not None:
-            raise ValueError("Time cannot have both dt and time_steps")
+    integrator: Union[str, BDFIntegrator, ImplicitNewmarkIntegrator, Dict[str, Any]] = "ImplicitEuler"
+    quasistatic: bool = False
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""
-        result = {
-            "t0": self.t0,
-            "tend": self.tend,
-            "integrator": self.integrator,
-        }
+        result = {"t0": self.t0}
+        if self.tend is not None:
+            result["tend"] = self.tend
         if self.dt is not None:
             result["dt"] = self.dt
         if self.time_steps is not None:
             result["time_steps"] = self.time_steps
+        if isinstance(self.integrator, (BDFIntegrator, ImplicitNewmarkIntegrator)):
+            result["integrator"] = self.integrator.to_dict()
+        else:
+            result["integrator"] = _to_plain_value(self.integrator)
+        if self.quasistatic:
+            result["quasistatic"] = True
         return result
+
+    @classmethod
+    def transient(
+        cls,
+        *,
+        tend: float,
+        dt: Optional[float] = None,
+        time_steps: Optional[int] = None,
+        t0: float = 0.0,
+        integrator: Union[str, BDFIntegrator, ImplicitNewmarkIntegrator, Dict[str, Any]] = "ImplicitEuler",
+        quasistatic: bool = False,
+    ) -> "Time":
+        """Construct the common transient-time block."""
+        return cls(
+            t0=t0,
+            tend=tend,
+            dt=dt,
+            time_steps=time_steps,
+            integrator=integrator,
+            quasistatic=quasistatic,
+        )
+
+    @classmethod
+    def bdf(
+        cls,
+        *,
+        tend: float,
+        dt: Optional[float] = None,
+        time_steps: Optional[int] = None,
+        t0: float = 0.0,
+        steps: int = 1,
+        quasistatic: bool = False,
+    ) -> "Time":
+        """Construct a transient time block with a BDF integrator."""
+        return cls.transient(
+            t0=t0,
+            tend=tend,
+            dt=dt,
+            time_steps=time_steps,
+            integrator=BDFIntegrator(steps=steps),
+            quasistatic=quasistatic,
+        )
+
+    @classmethod
+    def implicit_newmark(
+        cls,
+        *,
+        tend: float,
+        dt: Optional[float] = None,
+        time_steps: Optional[int] = None,
+        t0: float = 0.0,
+        gamma: float = 0.5,
+        beta: float = 0.25,
+        quasistatic: bool = False,
+    ) -> "Time":
+        """Construct a transient time block with an implicit Newmark integrator."""
+        return cls.transient(
+            t0=t0,
+            tend=tend,
+            dt=dt,
+            time_steps=time_steps,
+            integrator=ImplicitNewmarkIntegrator(gamma=gamma, beta=beta),
+            quasistatic=quasistatic,
+        )
     
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Time":
         """Create Time from dictionary (backward compatibility)."""
+        integrator = d.get("integrator", "ImplicitEuler")
+        if isinstance(integrator, dict):
+            type_name = str(integrator.get("type", "")).strip()
+            if type_name == "BDF":
+                integrator = BDFIntegrator.from_dict(integrator)
+            elif type_name == "ImplicitNewmark":
+                integrator = ImplicitNewmarkIntegrator.from_dict(integrator)
         return cls(
             t0=d.get("t0", 0.0),
-            tend=d.get("tend", 1.0),
+            tend=d.get("tend"),
             dt=d.get("dt"),
             time_steps=d.get("time_steps"),
-            integrator=d.get("integrator", "ImplicitEuler")
+            integrator=integrator,
+            quasistatic=bool(d.get("quasistatic", False)),
         )
 
 
 # ============================================================================
 # Output Configuration Classes
 # ============================================================================
+
+@dataclass
+class OutputLog:
+    """Setting for the output log."""
+
+    level: Union[int, str] = "debug"
+    file_level: Union[int, str] = "trace"
+    path: str = ""
+    quiet: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.level != "debug":
+            result["level"] = self.level
+        if self.file_level != "trace":
+            result["file_level"] = self.file_level
+        if self.path:
+            result["path"] = self.path
+        if self.quiet:
+            result["quiet"] = True
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "OutputLog":
+        return cls(
+            level=d.get("level", "debug"),
+            file_level=d.get("file_level", "trace"),
+            path=str(d.get("path", "")),
+            quiet=bool(d.get("quiet", False)),
+        )
+
+
+@dataclass
+class OutputParaviewOptions:
+    """Optional fields in the Paraview output."""
+
+    use_hdf5: bool = False
+    material: bool = False
+    body_ids: bool = False
+    contact_forces: bool = False
+    friction_forces: bool = False
+    normal_adhesion_forces: bool = False
+    tangential_adhesion_forces: bool = False
+    velocity: bool = False
+    acceleration: bool = False
+    scalar_values: bool = True
+    tensor_values: bool = True
+    discretization_order: bool = True
+    nodes: bool = True
+    forces: bool = False
+    force_high_order: bool = False
+    jacobian_validity: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        defaults = type(self)()
+        result: Dict[str, Any] = {}
+        for key in self.__dataclass_fields__:
+            value = getattr(self, key)
+            if value != getattr(defaults, key):
+                result[key] = value
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "OutputParaviewOptions":
+        defaults = cls()
+        kwargs = {key: d.get(key, getattr(defaults, key)) for key in cls.__dataclass_fields__}
+        return cls(**kwargs)
+
 
 @dataclass
 class ParaviewOutput:
@@ -2852,9 +4936,11 @@ class ParaviewOutput:
     wireframe: bool = False
     points: bool = False
     file_name: Optional[str] = None
-    options: Optional[Dict[str, Any]] = None
-    vismesh_rel_area: Optional[float] = None
-    skip_frame: Optional[int] = None
+    options: Optional[Union[OutputParaviewOptions, Dict[str, Any]]] = None
+    vismesh_rel_area: Optional[float] = 1e-5
+    skip_frame: Optional[int] = 1
+    high_order_mesh: bool = True
+    fields: List[str] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""
@@ -2863,16 +4949,216 @@ class ParaviewOutput:
             "surface": self.surface,
             "wireframe": self.wireframe,
             "points": self.points,
+            "high_order_mesh": self.high_order_mesh,
         }
         if self.file_name is not None:
             result["file_name"] = self.file_name
         if self.options is not None:
-            result["options"] = self.options
+            options = _to_plain_value(self.options)
+            if options:
+                result["options"] = options
         if self.vismesh_rel_area is not None:
             result["vismesh_rel_area"] = self.vismesh_rel_area
         if self.skip_frame is not None:
             result["skip_frame"] = self.skip_frame
+        if self.fields:
+            result["fields"] = list(self.fields)
         return result
+
+    @classmethod
+    def time_sequence(
+        cls,
+        *,
+        file_name: str = "impact.pvd",
+        volume: bool = True,
+        surface: bool = False,
+        wireframe: bool = False,
+        points: bool = False,
+        vismesh_rel_area: Optional[float] = 1e-5,
+        skip_frame: Optional[int] = 1,
+        high_order_mesh: bool = True,
+        fields: Optional[List[str]] = None,
+        material: bool = False,
+        body_ids: bool = False,
+        contact_forces: bool = False,
+        friction_forces: bool = False,
+        normal_adhesion_forces: bool = False,
+        tangential_adhesion_forces: bool = False,
+        velocity: bool = False,
+        acceleration: bool = False,
+        scalar_values: bool = True,
+        tensor_values: bool = True,
+        discretization_order: bool = True,
+        nodes: bool = True,
+        forces: bool = False,
+        force_high_order: bool = False,
+        jacobian_validity: bool = False,
+    ) -> "ParaviewOutput":
+        """Construct a ParaView time-sequence export with common field toggles."""
+        options = OutputParaviewOptions(
+            material=material,
+            body_ids=body_ids,
+            contact_forces=contact_forces,
+            friction_forces=friction_forces,
+            normal_adhesion_forces=normal_adhesion_forces,
+            tangential_adhesion_forces=tangential_adhesion_forces,
+            velocity=velocity,
+            acceleration=acceleration,
+            scalar_values=scalar_values,
+            tensor_values=tensor_values,
+            discretization_order=discretization_order,
+            nodes=nodes,
+            forces=forces,
+            force_high_order=force_high_order,
+            jacobian_validity=jacobian_validity,
+        )
+        return cls(
+            volume=volume,
+            surface=surface,
+            wireframe=wireframe,
+            points=points,
+            file_name=file_name,
+            options=options,
+            vismesh_rel_area=vismesh_rel_area,
+            skip_frame=skip_frame,
+            high_order_mesh=high_order_mesh,
+            fields=list(fields or []),
+        )
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ParaviewOutput":
+        options = d.get("options")
+        if isinstance(options, dict):
+            options = OutputParaviewOptions.from_dict(options)
+        return cls(
+            volume=bool(d.get("volume", True)),
+            surface=bool(d.get("surface", False)),
+            wireframe=bool(d.get("wireframe", False)),
+            points=bool(d.get("points", False)),
+            file_name=d.get("file_name"),
+            options=options,
+            vismesh_rel_area=d.get("vismesh_rel_area", 1e-5),
+            skip_frame=d.get("skip_frame", 1),
+            high_order_mesh=bool(d.get("high_order_mesh", True)),
+            fields=list(d.get("fields", [])),
+        )
+
+
+@dataclass
+class OutputDataAdvanced:
+    """Advanced text/data-output options."""
+
+    reorder_nodes: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"reorder_nodes": True} if self.reorder_nodes else {}
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "OutputDataAdvanced":
+        return cls(reorder_nodes=bool(d.get("reorder_nodes", False)))
+
+
+@dataclass
+class OutputData:
+    """File names to write output data to."""
+
+    solution: str = ""
+    full_mat: str = ""
+    stiffness_mat: str = ""
+    stress_mat: str = ""
+    state: str = ""
+    rest_mesh: str = ""
+    mises: str = ""
+    nodes: str = ""
+    advanced: Optional[Union[OutputDataAdvanced, Dict[str, Any]]] = None
+    file_index_offset: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        for key in ("solution", "full_mat", "stiffness_mat", "stress_mat", "state", "rest_mesh", "mises", "nodes"):
+            value = getattr(self, key)
+            if value:
+                result[key] = value
+        if self.advanced is not None:
+            advanced = _to_plain_value(self.advanced)
+            if advanced:
+                result["advanced"] = advanced
+        if self.file_index_offset != 0:
+            result["file_index_offset"] = self.file_index_offset
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "OutputData":
+        advanced = d.get("advanced")
+        if isinstance(advanced, dict):
+            advanced = OutputDataAdvanced.from_dict(advanced)
+        return cls(
+            solution=str(d.get("solution", "")),
+            full_mat=str(d.get("full_mat", "")),
+            stiffness_mat=str(d.get("stiffness_mat", "")),
+            stress_mat=str(d.get("stress_mat", "")),
+            state=str(d.get("state", "")),
+            rest_mesh=str(d.get("rest_mesh", "")),
+            mises=str(d.get("mises", "")),
+            nodes=str(d.get("nodes", "")),
+            advanced=advanced,
+            file_index_offset=int(d.get("file_index_offset", 0)),
+        )
+
+
+@dataclass
+class OutputAdvanced:
+    """Additional output options."""
+
+    timestep_prefix: str = "step_"
+    sol_on_grid: float = -1
+    compute_error: bool = True
+    sol_at_node: int = -1
+    vis_boundary_only: bool = False
+    curved_mesh_size: bool = False
+    save_solve_sequence_debug: bool = False
+    save_ccd_debug_meshes: bool = False
+    save_time_sequence: bool = True
+    save_nl_solve_sequence: bool = False
+    spectrum: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        defaults = type(self)()
+        result: Dict[str, Any] = {}
+        for key in self.__dataclass_fields__:
+            value = getattr(self, key)
+            if value != getattr(defaults, key):
+                result[key] = value
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "OutputAdvanced":
+        defaults = cls()
+        kwargs = {key: d.get(key, getattr(defaults, key)) for key in cls.__dataclass_fields__}
+        return cls(**kwargs)
+
+
+@dataclass
+class OutputReference:
+    """Reference solution/gradient output."""
+
+    solution: List[str] = field(default_factory=list)
+    gradient: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if self.solution:
+            result["solution"] = list(self.solution)
+        if self.gradient:
+            result["gradient"] = list(self.gradient)
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "OutputReference":
+        return cls(
+            solution=list(d.get("solution", [])),
+            gradient=list(d.get("gradient", [])),
+        )
 
 
 @dataclass
@@ -2915,16 +5201,16 @@ class FallbackOutput:
     """Python-side fallback policy for ``solve()`` result extraction.
 
     Attributes:
-        sampled_vtu: Controls the temporary-VTU fallback used to recover
-            sampled fields such as ``von_mises`` when the native result bundle
-            does not provide them.
-            - ``"never"``: never use temporary VTU fallback
-            - ``"auto"``: use fallback only when requested fields need it
-            - ``"always"``: always attempt fallback
-        temp_storage: ``"ram"`` prefers ``/dev/shm`` when available, ``"disk"``
-            uses the default temporary directory.
-        keep_temp_files: If True, keep the temporary VTU directory for debugging
-            instead of deleting it immediately.
+        sampled_vtu: Controls whether ``solve()`` may reuse user-exported VTU
+            files to backfill sampled fields/history when the native result
+            bundle does not provide them directly.
+            - ``"never"``: do not reuse exported VTUs
+            - ``"auto"``: allow exported-VTU reuse when needed
+            - ``"always"``: eagerly allow exported-VTU reuse
+        temp_storage: Legacy compatibility knob from the removed temporary-VTU
+            probe path. It is accepted but ignored.
+        keep_temp_files: Legacy compatibility knob from the removed
+            temporary-VTU probe path. It is accepted but ignored.
     """
 
     sampled_vtu: str = "never"
@@ -2973,6 +5259,10 @@ class Output:
             disables Paraview sequence output without requiring the caller to
             manually touch ``advanced.save_time_sequence`` or clear
             ``paraview.file_name``.
+        save_vtu: Python-side convenience switch for step-VTU export only. If
+            False, ``to_dict()`` clears ``paraview.file_name`` but leaves
+            ``advanced.save_time_sequence`` unchanged so in-memory history can
+            still be collected.
         result: Python-side result request for ``solve()``.
         fallback: Python-side result fallback policy for ``solve()``.
     
@@ -2982,11 +5272,45 @@ class Output:
     directory: str = "output"
     paraview: Optional[ParaviewOutput] = None
     json: Union[bool, str] = True
-    log: Optional[Dict[str, Any]] = None
-    advanced: Optional[Dict[str, Any]] = None
+    restart_json: Optional[str] = None
+    log: Optional[Union[OutputLog, Dict[str, Any]]] = None
+    data: Optional[Union[OutputData, Dict[str, Any]]] = None
+    advanced: Optional[Union[OutputAdvanced, Dict[str, Any]]] = None
+    reference: Optional[Union[OutputReference, Dict[str, Any]]] = None
+    stats: bool = False
     save_paraview: Optional[bool] = None
+    save_vtu: Optional[bool] = None
     result: Optional[Union[ResultOutput, Dict[str, Any]]] = None
     fallback: Optional[Union[FallbackOutput, Dict[str, Any]]] = None
+
+    def _ensure_log(self) -> OutputLog:
+        if self.log is None:
+            self.log = OutputLog()
+        elif isinstance(self.log, dict):
+            self.log = OutputLog.from_dict(self.log)
+        return self.log
+
+    def _ensure_paraview(self) -> ParaviewOutput:
+        if self.paraview is None:
+            self.paraview = ParaviewOutput()
+        elif isinstance(self.paraview, dict):
+            self.paraview = ParaviewOutput.from_dict(self.paraview)
+        return self.paraview
+
+    def _ensure_paraview_options(self) -> OutputParaviewOptions:
+        paraview = self._ensure_paraview()
+        if paraview.options is None:
+            paraview.options = OutputParaviewOptions()
+        elif isinstance(paraview.options, dict):
+            paraview.options = OutputParaviewOptions.from_dict(paraview.options)
+        return paraview.options
+
+    def _ensure_advanced(self) -> OutputAdvanced:
+        if self.advanced is None:
+            self.advanced = OutputAdvanced()
+        elif isinstance(self.advanced, dict):
+            self.advanced = OutputAdvanced.from_dict(self.advanced)
+        return self.advanced
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format (for backend compatibility)."""
@@ -2997,9 +5321,11 @@ class Output:
             result["json"] = self.json
         elif self.json:
             result["json"] = True
+        if self.restart_json:
+            result["restart_json"] = self.restart_json
         
         paraview_dict = self.paraview.to_dict() if self.paraview is not None else None
-        advanced_dict = dict(self.advanced) if self.advanced is not None else None
+        advanced_dict = _to_plain_value(self.advanced) if self.advanced is not None else None
 
         if self.save_paraview is False:
             if paraview_dict is None:
@@ -3009,12 +5335,28 @@ class Output:
                 advanced_dict = {}
             advanced_dict["save_time_sequence"] = False
 
+        if self.save_vtu is False and paraview_dict is not None:
+            paraview_dict["file_name"] = ""
+
         if paraview_dict is not None:
             result["paraview"] = paraview_dict
         if self.log is not None:
-            result["log"] = self.log
+            log_dict = _to_plain_value(self.log)
+            if log_dict:
+                result["log"] = log_dict
+        if self.data is not None:
+            data_dict = _to_plain_value(self.data)
+            if data_dict:
+                result["data"] = data_dict
         if advanced_dict is not None:
-            result["advanced"] = advanced_dict
+            if advanced_dict:
+                result["advanced"] = advanced_dict
+        if self.reference is not None:
+            reference_dict = _to_plain_value(self.reference)
+            if reference_dict:
+                result["reference"] = reference_dict
+        if self.stats:
+            result["stats"] = True
         return result
 
     def runtime_options(self) -> Dict[str, Any]:
@@ -3042,6 +5384,40 @@ class Output:
             out["fallback"] = fallback_cfg
         return out
 
+    def resolve_relative_paths(self, base_dir: Union[str, PathLike[str]]) -> "Output":
+        """Resolve relative output targets against ``base_dir`` in place.
+
+        This is useful for scripts that load a JSON template and then redirect
+        all outputs into a run-specific workspace without manually patching
+        ``output.log.path``, ``output.paraview.file_name`` and ``output.json``.
+        """
+        base = Path(base_dir).resolve()
+
+        if isinstance(self.log, OutputLog):
+            path = self.log.path
+            if isinstance(path, str) and path and not Path(path).is_absolute():
+                self.log.path = str((base / path).resolve())
+        elif isinstance(self.log, dict):
+            log = dict(self.log)
+            path = log.get("path")
+            if isinstance(path, str) and path and not Path(path).is_absolute():
+                log["path"] = str((base / path).resolve())
+            self.log = log
+
+        if self.paraview is not None:
+            file_name = self.paraview.file_name
+            if (
+                isinstance(file_name, str)
+                and file_name
+                and not Path(file_name).is_absolute()
+            ):
+                self.paraview.file_name = str((base / file_name).resolve())
+
+        if isinstance(self.json, str) and self.json and not Path(self.json).is_absolute():
+            self.json = str((base / self.json).resolve())
+
+        return self
+
     def request_results(self, fields: List[str], *, strict: bool = False) -> "Output":
         """Convenience helper for ``solve()`` result requests."""
         self.result = ResultOutput(fields=list(fields), strict=bool(strict))
@@ -3054,13 +5430,241 @@ class Output:
         temp_storage: str = "ram",
         keep_temp_files: bool = False,
     ) -> "Output":
-        """Convenience helper for ``solve()`` fallback behavior."""
+        """Convenience helper for exported-VTU backfill behavior.
+
+        ``temp_storage`` / ``keep_temp_files`` are retained for backward
+        compatibility but no longer affect runtime behavior.
+        """
         self.fallback = FallbackOutput(
             sampled_vtu=sampled_vtu,
             temp_storage=temp_storage,
             keep_temp_files=keep_temp_files,
         )
         return self
+
+    def configure_vtu_export(self, enabled: bool) -> "Output":
+        """Convenience helper for step-VTU export without touching history."""
+        self.save_vtu = bool(enabled)
+        return self
+
+    @classmethod
+    def history(
+        cls,
+        *,
+        directory: str = "output",
+        json: Union[bool, str] = True,
+        restart_json: Optional[str] = None,
+        pvd: str = "impact.pvd",
+        surface: bool = False,
+        wireframe: bool = False,
+        points: bool = False,
+        vismesh_rel_area: Optional[float] = 1e-5,
+        skip_frame: Optional[int] = 1,
+        high_order_mesh: bool = True,
+        timestep_prefix: str = "step_",
+        save_time_sequence: bool = True,
+        save_vtu: bool = True,
+    ) -> "Output":
+        """Build the common history/paraview skeleton, then refine it in steps."""
+        output = cls(directory=directory, json=json, restart_json=restart_json)
+        output.set_paraview_sequence(
+            file_name=pvd,
+            surface=surface,
+            wireframe=wireframe,
+            points=points,
+            vismesh_rel_area=vismesh_rel_area,
+            skip_frame=skip_frame,
+            high_order_mesh=high_order_mesh,
+        )
+        output.set_history_sequence(
+            timestep_prefix=timestep_prefix,
+            save_time_sequence=save_time_sequence,
+        )
+        output.configure_vtu_export(save_vtu)
+        return output
+
+    def set_log(
+        self,
+        *,
+        path: str = "polyfem.log",
+        level: Union[int, str] = "debug",
+        file_level: Union[int, str] = "debug",
+        quiet: bool = False,
+    ) -> "Output":
+        """Set the standard log block."""
+        self.log = OutputLog(
+            level=level,
+            file_level=file_level,
+            path=path,
+            quiet=quiet,
+        )
+        return self
+
+    def set_paraview_sequence(
+        self,
+        *,
+        file_name: str = "impact.pvd",
+        volume: bool = True,
+        surface: bool = False,
+        wireframe: bool = False,
+        points: bool = False,
+        vismesh_rel_area: Optional[float] = 1e-5,
+        skip_frame: Optional[int] = 1,
+        high_order_mesh: bool = True,
+        fields: Optional[List[str]] = None,
+    ) -> "Output":
+        """Configure the ParaView time-sequence block without touching field toggles."""
+        paraview = self._ensure_paraview()
+        paraview.volume = volume
+        paraview.surface = surface
+        paraview.wireframe = wireframe
+        paraview.points = points
+        paraview.file_name = file_name
+        paraview.vismesh_rel_area = vismesh_rel_area
+        paraview.skip_frame = skip_frame
+        paraview.high_order_mesh = high_order_mesh
+        if fields is not None:
+            paraview.fields = list(fields)
+        return self
+
+    def enable_paraview_fields(
+        self,
+        *,
+        use_hdf5: Optional[bool] = None,
+        material: Optional[bool] = None,
+        body_ids: Optional[bool] = None,
+        contact_forces: Optional[bool] = None,
+        friction_forces: Optional[bool] = None,
+        normal_adhesion_forces: Optional[bool] = None,
+        tangential_adhesion_forces: Optional[bool] = None,
+        velocity: Optional[bool] = None,
+        acceleration: Optional[bool] = None,
+        scalar_values: Optional[bool] = None,
+        tensor_values: Optional[bool] = None,
+        discretization_order: Optional[bool] = None,
+        nodes: Optional[bool] = None,
+        forces: Optional[bool] = None,
+        force_high_order: Optional[bool] = None,
+        jacobian_validity: Optional[bool] = None,
+    ) -> "Output":
+        """Enable or disable ParaView field toggles with IDE-friendly keywords."""
+        options = self._ensure_paraview_options()
+        updates = {
+            "use_hdf5": use_hdf5,
+            "material": material,
+            "body_ids": body_ids,
+            "contact_forces": contact_forces,
+            "friction_forces": friction_forces,
+            "normal_adhesion_forces": normal_adhesion_forces,
+            "tangential_adhesion_forces": tangential_adhesion_forces,
+            "velocity": velocity,
+            "acceleration": acceleration,
+            "scalar_values": scalar_values,
+            "tensor_values": tensor_values,
+            "discretization_order": discretization_order,
+            "nodes": nodes,
+            "forces": forces,
+            "force_high_order": force_high_order,
+            "jacobian_validity": jacobian_validity,
+        }
+        for key, value in updates.items():
+            if value is not None:
+                setattr(options, key, value)
+        return self
+
+    def set_history_sequence(
+        self,
+        *,
+        timestep_prefix: str = "step_",
+        save_time_sequence: bool = True,
+    ) -> "Output":
+        """Configure the advanced history/time-sequence output block."""
+        advanced = self._ensure_advanced()
+        advanced.timestep_prefix = timestep_prefix
+        advanced.save_time_sequence = save_time_sequence
+        return self
+
+    @classmethod
+    def history_run(
+        cls,
+        *,
+        directory: str = "output",
+        json: Union[bool, str] = True,
+        restart_json: Optional[str] = None,
+        log_path: str = "polyfem.log",
+        log_level: Union[int, str] = "debug",
+        log_file_level: Union[int, str] = "debug",
+        quiet: bool = False,
+        pvd: str = "impact.pvd",
+        surface: bool = False,
+        wireframe: bool = False,
+        points: bool = False,
+        vismesh_rel_area: Optional[float] = 1e-5,
+        skip_frame: Optional[int] = 1,
+        high_order_mesh: bool = True,
+        material: bool = False,
+        body_ids: bool = False,
+        contact_forces: bool = False,
+        friction_forces: bool = False,
+        normal_adhesion_forces: bool = False,
+        tangential_adhesion_forces: bool = False,
+        velocity: bool = False,
+        acceleration: bool = False,
+        scalar_values: bool = True,
+        tensor_values: bool = True,
+        discretization_order: bool = True,
+        nodes: bool = True,
+        forces: bool = False,
+        force_high_order: bool = False,
+        jacobian_validity: bool = False,
+        timestep_prefix: str = "step_",
+        save_time_sequence: bool = True,
+        requested_fields: Optional[List[str]] = None,
+        strict: bool = False,
+        save_vtu: bool = True,
+    ) -> "Output":
+        """Construct the common history + VTU output stack in one call."""
+        output = cls.history(
+            directory=directory,
+            json=json,
+            restart_json=restart_json,
+            pvd=pvd,
+            surface=surface,
+            wireframe=wireframe,
+            points=points,
+            vismesh_rel_area=vismesh_rel_area,
+            skip_frame=skip_frame,
+            high_order_mesh=high_order_mesh,
+            timestep_prefix=timestep_prefix,
+            save_time_sequence=save_time_sequence,
+            save_vtu=save_vtu,
+        )
+        output.set_log(
+            path=log_path,
+            level=log_level,
+            file_level=log_file_level,
+            quiet=quiet,
+        )
+        output.enable_paraview_fields(
+            material=material,
+            body_ids=body_ids,
+            contact_forces=contact_forces,
+            friction_forces=friction_forces,
+            normal_adhesion_forces=normal_adhesion_forces,
+            tangential_adhesion_forces=tangential_adhesion_forces,
+            velocity=velocity,
+            acceleration=acceleration,
+            scalar_values=scalar_values,
+            tensor_values=tensor_values,
+            discretization_order=discretization_order,
+            nodes=nodes,
+            forces=forces,
+            force_high_order=force_high_order,
+            jacobian_validity=jacobian_validity,
+        )
+        if requested_fields is not None:
+            output.request_results(list(requested_fields), strict=strict)
+        return output
     
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Output":
@@ -3068,9 +5672,33 @@ class Output:
         paraview = None
         if "paraview" in d:
             if isinstance(d["paraview"], dict):
-                paraview = ParaviewOutput(**d["paraview"])
+                paraview = ParaviewOutput.from_dict(d["paraview"])
             else:
                 paraview = d["paraview"]
+
+        log_cfg = None
+        if "log" in d and isinstance(d["log"], dict):
+            log_cfg = OutputLog.from_dict(d["log"])
+        elif "log" in d:
+            log_cfg = d["log"]
+
+        data_cfg = None
+        if "data" in d and isinstance(d["data"], dict):
+            data_cfg = OutputData.from_dict(d["data"])
+        elif "data" in d:
+            data_cfg = d["data"]
+
+        advanced_cfg = None
+        if "advanced" in d and isinstance(d["advanced"], dict):
+            advanced_cfg = OutputAdvanced.from_dict(d["advanced"])
+        elif "advanced" in d:
+            advanced_cfg = d["advanced"]
+
+        reference_cfg = None
+        if "reference" in d and isinstance(d["reference"], dict):
+            reference_cfg = OutputReference.from_dict(d["reference"])
+        elif "reference" in d:
+            reference_cfg = d["reference"]
         
         result_cfg = None
         if "result" in d and isinstance(d["result"], dict):
@@ -3084,9 +5712,14 @@ class Output:
             directory=d.get("directory", "output"),
             paraview=paraview,
             json=d.get("json", True),
-            log=d.get("log"),
-            advanced=d.get("advanced"),
+            restart_json=d.get("restart_json"),
+            log=log_cfg,
+            data=data_cfg,
+            advanced=advanced_cfg,
+            reference=reference_cfg,
+            stats=bool(d.get("stats", False)),
             save_paraview=d.get("save_paraview"),
+            save_vtu=d.get("save_vtu"),
             result=result_cfg,
             fallback=fallback_cfg,
         )
@@ -3095,6 +5728,68 @@ class Output:
 # ============================================================================
 # Contact Configuration Classes
 # ============================================================================
+
+@dataclass
+class CollisionMesh:
+    """Collision mesh options for contact."""
+
+    enabled: bool = True
+    tessellation_type: str = "regular"
+    mesh: Optional[str] = None
+    linear_map: Optional[str] = None
+    max_edge_length: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        if not self.enabled:
+            result["enabled"] = False
+        if self.tessellation_type != "regular":
+            result["tessellation_type"] = self.tessellation_type
+        if self.mesh:
+            result["mesh"] = self.mesh
+        if self.linear_map:
+            result["linear_map"] = self.linear_map
+        if self.max_edge_length is not None:
+            result["max_edge_length"] = self.max_edge_length
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "CollisionMesh":
+        return cls(
+            enabled=bool(d.get("enabled", True)),
+            tessellation_type=str(d.get("tessellation_type", "regular")),
+            mesh=d.get("mesh"),
+            linear_map=d.get("linear_map"),
+            max_edge_length=d.get("max_edge_length"),
+        )
+
+
+@dataclass
+class Adhesion:
+    """Adhesion options for contact."""
+
+    adhesion_enabled: bool = False
+    dhat_p: float = 0.001
+    dhat_a: float = 0.01
+    adhesion_strength: float = 0.001
+    tangential_adhesion_coefficient: float = 0.0
+    epsa: float = 0.001
+
+    def to_dict(self) -> Dict[str, Any]:
+        defaults = type(self)()
+        result: Dict[str, Any] = {}
+        for key in self.__dataclass_fields__:
+            value = getattr(self, key)
+            if value != getattr(defaults, key):
+                result[key] = value
+        return result
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Adhesion":
+        defaults = cls()
+        kwargs = {key: d.get(key, getattr(defaults, key)) for key in cls.__dataclass_fields__}
+        return cls(**kwargs)
+
 
 @dataclass
 class Contact:
@@ -3111,30 +5806,188 @@ class Contact:
         >>> contact = Contact(enabled=True, dhat=0.01, mu=0.5)
     """
     enabled: bool = False
-    dhat: float = 0.01
-    mu: float = 0.0
-    epsv: float = 0.0
-    barrier_stiffness: float = 1e3
+    dhat: float = 0.001
+    dhat_percentage: float = 0.8
+    epsv: float = 0.001
+    friction_coefficient: float = 0.0
+    mu: Optional[float] = None
+    use_convergent_formulation: bool = False
+    use_area_weighting: bool = True
+    use_improved_max_operator: bool = True
+    use_physical_barrier: bool = True
+    collision_mesh: Optional[Union[CollisionMesh, Dict[str, Any]]] = None
+    use_gcp_formulation: bool = False
+    alpha_n: float = 0.5
+    alpha_t: float = 0.5
+    min_distance_ratio: float = 0.5
+    use_adaptive_dhat: bool = False
+    periodic: bool = False
+    adhesion: Optional[Union[Adhesion, Dict[str, Any]]] = None
+    barrier_stiffness: Optional[Any] = None
+
+    @classmethod
+    def frictionless(
+        cls,
+        *,
+        dhat: float = 0.001,
+        barrier_stiffness: Optional[Any] = None,
+        use_adaptive_dhat: bool = False,
+        periodic: bool = False,
+        collision_mesh: Optional[Union[CollisionMesh, Dict[str, Any]]] = None,
+        adhesion: Optional[Union[Adhesion, Dict[str, Any]]] = None,
+    ) -> "Contact":
+        """Construct an enabled frictionless contact model."""
+        return cls(
+            enabled=True,
+            dhat=dhat,
+            friction_coefficient=0.0,
+            mu=0.0,
+            barrier_stiffness=barrier_stiffness,
+            use_adaptive_dhat=use_adaptive_dhat,
+            periodic=periodic,
+            collision_mesh=collision_mesh,
+            adhesion=adhesion,
+        )
+
+    @classmethod
+    def coulomb(
+        cls,
+        *,
+        mu: float,
+        dhat: float = 0.001,
+        barrier_stiffness: Optional[Any] = None,
+        use_adaptive_dhat: bool = False,
+        periodic: bool = False,
+        collision_mesh: Optional[Union[CollisionMesh, Dict[str, Any]]] = None,
+        adhesion: Optional[Union[Adhesion, Dict[str, Any]]] = None,
+    ) -> "Contact":
+        """Construct an enabled Coulomb-friction contact model."""
+        return cls(
+            enabled=True,
+            dhat=dhat,
+            friction_coefficient=mu,
+            mu=mu,
+            barrier_stiffness=barrier_stiffness,
+            use_adaptive_dhat=use_adaptive_dhat,
+            periodic=periodic,
+            collision_mesh=collision_mesh,
+            adhesion=adhesion,
+        )
+
+    @classmethod
+    def adhesive(
+        cls,
+        *,
+        adhesion_strength: float = 0.001,
+        mu: float = 0.0,
+        dhat: float = 0.001,
+        dhat_p: float = 0.001,
+        dhat_a: float = 0.01,
+        tangential_adhesion_coefficient: float = 0.0,
+        epsa: float = 0.001,
+        barrier_stiffness: Optional[Any] = None,
+        use_adaptive_dhat: bool = False,
+        periodic: bool = False,
+        collision_mesh: Optional[Union[CollisionMesh, Dict[str, Any]]] = None,
+    ) -> "Contact":
+        """Construct an enabled adhesive contact model."""
+        return cls(
+            enabled=True,
+            dhat=dhat,
+            friction_coefficient=mu,
+            mu=mu,
+            barrier_stiffness=barrier_stiffness,
+            use_adaptive_dhat=use_adaptive_dhat,
+            periodic=periodic,
+            collision_mesh=collision_mesh,
+            adhesion=Adhesion(
+                adhesion_enabled=True,
+                dhat_p=dhat_p,
+                dhat_a=dhat_a,
+                adhesion_strength=adhesion_strength,
+                tangential_adhesion_coefficient=tangential_adhesion_coefficient,
+                epsa=epsa,
+            ),
+        )
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""
-        return {
-            "enabled": self.enabled,
-            "dhat": self.dhat,
-            "mu": self.mu,
-            "epsv": self.epsv,
-            "barrier_stiffness": self.barrier_stiffness,
-        }
+        result: Dict[str, Any] = {}
+        defaults = type(self)()
+        alias_mu = self.friction_coefficient if self.mu is None else self.mu
+        if self.enabled:
+            result["enabled"] = True
+        if self.dhat != defaults.dhat:
+            result["dhat"] = self.dhat
+        if self.dhat_percentage != defaults.dhat_percentage:
+            result["dhat_percentage"] = self.dhat_percentage
+        if self.epsv != defaults.epsv:
+            result["epsv"] = self.epsv
+        if alias_mu != 0.0:
+            result["friction_coefficient"] = alias_mu
+        if self.use_convergent_formulation:
+            result["use_convergent_formulation"] = True
+        if self.use_area_weighting != defaults.use_area_weighting:
+            result["use_area_weighting"] = self.use_area_weighting
+        if self.use_improved_max_operator != defaults.use_improved_max_operator:
+            result["use_improved_max_operator"] = self.use_improved_max_operator
+        if self.use_physical_barrier != defaults.use_physical_barrier:
+            result["use_physical_barrier"] = self.use_physical_barrier
+        if self.collision_mesh is not None:
+            collision = _to_plain_value(self.collision_mesh)
+            if collision:
+                result["collision_mesh"] = collision
+        if self.use_gcp_formulation:
+            result["use_gcp_formulation"] = True
+        if self.alpha_n != defaults.alpha_n:
+            result["alpha_n"] = self.alpha_n
+        if self.alpha_t != defaults.alpha_t:
+            result["alpha_t"] = self.alpha_t
+        if self.min_distance_ratio != defaults.min_distance_ratio:
+            result["min_distance_ratio"] = self.min_distance_ratio
+        if self.use_adaptive_dhat:
+            result["use_adaptive_dhat"] = True
+        if self.periodic:
+            result["periodic"] = True
+        if self.adhesion is not None:
+            adhesion = _to_plain_value(self.adhesion)
+            if adhesion:
+                result["adhesion"] = adhesion
+        if self.barrier_stiffness is not None:
+            result["barrier_stiffness"] = _to_plain_value(self.barrier_stiffness)
+        return result
     
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Contact":
         """Create Contact from dictionary (backward compatibility)."""
+        collision_mesh = d.get("collision_mesh")
+        if isinstance(collision_mesh, dict):
+            collision_mesh = CollisionMesh.from_dict(collision_mesh)
+
+        adhesion = d.get("adhesion")
+        if isinstance(adhesion, dict):
+            adhesion = Adhesion.from_dict(adhesion)
+
         return cls(
-            enabled=d.get("enabled", False),
-            dhat=d.get("dhat", 0.01),
-            mu=d.get("mu", 0.0),
-            epsv=d.get("epsv", 0.0),
-            barrier_stiffness=d.get("barrier_stiffness", 1e3)
+            enabled=bool(d.get("enabled", False)),
+            dhat=float(d.get("dhat", 0.001)),
+            dhat_percentage=float(d.get("dhat_percentage", 0.8)),
+            epsv=float(d.get("epsv", 0.001)),
+            friction_coefficient=float(d.get("friction_coefficient", d.get("mu", 0.0))),
+            mu=d.get("mu"),
+            use_convergent_formulation=bool(d.get("use_convergent_formulation", False)),
+            use_area_weighting=bool(d.get("use_area_weighting", True)),
+            use_improved_max_operator=bool(d.get("use_improved_max_operator", True)),
+            use_physical_barrier=bool(d.get("use_physical_barrier", True)),
+            collision_mesh=collision_mesh,
+            use_gcp_formulation=bool(d.get("use_gcp_formulation", False)),
+            alpha_n=float(d.get("alpha_n", 0.5)),
+            alpha_t=float(d.get("alpha_t", 0.5)),
+            min_distance_ratio=float(d.get("min_distance_ratio", 0.5)),
+            use_adaptive_dhat=bool(d.get("use_adaptive_dhat", False)),
+            periodic=bool(d.get("periodic", False)),
+            adhesion=adhesion,
+            barrier_stiffness=d.get("barrier_stiffness"),
         )
 
 

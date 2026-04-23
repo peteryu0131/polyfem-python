@@ -92,6 +92,35 @@ void clean_mutually_exclusive_solver_fields(json &args) {
   (void)args;
 }
 
+bool should_write_vtu_during_solve(const State &s)
+{
+  try
+  {
+    if (s.args["output"].is_null() || !s.args["output"].is_object())
+      return false;
+
+    const auto &out = s.args["output"];
+    if (out["paraview"].is_null() || !out["paraview"].is_object())
+      return false;
+
+    const std::string file_name = out["paraview"].value("file_name", std::string());
+    if (file_name.empty())
+      return false;
+
+    const bool is_time_dependent = !s.args["time"].is_null();
+    if (!is_time_dependent)
+      return true;
+
+    if (out["advanced"].is_null() || !out["advanced"].is_object())
+      return false;
+    return out["advanced"].value("save_time_sequence", false);
+  }
+  catch (...)
+  {
+    return false;
+  }
+}
+
 class Assemblers
 {
 };
@@ -542,15 +571,17 @@ void define_solver(py::module_ &m)
 
             s.set_log_level(static_cast<spdlog::level::level_enum>(log_level));
 
-            // Mirror PolyFEM's ``State::solve()`` wrapping: flip to in-memory
-            // storage so ``save_timestep`` pushes each step's data into
-            // ``state.solution_frames`` instead of writing per-step VTU files.
-            // This is what makes ``solver.solution_frames`` non-empty after
-            // solve() returns, unlocking ``result.history.u / .vm / ...`` on
-            // the Python side. ``export_data`` below resets the flag and
-            // still writes the final outputs configured via the JSON.
+            // We support two solve-time output modes:
+            //
+            // 1. No VTU export requested: collect per-step data in
+            //    ``state.solution_frames`` so Python can consume
+            //    ``result.history`` directly from memory.
+            // 2. VTU export requested by the user: leave file export on and let
+            //    the Python layer read the exported ``impact_step_*.vtu`` files
+            //    back if it needs history or sampled fields.
             const bool prev_export_to_file = s.solve_export_to_file;
-            s.solve_export_to_file = false;
+            if (!should_write_vtu_during_solve(s))
+              s.solve_export_to_file = false;
             s.solution_frames.clear();
 
             Eigen::MatrixXd sol, pressure;
@@ -800,6 +831,8 @@ void define_solver(py::module_ &m)
             //   - pressure       : (n_sampled, 1) or empty — pressure if present
             //   - scalar_value   : (n_sampled, 1)     — von Mises (per-point)
             //   - scalar_value_avg : (n_sampled, 1)   — node-averaged von Mises
+            //   - tensor_value   : (n_sampled, dim*dim) — stress / tensor field
+            //   - body_ids       : (n_sampled, 1) int  — per-sample body id
             //   - exact / error  : populated only when an exact solution is known
             //
             // Zero VTU file I/O — the arrays come straight out of PolyFEM's
@@ -814,6 +847,8 @@ void define_solver(py::module_ &m)
               d["pressure"] = f.pressure;
               d["scalar_value"] = f.scalar_value;
               d["scalar_value_avg"] = f.scalar_value_avg;
+              d["tensor_value"] = f.tensor_value;
+              d["body_ids"] = f.body_ids;
               d["exact"] = f.exact;
               d["error"] = f.error;
               frames.append(d);

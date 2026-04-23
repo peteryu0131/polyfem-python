@@ -32,6 +32,8 @@ def _make_frame(step: int, n_sampled: int = 4, dim: int = 2):
         "pressure": np.empty((0, 0)),
         "scalar_value": np.full((n_sampled, 1), float(step) + 0.5, dtype=np.float64),
         "scalar_value_avg": np.full((n_sampled, 1), float(step) + 0.25, dtype=np.float64),
+        "tensor_value": np.full((n_sampled, dim * dim), float(step) + 9.0, dtype=np.float64),
+        "body_ids": np.array([[1], [1], [2], [2]], dtype=np.int32),
         "exact": np.empty((0, 0)),
         "error": np.empty((0, 0)),
     }
@@ -73,6 +75,19 @@ class HistoryViewBasicTests(unittest.TestCase):
         np.testing.assert_array_equal(h.points, frames[0]["points"])
         np.testing.assert_array_equal(h.connectivity, frames[0]["connectivity"])
 
+    def test_stress_is_stacked_with_time_axis(self):
+        frames = [_make_frame(i) for i in range(3)]
+        h = HistoryView(frames=frames)
+        self.assertEqual(h.stress.shape, (3, 4, 4))
+        np.testing.assert_array_equal(h.stress[0], 9.0 * np.ones((4, 4)))
+        np.testing.assert_array_equal(h.stress[2], 11.0 * np.ones((4, 4)))
+
+    def test_body_ids_are_static_and_flattened(self):
+        frames = [_make_frame(i) for i in range(2)]
+        h = HistoryView(frames=frames)
+        self.assertEqual(h.body_ids.shape, (4,))
+        np.testing.assert_array_equal(h.body_ids, np.array([1, 1, 2, 2], dtype=np.int32))
+
     def test_times_default_to_step_indices(self):
         frames = [_make_frame(i) for i in range(4)]
         h = HistoryView(frames=frames)
@@ -105,6 +120,13 @@ class HistoryFieldByBodyTests(unittest.TestCase):
         parts = h.field_by_body("u", body_ids)
         self.assertEqual(parts[1].shape, (3, 2, 2))
         self.assertEqual(parts[2].shape, (3, 2, 2))
+
+    def test_splits_stress_preserving_tensor_axis(self):
+        h = self._hist_of_4()
+        body_ids = np.array([1, 1, 2, 2], dtype=np.int32)
+        parts = h.field_by_body("stress", body_ids)
+        self.assertEqual(parts[1].shape, (3, 2, 4))
+        self.assertEqual(parts[2].shape, (3, 2, 4))
 
     def test_raises_when_body_ids_length_mismatches_sampled_axis(self):
         h = self._hist_of_4()
@@ -151,6 +173,12 @@ class ResultIntegrationTests(unittest.TestCase):
         C = np.array([[0, 1, 2]], dtype=np.int32)
         r = Result("numpy", V, C)
         r.set_sampled_field("body_ids", np.array([1, 1, 2, 2], dtype=np.int32))
+        np.testing.assert_array_equal(r.body_ids, [1, 1, 2, 2])
+
+    def test_body_ids_property_falls_back_to_history(self):
+        V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
+        C = np.array([[0, 1, 2]], dtype=np.int32)
+        r = Result("numpy", V, C, history=[_make_frame(0), _make_frame(1)])
         np.testing.assert_array_equal(r.body_ids, [1, 1, 2, 2])
 
 

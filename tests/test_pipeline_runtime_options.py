@@ -1,8 +1,7 @@
-"""Unit tests for runtime-option resolution and fallback decision logic.
+"""Unit tests for runtime-option resolution.
 
 Covers:
     - resolve_runtime_options: cfg.output / full_json.output / sampled_vtu_fallback override
-    - _should_run_fallback:     decision matrix for never / auto / always + requested fields
 
 These tests never touch the C++ backend. They only exercise pure Python stages.
 """
@@ -13,19 +12,15 @@ import sys
 import unittest
 from pathlib import Path
 
-import numpy as np
-
 _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from polyfempy.api._solve_pipeline import (  # noqa: E402
     RuntimeOptions,
-    _should_run_fallback,
     resolve_runtime_options,
 )
-from polyfempy.api.config import SimulationConfig  # noqa: E402
-from polyfempy.api.result import Result  # noqa: E402
+from polyfempy.api.config import Output, ParaviewOutput, SimulationConfig  # noqa: E402
 
 
 def _make_cfg(output: dict | None = None) -> SimulationConfig:
@@ -39,19 +34,6 @@ def _make_cfg(output: dict | None = None) -> SimulationConfig:
     if output is not None:
         d["output"] = output
     return SimulationConfig.from_json_dict(d)
-
-
-def _empty_result() -> Result:
-    V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
-    C = np.array([[0, 1, 2]], dtype=np.int32)
-    return Result("numpy", V, C)
-
-
-def _result_with_stress() -> Result:
-    r = _empty_result()
-    # 3 vertices × 3 Voigt components in 2D → von_mises will be computable.
-    r.set_field("stress", np.array([[1.0, 0.5, 0.2]] * 3))
-    return r
 
 
 class ResolveRuntimeOptionsTests(unittest.TestCase):
@@ -137,66 +119,42 @@ class ResolveRuntimeOptionsTests(unittest.TestCase):
         self.assertEqual(opts.requested_fields, ["u", "123"])
 
 
-class ShouldRunFallbackTests(unittest.TestCase):
-    def _opts(self, **kwargs) -> RuntimeOptions:
-        return RuntimeOptions(**kwargs)
+class OutputVtuSwitchTests(unittest.TestCase):
+    def test_resolve_relative_paths_rewrites_output_targets(self):
+        output = Output(
+            directory="out",
+            json="impact_stats.json",
+            log={"path": "polyfem.log"},
+            paraview=ParaviewOutput(file_name="impact.pvd"),
+        )
+        output.resolve_relative_paths("/tmp/polyfem-run")
+        self.assertEqual(output.json, "/tmp/polyfem-run/impact_stats.json")
+        self.assertEqual(output.log["path"], "/tmp/polyfem-run/polyfem.log")
+        self.assertEqual(output.paraview.file_name, "/tmp/polyfem-run/impact.pvd")
 
-    def test_never_mode_returns_false(self):
-        self.assertFalse(
-            _should_run_fallback(_empty_result(), self._opts(fallback_mode="never"))
+    def test_save_vtu_false_clears_file_name_but_preserves_time_sequence(self):
+        output = Output(
+            directory="out",
+            paraview=ParaviewOutput(file_name="impact.pvd"),
+            advanced={"save_time_sequence": True},
+            save_vtu=False,
         )
+        d = output.to_dict()
+        self.assertIn("paraview", d)
+        self.assertEqual(d["paraview"].get("file_name"), "")
+        self.assertIn("advanced", d)
+        self.assertTrue(d["advanced"].get("save_time_sequence"))
 
-    def test_always_mode_returns_true_regardless_of_fields(self):
-        self.assertTrue(
-            _should_run_fallback(_empty_result(), self._opts(fallback_mode="always"))
+    def test_save_paraview_false_still_disables_time_sequence(self):
+        output = Output(
+            directory="out",
+            paraview=ParaviewOutput(file_name="impact.pvd"),
+            advanced={"save_time_sequence": True},
+            save_paraview=False,
         )
-        self.assertTrue(
-            _should_run_fallback(
-                _result_with_stress(),
-                self._opts(fallback_mode="always", requested_fields=["stress"]),
-            )
-        )
-
-    def test_auto_mode_without_requested_fields_returns_false(self):
-        self.assertFalse(
-            _should_run_fallback(_empty_result(), self._opts(fallback_mode="auto"))
-        )
-
-    def test_auto_mode_with_non_sampled_fields_returns_false(self):
-        # Only "u" is requested; "u" is never a sampled-candidate.
-        self.assertFalse(
-            _should_run_fallback(
-                _empty_result(),
-                self._opts(fallback_mode="auto", requested_fields=["u"]),
-            )
-        )
-
-    def test_auto_mode_triggers_when_sampled_field_is_missing(self):
-        self.assertTrue(
-            _should_run_fallback(
-                _empty_result(),
-                self._opts(fallback_mode="auto", requested_fields=["stress"]),
-            )
-        )
-
-    def test_auto_mode_skips_when_all_sampled_fields_available(self):
-        r = _result_with_stress()  # stress → von_mises computable
-        self.assertFalse(
-            _should_run_fallback(
-                r,
-                self._opts(
-                    fallback_mode="auto", requested_fields=["stress", "von_mises"]
-                ),
-            )
-        )
-
-    def test_unknown_mode_behaves_as_never(self):
-        self.assertFalse(
-            _should_run_fallback(
-                _empty_result(),
-                self._opts(fallback_mode="bogus", requested_fields=["stress"]),
-            )
-        )
+        d = output.to_dict()
+        self.assertEqual(d["paraview"].get("file_name"), "")
+        self.assertFalse(d["advanced"].get("save_time_sequence"))
 
 
 if __name__ == "__main__":

@@ -59,9 +59,11 @@ class HistoryView:
         result.history.u           # (n_steps, n_sampled, dim)
         result.history.vm          # (n_steps, n_sampled)           — von Mises per point
         result.history.vm_avg      # (n_steps, n_sampled)           — node-averaged vM
+        result.history.stress      # (n_steps, n_sampled, dim*dim)  — tensor field
         result.history.pressure    # (n_steps, n_sampled, 1) or (n_steps, 0, 0)
         result.history.points      # (n_sampled, dim) — static; sampled mesh is rebuilt once
         result.history.connectivity  # (n_sampled_cells, k) — static
+        result.history.body_ids    # (n_sampled,) int — static
         result.history.times       # (n_steps,) best-effort wall/simulation times if known
         result.history.names       # list of raw PolyFEM frame names
         len(result.history)        # number of frames
@@ -92,7 +94,9 @@ class HistoryView:
         self.u = self._stack(frames, "solution")
         self.vm = self._stack_scalar(frames, "scalar_value")
         self.vm_avg = self._stack_scalar(frames, "scalar_value_avg")
+        self.stress = self._stack(frames, "tensor_value")
         self.pressure = self._stack(frames, "pressure")
+        self.body_ids = self._static_scalar(frames, "body_ids")
 
         # Times: if not supplied, fall back to step indices.
         if times is not None:
@@ -125,6 +129,15 @@ class HistoryView:
             arr = arr[..., 0]
         return arr
 
+    @staticmethod
+    def _static_scalar(frames, key):
+        if not frames:
+            return np.empty((0,), dtype=np.int32)
+        arr = np.asarray(frames[0].get(key, np.empty((0,), dtype=np.int32)))
+        if arr.ndim == 2 and arr.shape[1] == 1:
+            arr = arr[:, 0]
+        return arr
+
     @property
     def available(self) -> bool:
         """True when at least one frame was populated."""
@@ -144,7 +157,8 @@ class HistoryView:
 
         Returns ``{body_id: array with leading time axis preserved}``. Requires
         ``body_ids`` to be aligned with the history's sampled mesh (same row
-        count as ``history.points``). Pass ``result.body_ids`` directly.
+        count as ``history.points``). Pass ``result.history.body_ids`` or
+        ``result.body_ids`` directly.
         """
         arr = getattr(self, name, None)
         if arr is None:
@@ -225,8 +239,19 @@ class Result:
 
     @property
     def body_ids(self):
-        """Per-sample body ids (from the sampled-VTU fallback), if available."""
-        return self.field("body_ids")
+        """Per-sample body ids, if available.
+
+        Priority:
+        1. sampled_data fallback path (older VTU-based route)
+        2. history.body_ids (new in-memory SolutionFrame route)
+        """
+        arr = self.field("body_ids")
+        if arr is not None:
+            return arr
+        if getattr(self, "history", None) is not None and self.history.available:
+            if getattr(self.history, "body_ids", None) is not None and self.history.body_ids.size > 0:
+                return self.history.body_ids
+        return None
 
     def _normalize_cells(self, cells, vertices):
         if isinstance(cells, (list, tuple)) and cells and isinstance(cells[0], (tuple, list)):
@@ -661,6 +686,36 @@ class Result:
             "cell_data": {k: tuple(v.shape) for k, v in self._cell_data.items()},
             "sampled_data": {k: tuple(v.shape) for k, v in self._sampled_data.items()},
         }
+
+    def report(self, **kwargs):
+        """Structured, human-oriented summary for CLI/reporting use."""
+        from .report import summarize_result
+
+        return summarize_result(self, **kwargs)
+
+    def format_summary(self, **kwargs) -> str:
+        """Return a compact multi-line summary string for this result."""
+        from .report import format_result_summary
+
+        return format_result_summary(self, **kwargs)
+
+    def history_bundle(self, **kwargs):
+        """Structured per-step history bundle for reporting/training use."""
+        from .report import summarize_history_bundle
+
+        return summarize_history_bundle(self, **kwargs)
+
+    def format_history_bundle_txt(self, **kwargs) -> str:
+        """Return a TSV-style text bundle for ``result.history``."""
+        from .report import format_history_bundle_txt
+
+        return format_history_bundle_txt(self, **kwargs)
+
+    def write_history_bundle_txt(self, path, **kwargs):
+        """Write a TSV-style history bundle to ``path``."""
+        from .report import write_history_bundle_txt
+
+        return write_history_bundle_txt(self, path, **kwargs)
 
     @staticmethod
     def _guess_cell_type(cells, vertices):

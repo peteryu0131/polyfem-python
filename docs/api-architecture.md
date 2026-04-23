@@ -276,11 +276,23 @@ cfg_canon = cfg.canonicalized()
 - **版本兼容**：自动适配不同版本的 polyfempy API（支持 `set_problem`、`set_pde` 等多种方式）
 - **优雅降级**：如果 C++ 后端不可用，使用 `_DummySettings` 占位符保持 API 可用性
 
+##### `to_full_json_str() -> str`
+
+**功能**：将当前完整配置序列化为 JSON 字符串
+
+**用途**：完整配置持久化与 round-trip
+
+##### `to_minimal_json_str() -> str`
+
+**功能**：序列化旧版 minimal 配置子集
+
+**用途**：兼容历史上的最小配置导出
+
 ##### `to_json_str() -> str`
 
-**功能**：序列化为 JSON 字符串
+**功能**：`to_minimal_json_str()` 的弃用别名
 
-**用途**：配置持久化
+**用途**：仅用于兼容旧调用
 
 ##### `to_dict() -> dict`
 
@@ -308,11 +320,23 @@ d = cfg.to_dict()
 
 **详细说明**：参见 [配置指南](config-guide.md) 中的"数据流转过程"和"参数验证机制"章节
 
-##### `from_json_str(s: str) -> SimulationConfig`
+##### `from_full_json_str(s: str) -> SimulationConfig`
 
-**功能**：从 JSON 字符串反序列化
+**功能**：从完整 JSON 字符串反序列化
 
-**用途**：配置加载
+**用途**：完整配置加载与 round-trip
+
+##### `from_minimal_json_str(s: str) -> SimulationConfig`
+
+**功能**：从旧版 minimal JSON 字符串反序列化
+
+**用途**：兼容历史上的最小配置导入
+
+##### `from_json_str(s: str, *, kind: str = "auto") -> SimulationConfig`
+
+**功能**：兼容入口，自动或显式选择 full/minimal 反序列化路径
+
+**用途**：兼容旧代码；新代码应优先使用显式 full/minimal 入口
 
 ##### `from_json_dict(d: dict) -> SimulationConfig`
 
@@ -1018,4 +1042,3 @@ result.to_backend()
 ### 示例说明
 
 示例位于仓库根目录的 `examples/` 下（如 `examples/python_config_5_cubes.py`）。
-

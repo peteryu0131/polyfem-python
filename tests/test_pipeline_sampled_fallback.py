@@ -1,18 +1,17 @@
-"""Integration tests for ``apply_sampled_vtu_fallback``.
+"""Integration tests for history/exported-VTU sampled-field backfill.
 
-These tests verify that the fallback path wires sampled stress / von_mises
-into ``Result._sampled_data`` (the new post-T4 namespace) and never into
-``point_data`` / ``cell_data``, regardless of the sampled arrays' lengths.
+The old temporary-``export_vtu()`` probe path is gone. These tests verify the
+new two-source policy:
 
-We stub out the heavy bits — ``_export_and_read_vtu`` (which would normally
-write + read a VTU through meshio) and the two extraction helpers — so the
-test focuses only on the routing/plumbing change.
+1. Prefer ``result.history`` (in-memory ``solution_frames``) and project its
+   final frame into ``result.sampled_data`` for convenience.
+2. If in-memory history is empty, allow the pipeline to adopt history rebuilt
+   from user-exported ``impact_step_*.vtu`` files.
 """
 
 from __future__ import annotations
 
 import sys
-import types
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -29,310 +28,123 @@ from polyfempy.api._solve_pipeline import (  # noqa: E402
     RuntimeOptions,
     apply_sampled_vtu_fallback,
 )
-from polyfempy.api.result import Result  # noqa: E402
+from polyfempy.api.result import HistoryView, Result  # noqa: E402
 
 
-class _FakeSolver:
-    """Minimal solver stand-in: just needs ``export_vtu`` to pass the
-    ``hasattr(solver, 'export_vtu')`` gate inside the fallback."""
+def _make_frame(step: int, *, n_sampled: int = 4, dim: int = 2):
+    return {
+        "name": f"impact_step_{step}.vtu",
+        "points": np.arange(n_sampled * dim, dtype=np.float64).reshape(n_sampled, dim),
+        "connectivity": np.array([[0, 1, 2], [1, 2, 3]], dtype=np.int32),
+        "solution": np.full((n_sampled, dim), float(step), dtype=np.float64),
+        "pressure": np.empty((0, 0)),
+        "scalar_value": np.full((n_sampled, 1), float(step) + 0.5, dtype=np.float64),
+        "scalar_value_avg": np.full((n_sampled, 1), float(step) + 0.25, dtype=np.float64),
+        "tensor_value": np.full((n_sampled, dim * dim), float(step) + 9.0, dtype=np.float64),
+        "body_ids": np.array([[1], [1], [2], [2]], dtype=np.int32),
+    }
 
-    def export_vtu(self, *_args, **_kwargs):  # pragma: no cover - unused
-        raise AssertionError(
-            "export_vtu should not be called when _export_and_read_vtu is mocked"
-        )
 
-
-def _native_result_and_outputs():
-    V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
-    C = np.array([[0, 1, 2]], dtype=np.int32)
+def _native_result_and_outputs(*, history=None):
+    vertices = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
+    cells = np.array([[0, 1, 2]], dtype=np.int32)
     u = np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]])
-    result = Result("numpy", V, C, fields={"u": u})
+    result = Result("numpy", vertices, cells, fields={"u": u}, history=history)
     native = NativeOutputs(
-        vertices=V, cells=C, fields={"u": u}, meta={"solver_type": "FakeSolver"}
+        vertices=vertices,
+        cells=cells,
+        fields={"u": u},
+        meta={"solver_type": "FakeSolver"},
     )
     return result, native
 
 
-class SampledFallbackRoutingTests(unittest.TestCase):
-    def test_fallback_routes_stress_to_sampled_not_point_data(self):
-        """The core T4 fix: fallback stress must land in _sampled_data."""
-        result, native = _native_result_and_outputs()
-        sampled_stress = np.arange(4 * 3, dtype=np.float64).reshape(4, 3)
-        fake_mesh = types.SimpleNamespace(
-            points=np.zeros((4, 2)),
-            point_data={},
-            cell_data={},
-        )
+class HistoryBackfillTests(unittest.TestCase):
+    def test_projects_last_history_frame_into_sampled_data(self):
+        history = HistoryView(frames=[_make_frame(0), _make_frame(1)], times=[0.0, 0.01])
+        result, native = _native_result_and_outputs(history=history)
 
-        with unittest.mock.patch.object(
-            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
-        ), unittest.mock.patch.object(
-            _p, "_reconstruct_sampled_cauchy_stress", return_value=(sampled_stress, "point")
-        ), unittest.mock.patch.object(
-            _p, "_extract_meshio_array", return_value=(None, None)
-        ):
-            r = apply_sampled_vtu_fallback(
-                result,
-                solver=_FakeSolver(),
-                native=native,
-                full_json=None,
-                runtime=RuntimeOptions(fallback_mode="always"),
-            )
-
-        self.assertIn("stress", r._sampled_data)
-        np.testing.assert_array_equal(r._sampled_data["stress"], sampled_stress)
-        self.assertNotIn("stress", r._point_data)
-        self.assertNotIn("stress", r._cell_data)
-        self.assertEqual(r.meta.get("stress_source"), "temp_vtu_sampled_cauchy")
-        self.assertEqual(r.meta.get("stress_location"), "point")
-        self.assertTrue(r.meta.get("sampled_vtu_fallback"))
-
-    def test_fallback_routes_von_mises_to_sampled_not_point_data(self):
-        result, native = _native_result_and_outputs()
-        sampled_vm = np.array([1.0, 2.0, 3.0, 4.0])
-        fake_mesh = types.SimpleNamespace(
-            points=np.zeros((4, 2)),
-            point_data={"von_mises": sampled_vm},
-            cell_data={},
-        )
-
-        # Keep the real _extract_meshio_array: it's a pure reader, no VTU I/O.
-        with unittest.mock.patch.object(
-            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
-        ), unittest.mock.patch.object(
-            _p, "_reconstruct_sampled_cauchy_stress", return_value=(None, None)
-        ):
-            r = apply_sampled_vtu_fallback(
-                result,
-                solver=_FakeSolver(),
-                native=native,
-                full_json=None,
-                runtime=RuntimeOptions(fallback_mode="always"),
-            )
-
-        self.assertIn("von_mises", r._sampled_data)
-        np.testing.assert_array_equal(r._sampled_data["von_mises"], sampled_vm)
-        self.assertNotIn("von_mises", r._point_data)
-        self.assertEqual(r.meta.get("von_mises_source"), "temp_vtu")
-
-    def test_fallback_keeps_stress_reachable_via_result_stress(self):
-        """After fallback, ``result.stress`` / ``result.field('stress')`` must
-        still return the sampled value (via the new priority-fall-through).
-        Existing consumers keep working without knowing it's sampled."""
-        result, native = _native_result_and_outputs()
-        sampled_stress = np.arange(4 * 3, dtype=np.float64).reshape(4, 3)
-        fake_mesh = types.SimpleNamespace(
-            points=np.zeros((4, 2)), point_data={}, cell_data={}
-        )
-
-        with unittest.mock.patch.object(
-            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
-        ), unittest.mock.patch.object(
-            _p, "_reconstruct_sampled_cauchy_stress", return_value=(sampled_stress, "point")
-        ), unittest.mock.patch.object(
-            _p, "_extract_meshio_array", return_value=(None, None)
-        ):
-            r = apply_sampled_vtu_fallback(
-                result,
-                solver=_FakeSolver(),
-                native=native,
-                full_json=None,
-                runtime=RuntimeOptions(fallback_mode="always"),
-            )
-
-        np.testing.assert_array_equal(r.stress, sampled_stress)
-        np.testing.assert_array_equal(r.field("stress"), sampled_stress)
-
-    def test_fallback_noop_when_mode_is_never(self):
-        result, native = _native_result_and_outputs()
         r = apply_sampled_vtu_fallback(
             result,
-            solver=_FakeSolver(),
+            solver=None,
             native=native,
             full_json=None,
-            runtime=RuntimeOptions(fallback_mode="never"),
-        )
-        # No sampled data should have been added.
-        self.assertEqual(r._sampled_data, {})
-        self.assertNotIn("sampled_vtu_fallback", r.meta)
-
-    def test_fallback_hitchhikes_body_ids_when_present_in_vtu(self):
-        """``body_ids`` rides along whenever the fallback runs for stress or
-        von_mises. It must land in ``_sampled_data`` with an int dtype so
-        callers can use it for boolean indexing without casting."""
-        result, native = _native_result_and_outputs()
-        sampled_body = np.array([1, 1, 2, 2], dtype=np.int64)
-        sampled_stress = np.arange(4 * 3, dtype=np.float64).reshape(4, 3)
-        fake_mesh = types.SimpleNamespace(
-            points=np.zeros((4, 2)),
-            point_data={"body_ids": sampled_body},
-            cell_data={},
+            runtime=RuntimeOptions(),
         )
 
-        with unittest.mock.patch.object(
-            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
-        ), unittest.mock.patch.object(
-            _p, "_reconstruct_sampled_cauchy_stress",
-            return_value=(sampled_stress, "point"),
-        ):
-            r = apply_sampled_vtu_fallback(
-                result,
-                solver=_FakeSolver(),
-                native=native,
-                full_json=None,
-                runtime=RuntimeOptions(fallback_mode="always"),
-            )
+        np.testing.assert_array_equal(r._sampled_data["stress"], history.stress[-1])
+        np.testing.assert_array_equal(r._sampled_data["von_mises"], history.vm[-1])
+        np.testing.assert_array_equal(r._sampled_data["von_mises_avg"], history.vm_avg[-1])
+        np.testing.assert_array_equal(r._sampled_data["body_ids"], np.array([1, 1, 2, 2]))
+        self.assertEqual(r.meta.get("stress_source"), "history:last_frame")
+        self.assertEqual(r.meta.get("von_mises_source"), "history:last_frame")
 
-        self.assertIn("body_ids", r._sampled_data)
-        np.testing.assert_array_equal(r._sampled_data["body_ids"], sampled_body)
-        self.assertEqual(r._sampled_data["body_ids"].dtype, np.int32)
-        self.assertEqual(r.meta.get("body_ids_source"), "temp_vtu")
-        # body_ids enables per-body slicing of the primary sampled fields.
-        body = r.field("body_ids")
-        stress_b1 = r.stress[body == 1]
-        stress_b2 = r.stress[body == 2]
-        self.assertEqual(stress_b1.shape, (2, 3))
-        self.assertEqual(stress_b2.shape, (2, 3))
-
-    def test_fallback_flattens_2d_body_ids_to_1d(self):
-        """PolyFEM's VTU writer stores scalar per-point labels like
-        ``body_ids`` as ``(N, 1)`` columns. If we leave it 2-D,
-        ``result.stress[body_ids == 1]`` raises an IndexError because numpy
-        tries to apply a ``(N, 1)`` mask to an ``(N, k)`` payload. The
-        fallback must normalize that to 1-D so per-body slicing just works.
-        """
-        result, native = _native_result_and_outputs()
-        # (N, 1) body_ids — this is what PolyFEM actually writes.
-        sampled_body_2d = np.array([[1], [1], [2], [2]], dtype=np.int64)
-        sampled_stress = np.arange(4 * 3, dtype=np.float64).reshape(4, 3)
-        fake_mesh = types.SimpleNamespace(
-            points=np.zeros((4, 2)),
-            point_data={"body_ids": sampled_body_2d},
-            cell_data={},
-        )
-
-        with unittest.mock.patch.object(
-            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
-        ), unittest.mock.patch.object(
-            _p, "_reconstruct_sampled_cauchy_stress",
-            return_value=(sampled_stress, "point"),
-        ):
-            r = apply_sampled_vtu_fallback(
-                result,
-                solver=_FakeSolver(),
-                native=native,
-                full_json=None,
-                runtime=RuntimeOptions(fallback_mode="always"),
-            )
-
-        stored = r._sampled_data["body_ids"]
-        self.assertEqual(stored.ndim, 1, f"expected 1-D body_ids, got shape {stored.shape}")
-        np.testing.assert_array_equal(stored, np.array([1, 1, 2, 2]))
-
-        # The whole point of the squeeze: downstream boolean indexing must
-        # work without users knowing about the PolyFEM storage quirk.
-        body = r.field("body_ids")
-        stress_b1 = r.stress[body == 1]
-        self.assertEqual(stress_b1.shape, (2, 3))
-
-    def test_fallback_hitchhikes_velocity_when_present_in_vtu(self):
-        """Transient workloads often emit a velocity field on the sampled
-        mesh. Bring it along for the same reason as body_ids."""
-        result, native = _native_result_and_outputs()
-        sampled_velocity = np.ones((4, 2))
-        sampled_stress = np.zeros((4, 3))
-        fake_mesh = types.SimpleNamespace(
-            points=np.zeros((4, 2)),
-            point_data={"velocity": sampled_velocity},
-            cell_data={},
-        )
-
-        with unittest.mock.patch.object(
-            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
-        ), unittest.mock.patch.object(
-            _p, "_reconstruct_sampled_cauchy_stress",
-            return_value=(sampled_stress, "point"),
-        ):
-            r = apply_sampled_vtu_fallback(
-                result,
-                solver=_FakeSolver(),
-                native=native,
-                full_json=None,
-                runtime=RuntimeOptions(fallback_mode="always"),
-            )
-
-        self.assertIn("velocity", r._sampled_data)
-        np.testing.assert_array_equal(r._sampled_data["velocity"], sampled_velocity)
-        self.assertEqual(r.meta.get("velocity_source"), "temp_vtu")
-
-    def test_fallback_omits_body_ids_when_vtu_does_not_have_them(self):
-        """No body_ids in the VTU → no body_ids in the Result, no crash."""
-        result, native = _native_result_and_outputs()
-        fake_mesh = types.SimpleNamespace(
-            points=np.zeros((4, 2)),
-            point_data={},  # nothing at all on the sampled mesh
-            cell_data={},
-        )
-        with unittest.mock.patch.object(
-            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
-        ), unittest.mock.patch.object(
-            _p, "_reconstruct_sampled_cauchy_stress",
-            return_value=(np.zeros((4, 3)), "point"),
-        ):
-            r = apply_sampled_vtu_fallback(
-                result,
-                solver=_FakeSolver(),
-                native=native,
-                full_json=None,
-                runtime=RuntimeOptions(fallback_mode="always"),
-            )
-        self.assertNotIn("body_ids", r._sampled_data)
-        self.assertNotIn("velocity", r._sampled_data)
-
-    def test_fallback_does_not_clobber_native_stress_if_present(self):
-        """If the native solver already produced stress, the fallback still
-        lands in _sampled_data — but ``result.stress`` keeps returning the
-        native value (priority: point_data > cell_data > sampled_data)."""
-        V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
-        C = np.array([[0, 1, 2]], dtype=np.int32)
+    def test_does_not_clobber_native_stress_when_history_is_projected(self):
+        history = HistoryView(frames=[_make_frame(0), _make_frame(1)], times=[0.0, 0.01])
+        result, native = _native_result_and_outputs(history=history)
         native_stress = np.array([[1.0, 2.0, 0.5]] * 3)
-        result = Result(
-            "numpy",
-            V,
-            C,
-            fields={
-                "u": np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]]),
-                "stress": native_stress,
-            },
-        )
-        native = NativeOutputs(
-            vertices=V,
-            cells=C,
-            fields={"u": result.u, "stress": native_stress},
-            meta={"solver_type": "FakeSolver"},
-        )
+        result.set_field("stress", native_stress)
+        native.fields["stress"] = native_stress
 
-        sampled_stress = np.arange(4 * 3, dtype=np.float64).reshape(4, 3)
-        fake_mesh = types.SimpleNamespace(
-            points=np.zeros((4, 2)), point_data={}, cell_data={}
+        r = apply_sampled_vtu_fallback(
+            result,
+            solver=None,
+            native=native,
+            full_json=None,
+            runtime=RuntimeOptions(),
         )
-        with unittest.mock.patch.object(
-            _p, "_export_and_read_vtu", return_value=(fake_mesh, None)
-        ), unittest.mock.patch.object(
-            _p, "_reconstruct_sampled_cauchy_stress", return_value=(sampled_stress, "point")
-        ), unittest.mock.patch.object(
-            _p, "_extract_meshio_array", return_value=(None, None)
-        ):
-            r = apply_sampled_vtu_fallback(
-                result,
-                solver=_FakeSolver(),
-                native=native,
-                full_json=None,
-                runtime=RuntimeOptions(fallback_mode="always"),
-            )
 
         np.testing.assert_array_equal(r.stress, native_stress)
-        np.testing.assert_array_equal(r._sampled_data["stress"], sampled_stress)
+        np.testing.assert_array_equal(r._sampled_data["stress"], history.stress[-1])
+
+    def test_uses_exported_history_when_in_memory_history_is_empty(self):
+        result, native = _native_result_and_outputs(history=None)
+        exported_history = HistoryView(
+            frames=[_make_frame(0), _make_frame(1), _make_frame(2)],
+            times=[0.0, 0.01, 0.02],
+        )
+        exported_history.source = "exported_vtu_sequence"
+
+        with unittest.mock.patch.object(
+            _p,
+            "_collect_history_from_exported_vtus",
+            return_value=exported_history,
+        ):
+            r = apply_sampled_vtu_fallback(
+                result,
+                solver=None,
+                native=native,
+                full_json={"output": {"directory": "/tmp"}},
+                runtime=RuntimeOptions(),
+            )
+
+        self.assertTrue(r.history.available)
+        self.assertEqual(len(r.history), 3)
+        np.testing.assert_array_equal(r._sampled_data["stress"], exported_history.stress[-1])
+        np.testing.assert_array_equal(r._sampled_data["von_mises"], exported_history.vm[-1])
+        self.assertTrue(r.meta.get("sampled_vtu_fallback"))
+        self.assertEqual(r.meta.get("sampled_vtu_fallback_mode"), "exported_files")
+        self.assertEqual(r.meta.get("stress_source"), "exported_vtu:last_frame")
+
+    def test_noop_when_neither_history_nor_exported_vtu_is_available(self):
+        result, native = _native_result_and_outputs(history=None)
+
+        with unittest.mock.patch.object(
+            _p,
+            "_collect_history_from_exported_vtus",
+            return_value=HistoryView(),
+        ):
+            r = apply_sampled_vtu_fallback(
+                result,
+                solver=None,
+                native=native,
+                full_json=None,
+                runtime=RuntimeOptions(),
+            )
+
+        self.assertFalse(r.history.available)
+        self.assertEqual(r._sampled_data, {})
+        self.assertNotIn("sampled_vtu_fallback", r.meta)
 
 
 if __name__ == "__main__":

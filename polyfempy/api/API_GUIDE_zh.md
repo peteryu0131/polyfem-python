@@ -414,6 +414,12 @@ output = (
 
 这样用户不用自己手动去改两个位置。
 
+如果你想保留 `result.history`，但不想写 step VTU，优先用：
+
+- `save_vtu=False`
+
+它只会关闭 VTU 导出，不会把 `advanced.save_time_sequence` 一起关掉。
+
 ---
 
 ## 7. 推荐的 `Output` 用法

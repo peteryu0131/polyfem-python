@@ -11,27 +11,46 @@ if should_auto_configure_windows():
 
 from .solve import solve
 from .config import (
+    Quantity,
     SimulationConfig,
     Material, NeoHookean, IsochoricNeoHookean, MooneyRivlin, MooneyRivlin3Param,
     MooneyRivlin3ParamSymbolic, UnconstrainedOgden, IncompressibleOgden,
     LinearElasticity, HookeLinearElasticity, SaintVenant, Stokes, NavierStokes,
     OperatorSplitting, Electrostatics, IncompressibleLinearElasticity,
     BoundaryConditions, DirichletBoundary, NeumannBoundary,
-    Geometry, GeometryMesh,
-    Solver, LinearSolver, NonlinearSolver,
-    Time,
-    Output, ParaviewOutput, ResultOutput, FallbackOutput,
-    Contact,
+    NormalAlignedNeumannBoundary, PressureBoundary, PressureCavity,
+    ObstacleDisplacement, PeriodicBoundary,
+    InitialConditionEntry, InitialConditions, SoftConstraint, Constraints,
+    SurfaceSelection, Body,
+    Geometry, GeometryMesh, GeometryMeshArray, GeometryPlane, GeometryGround,
+    GeometryMeshSequence, GeometryTransformation, GeometryAdvanced, GeometryArray,
+    Solver, LinearSolver, NonlinearSolver, LineSearch, AugmentedLagrangian,
+    SolverContactOptions, RayleighDamping, SolverAdvanced,
+    Time, BDFIntegrator, ImplicitNewmarkIntegrator, Units,
+    Output, ParaviewOutput, OutputLog, OutputParaviewOptions,
+    OutputData, OutputDataAdvanced, OutputAdvanced, OutputReference,
+    ResultOutput, FallbackOutput,
+    Contact, CollisionMesh, Adhesion,
+    Space, Tests, Input,
     GravityParams, TorsionParams, FlowParams, FlowWithObstacleParams,
 )
 from .result import Result
 from .selection import Selection
 from .batch import batch_solve
 from .io import read_mesh, Mesh
+from .report import (
+    summarize_result,
+    format_result_summary,
+    summarize_history_bundle,
+    format_history_bundle_txt,
+    write_history_bundle_txt,
+)
 
 __all__ = [
-    "solve", "SimulationConfig", "Result", "Selection", "batch_solve",
+    "solve", "Quantity", "SimulationConfig", "Result", "Selection", "batch_solve",
     "read_mesh", "Mesh",
+    "summarize_result", "format_result_summary",
+    "summarize_history_bundle", "format_history_bundle_txt", "write_history_bundle_txt",
     # Runtime helpers
     "configure_windows_runtime",
     # Material classes
@@ -41,16 +60,28 @@ __all__ = [
     "OperatorSplitting", "Electrostatics", "IncompressibleLinearElasticity",
     # Boundary condition classes
     "BoundaryConditions", "DirichletBoundary", "NeumannBoundary",
+    "NormalAlignedNeumannBoundary", "PressureBoundary", "PressureCavity",
+    "ObstacleDisplacement", "PeriodicBoundary",
+    "InitialConditionEntry", "InitialConditions", "SoftConstraint", "Constraints",
+    "SurfaceSelection", "Body",
     # Geometry classes
-    "Geometry", "GeometryMesh",
+    "Geometry", "GeometryMesh", "GeometryMeshArray", "GeometryPlane",
+    "GeometryGround", "GeometryMeshSequence", "GeometryTransformation",
+    "GeometryAdvanced", "GeometryArray",
     # Solver classes
-    "Solver", "LinearSolver", "NonlinearSolver",
+    "Solver", "LinearSolver", "NonlinearSolver", "LineSearch",
+    "AugmentedLagrangian", "SolverContactOptions", "RayleighDamping",
+    "SolverAdvanced",
     # Time class
-    "Time",
+    "Time", "BDFIntegrator", "ImplicitNewmarkIntegrator", "Units",
     # Output classes
-    "Output", "ParaviewOutput", "ResultOutput", "FallbackOutput",
+    "Output", "ParaviewOutput", "OutputLog", "OutputParaviewOptions",
+    "OutputData", "OutputDataAdvanced", "OutputAdvanced", "OutputReference",
+    "ResultOutput", "FallbackOutput",
     # Contact classes
-    "Contact",
+    "Contact", "CollisionMesh", "Adhesion",
+    # Misc top-level config classes
+    "Space", "Tests", "Input",
     # Problem parameter classes
     "GravityParams", "TorsionParams", "FlowParams", "FlowWithObstacleParams",
 ]

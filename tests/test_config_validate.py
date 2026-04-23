@@ -29,6 +29,11 @@ SPEC = importlib.util.spec_from_file_location(
 CONFIG_MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC is not None and SPEC.loader is not None
 SPEC.loader.exec_module(CONFIG_MODULE)
+Quantity = CONFIG_MODULE.Quantity
+NeoHookean = CONFIG_MODULE.NeoHookean
+LinearElasticity = CONFIG_MODULE.LinearElasticity
+HookeLinearElasticity = CONFIG_MODULE.HookeLinearElasticity
+SaintVenant = CONFIG_MODULE.SaintVenant
 SimulationConfig = CONFIG_MODULE.SimulationConfig
 
 if str(_REPO) not in sys.path:
@@ -183,6 +188,53 @@ class EdgeCaseTests(unittest.TestCase):
         cfg = SimulationConfig.linear_elasticity(2100, 0.3)
         cfg.materials = {"type": "LinearElasticity", "E": 20, "nu": "bad"}
         with self.assertRaisesRegex(ValueError, r"materials\['nu'\]"):
+            cfg.validate()
+
+
+class MaterialClassErgonomicsTests(unittest.TestCase):
+    def test_quantity_serializes_to_unit_dict(self):
+        self.assertEqual(
+            Quantity.value(30, "MPa").to_dict(),
+            {"value": 30, "unit": "MPa"},
+        )
+
+    def test_empty_neohookean_is_constructible(self):
+        material = NeoHookean()
+        self.assertEqual(material.to_dict(), {"type": "NeoHookean"})
+
+    def test_partial_linear_elasticity_is_preserved_in_to_dict(self):
+        material = LinearElasticity()
+        material.E = {"value": 30, "unit": "MPa"}
+        self.assertEqual(
+            material.to_dict(),
+            {"type": "LinearElasticity", "E": {"value": 30, "unit": "MPa"}},
+        )
+
+    def test_validate_rejects_incomplete_neohookean_pair(self):
+        cfg = SimulationConfig.linear_elasticity(2100, 0.3)
+        cfg.materials = NeoHookean(E={"value": 20, "unit": "MPa"})
+        with self.assertRaisesRegex(ValueError, "incomplete \\(E, nu\\)"):
+            cfg.validate()
+
+    def test_validate_rejects_mixed_neohookean_modes(self):
+        cfg = SimulationConfig.linear_elasticity(2100, 0.3)
+        cfg.materials = NeoHookean(E=20, nu=0.3, lambda_=5, mu=8)
+        with self.assertRaisesRegex(ValueError, "mixes incompatible"):
+            cfg.validate()
+
+    def test_quantity_wrapped_material_value_passes_validate(self):
+        cfg = SimulationConfig.linear_elasticity(2100, 0.3)
+        cfg.materials = NeoHookean(E=Quantity.value(20, "MPa"), nu=0.3)
+        cfg.validate()
+
+    def test_empty_tensor_materials_are_constructible(self):
+        self.assertEqual(HookeLinearElasticity().to_dict(), {"type": "HookeLinearElasticity"})
+        self.assertEqual(SaintVenant().to_dict(), {"type": "SaintVenant"})
+
+    def test_validate_rejects_incomplete_hooke_pair(self):
+        cfg = SimulationConfig.linear_elasticity(2100, 0.3)
+        cfg.materials = HookeLinearElasticity(E=20)
+        with self.assertRaisesRegex(ValueError, "incomplete \\(E, nu\\)"):
             cfg.validate()
 
 

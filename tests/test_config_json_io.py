@@ -10,6 +10,7 @@ CONFIG_MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC is not None and SPEC.loader is not None
 SPEC.loader.exec_module(CONFIG_MODULE)
 SimulationConfig = CONFIG_MODULE.SimulationConfig
+Units = CONFIG_MODULE.Units
 
 
 class SimulationConfigJsonIoTests(unittest.TestCase):
@@ -17,6 +18,7 @@ class SimulationConfigJsonIoTests(unittest.TestCase):
         full = {
             "pde": "LinearElasticity",
             "discr_order": 2,
+            "units": {"length": "cm", "mass": "g", "time": "s"},
             "materials": [
                 {
                     "type": "LinearElasticity",
@@ -42,7 +44,16 @@ class SimulationConfigJsonIoTests(unittest.TestCase):
         self.assertEqual(full_round_trip["time"]["dt"], full["time"]["dt"])
         self.assertEqual(full_round_trip["time"]["tend"], full["time"]["tend"])
         self.assertEqual(full_round_trip["output"]["directory"], full["output"]["directory"])
+        self.assertEqual(full_round_trip["units"], full["units"])
         self.assertEqual(full_round_trip["materials"][0]["E"], full["materials"][0]["E"])
+
+    def test_units_class_serializes_into_full_json(self):
+        cfg = SimulationConfig.linear_elasticity(2100, 0.3)
+        cfg.units = Units(length="cm", mass="g", time="s")
+
+        payload = cfg.to_full_json_dict()
+
+        self.assertEqual(payload["units"], {"length": "cm", "mass": "g", "time": "s"})
 
     def test_minimal_export_does_not_leak_private_extras(self):
         cfg = SimulationConfig.from_json_dict(
