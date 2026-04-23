@@ -27,8 +27,7 @@ from __future__ import annotations
 import copy
 import importlib
 import json
-import os
-import tempfile
+import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -101,15 +100,6 @@ def _ensure_i32(cells):
     return cells.astype(np.int32, copy=False) if cells.dtype != np.int32 else cells
 
 
-def _prefer_temp_root(storage: str = "ram") -> Optional[str]:
-    if str(storage).strip().lower() != "ram":
-        return None
-    ram_tmp = Path("/dev/shm")
-    if ram_tmp.is_dir() and os.access(ram_tmp, os.W_OK):
-        return str(ram_tmp)
-    return None
-
-
 def _field_available(result: Result, name: str) -> bool:
     if name == "von_mises":
         return result.von_mises is not None
@@ -118,16 +108,6 @@ def _field_available(result: Result, name: str) -> bool:
         return arr is not None and np.asarray(arr).size > 0
     arr = result.field(name)
     return arr is not None and np.asarray(arr).size > 0
-
-
-def _as_export_matrix(array, *, allow_empty: bool = False) -> np.ndarray:
-    arr = np.asarray(array)
-    if arr.size == 0 and allow_empty:
-        return np.asfortranarray(np.empty((0, 0), dtype=np.float64))
-    if arr.ndim == 1:
-        arr = arr.reshape(-1, 1)
-    return np.asfortranarray(arr, dtype=np.float64)
-
 
 def _promote_materials_to_list(payload: Dict[str, Any], *, infer_type_from_pde: bool = False) -> None:
     """In-place: promote ``payload['materials']`` from a dict to a singleton list.
@@ -160,8 +140,9 @@ def process_json_config(full_json: dict, cfg) -> dict:
     """Normalize a full JSON config for the C++ solver.
 
     - Strips the optional ``common`` key (no separate common.json is used).
-    - Removes Python-side runtime output controls (``output.result`` / ``output.fallback`` /
-      ``output.save_paraview``), which are not part of the C++ JSON schema.
+    - Removes Python-side runtime output controls (``output.result`` /
+      ``output.fallback`` / ``output.save_paraview`` / ``output.save_vtu``),
+      which are not part of the C++ JSON schema.
     - Resolves relative mesh paths using ``root_path``.
     """
     processed = copy.deepcopy(full_json)
@@ -172,6 +153,7 @@ def process_json_config(full_json: dict, cfg) -> dict:
         out.pop("result", None)
         out.pop("fallback", None)
         out.pop("save_paraview", None)
+        out.pop("save_vtu", None)
 
     root_path = processed.get("root_path")
     geometry = processed.get("geometry")
@@ -279,6 +261,9 @@ def build_full_json(cfg) -> Optional[dict]:
        is truly feasible). Materials dicts are promoted to the array form expected
        by the C++ JSON schema.
     """
+    if hasattr(cfg, "validate"):
+        cfg.validate()
+
     if hasattr(cfg, "extras") and cfg.extras and "_full_json_config" in cfg.extras:
         return merge_user_cfg_over_full_json(cfg, cfg.extras["_full_json_config"])
 
@@ -603,7 +588,11 @@ def _resolve_log_level(full_json: Optional[dict]) -> int:
     if not (full_json and "output" in full_json and "log" in full_json["output"]):
         return 2
     log_cfg = full_json["output"]["log"]
-    log_level_str = log_cfg.get("level", "info")
+    # Keep terminal logging aligned with the Python-side OutputLog default.
+    # ``OutputLog.to_dict()`` omits ``level`` when it is the default "debug",
+    # so falling back to "info" here would silently make console output less
+    # verbose than the file log.
+    log_level_str = log_cfg.get("level", "debug")
     log_level_map = {
         "trace": 0, "debug": 1, "info": 2, "warn": 3, "warning": 3,
         "error": 4, "critical": 5, "off": 6,
@@ -884,67 +873,204 @@ def _reconstruct_sampled_cauchy_stress(mesh) -> Tuple[Optional[np.ndarray], Opti
     return None, None
 
 
-def _should_run_fallback(result: Result, runtime: RuntimeOptions) -> bool:
-    mode = runtime.fallback_mode if runtime.fallback_mode in ("never", "auto", "always") else "never"
-    if mode == "never":
-        return False
-    if mode == "always":
-        return True
-    requested = runtime.requested_fields
-    if not requested:
-        return False
-    sampled_candidates = ("stress", "von_mises", "von_mises_avg")
-    needed = [n for n in requested if n in sampled_candidates]
-    if not needed:
-        return False
-    return any(not _field_available(result, n) for n in needed)
+def _meshio_primary_cells(mesh) -> np.ndarray:
+    cells = getattr(mesh, "cells", None) or []
+    for block in cells:
+        data = getattr(block, "data", None)
+        if data is None:
+            continue
+        arr = np.asarray(data)
+        if arr.size > 0:
+            return _ensure_i32(arr)
+    return np.empty((0, 0), dtype=np.int32)
 
 
-def _export_and_read_vtu(
-    solver,
-    solution,
-    pressure,
-    full_json: Optional[dict],
-    temp_storage: str,
-    keep_temp_files: bool,
-):
+def _flatten_optional_scalar(arr) -> np.ndarray:
+    out = np.asarray(arr)
+    if out.ndim == 2 and out.shape[1] == 1:
+        out = out[:, 0]
+    return out
+
+
+def _history_field_source_label(history) -> str:
+    source = getattr(history, "source", "solver.solution_frames")
+    if source == "exported_vtu_sequence":
+        return "exported_vtu:last_frame"
+    return "history:last_frame"
+
+
+def _populate_result_from_history(result: Result) -> Result:
+    history = result.history
+    if not history.available:
+        return result
+
+    source_label = _history_field_source_label(history)
+
+    stress = np.asarray(history.stress)
+    if stress.size > 0 and stress.ndim >= 3:
+        result.set_sampled_field("stress", stress[-1])
+        result.meta["stress_source"] = source_label
+        result.meta["stress_location"] = "point"
+
+    vm = np.asarray(history.vm)
+    if vm.size > 0 and vm.ndim >= 2:
+        result.set_sampled_field("von_mises", vm[-1])
+        result.meta["von_mises_source"] = source_label
+        result.meta["von_mises_location"] = "point"
+
+    vm_avg = np.asarray(history.vm_avg)
+    if vm_avg.size > 0 and vm_avg.ndim >= 2:
+        result.set_sampled_field("von_mises_avg", vm_avg[-1])
+        result.meta["von_mises_avg_source"] = source_label
+        result.meta["von_mises_avg_location"] = "point"
+
+    body_ids = np.asarray(history.body_ids)
+    if body_ids.size > 0:
+        result.set_sampled_field("body_ids", body_ids.astype(np.int32, copy=False))
+        result.meta["body_ids_source"] = (
+            "exported_vtu" if source_label.startswith("exported_vtu") else "history"
+        )
+        result.meta["body_ids_location"] = "point"
+
+    return result
+
+
+def _resolve_output_directory(full_json: Optional[dict]) -> Optional[Path]:
+    if not isinstance(full_json, dict):
+        return None
+    output = full_json.get("output")
+    if not isinstance(output, dict):
+        return None
+    directory = output.get("directory")
+    if not isinstance(directory, str) or not directory.strip():
+        return None
+    return Path(directory).expanduser()
+
+
+def _resolve_exported_vtu_paths(full_json: Optional[dict]) -> List[Path]:
+    output_dir = _resolve_output_directory(full_json)
+    if output_dir is None:
+        return []
+
+    output = full_json.get("output") if isinstance(full_json, dict) else None
+    if not isinstance(output, dict):
+        return []
+
+    paraview = output.get("paraview")
+    advanced = output.get("advanced")
+    if not isinstance(paraview, dict):
+        return []
+
+    file_name = str(paraview.get("file_name", "") or "").strip()
+    if not file_name:
+        return []
+
+    # ``OutputAdvanced.to_dict()`` omits ``save_time_sequence`` when it is the
+    # default ``True``. Treat a missing key as enabled so exported
+    # ``timestep_prefix*.vtu`` sequences can still be discovered and rebuilt
+    # into ``result.history``.
+    if isinstance(advanced, dict) and bool(advanced.get("save_time_sequence", True)):
+        prefix = str(advanced.get("timestep_prefix", "") or "").strip()
+        if not prefix:
+            return []
+        paths = list(output_dir.glob(f"{prefix}*.vtu"))
+        if not paths:
+            return []
+
+        def _step_key(path: Path):
+            step = _extract_history_step_index(path.name)
+            return (step is None, step if step is not None else path.name)
+
+        return sorted(paths, key=_step_key)
+
+    paraview_path = Path(file_name).expanduser()
+    if paraview_path.is_absolute():
+        final_path = paraview_path.with_suffix(".vtu")
+    else:
+        final_path = output_dir / f"{paraview_path.stem}.vtu"
+    return [final_path] if final_path.is_file() else []
+
+
+def _read_meshio_file(path: Path):
     try:
         meshio_mod = importlib.import_module("meshio")
     except Exception as exc:
         warnings.warn(
-            f"sampled VTU fallback requested, but meshio is unavailable: {exc}",
+            f"VTU readback requested, but meshio is unavailable: {exc}",
             RuntimeWarning,
         )
-        return None, None
-
-    time_cfg = full_json.get("time", {}) if isinstance(full_json, dict) else {}
-    dt = float(time_cfg.get("dt", 0.0) or 0.0)
-    time = float(time_cfg.get("tend", dt) or dt)
-
-    pressure_arr = (
-        _as_export_matrix(pressure, allow_empty=True)
-        if pressure is not None
-        else _as_export_matrix([], allow_empty=True)
-    )
-    solution_arr = _as_export_matrix(solution)
-
-    temp_root = _prefer_temp_root(temp_storage)
+        return None
     try:
-        if keep_temp_files:
-            tmp_dir = Path(tempfile.mkdtemp(prefix="polyfem-api-vtu-", dir=temp_root))
-            vtu_path = tmp_dir / "result_probe.vtu"
-            solver.export_vtu(str(vtu_path), solution_arr, pressure_arr, time, dt)
-            return meshio_mod.read(str(vtu_path)), tmp_dir
-        with tempfile.TemporaryDirectory(prefix="polyfem-api-vtu-", dir=temp_root) as tmp_dir:
-            vtu_path = Path(tmp_dir) / "result_probe.vtu"
-            solver.export_vtu(str(vtu_path), solution_arr, pressure_arr, time, dt)
-            return meshio_mod.read(str(vtu_path)), Path(tmp_dir)
+        return meshio_mod.read(str(path))
     except Exception as exc:
         warnings.warn(
-            f"sampled VTU fallback failed while exporting/reading a temporary VTU: {exc}",
+            f"Failed to read exported VTU {path}: {exc}",
             RuntimeWarning,
         )
-        return None, None
+        return None
+
+
+def _frame_from_exported_vtu(path: Path, mesh) -> Dict[str, Any]:
+    solution, _ = _extract_meshio_array(mesh, "solution")
+    if solution is None:
+        solution = np.empty((0, 0))
+
+    pressure, _ = _extract_meshio_array(mesh, "pressure")
+    if pressure is None:
+        pressure = np.empty((0, 0))
+
+    scalar_value, _ = _extract_meshio_array(mesh, "von_mises")
+    if scalar_value is None:
+        scalar_value = np.empty((0, 0))
+
+    scalar_value_avg, _ = _extract_meshio_array(mesh, "von_mises_avg")
+    if scalar_value_avg is None:
+        scalar_value_avg = np.empty((0, 0))
+
+    body_ids, _ = _extract_meshio_array(mesh, "body_ids")
+    if body_ids is None:
+        body_ids = np.empty((0,), dtype=np.int32)
+    else:
+        body_ids = _flatten_optional_scalar(body_ids).astype(np.int32, copy=False)
+
+    tensor_value, _ = _reconstruct_sampled_cauchy_stress(mesh)
+    if tensor_value is None:
+        tensor_value = np.empty((0, 0))
+
+    return {
+        "name": str(path),
+        "points": np.asarray(getattr(mesh, "points", np.empty((0, 0)))),
+        "connectivity": _meshio_primary_cells(mesh),
+        "solution": np.asarray(solution),
+        "pressure": np.asarray(pressure),
+        "scalar_value": np.asarray(scalar_value),
+        "scalar_value_avg": np.asarray(scalar_value_avg),
+        "tensor_value": np.asarray(tensor_value),
+        "body_ids": np.asarray(body_ids),
+    }
+
+
+def _collect_history_from_exported_vtus(full_json: Optional[dict]):
+    from .result import HistoryView
+
+    paths = _resolve_exported_vtu_paths(full_json)
+    if not paths:
+        return HistoryView()
+
+    frames = []
+    for path in paths:
+        mesh = _read_meshio_file(path)
+        if mesh is None:
+            return HistoryView()
+        frames.append(_frame_from_exported_vtu(path, mesh))
+
+    times = _infer_history_times(frames, full_json)
+    history = HistoryView(frames=frames, times=times)
+    history.raw_frame_count = len(frames)
+    history.deduped_frame_count = len(frames)
+    history.dropped_duplicate_frames = 0
+    history.source = "exported_vtu_sequence"
+    return history
 
 
 def apply_sampled_vtu_fallback(
@@ -955,109 +1081,29 @@ def apply_sampled_vtu_fallback(
     full_json: Optional[dict],
     runtime: RuntimeOptions,
 ) -> Result:
-    """Fill ``stress`` / ``von_mises`` (and friends) from a probe VTU when configured.
+    """Fill sampled fields from history, or from user-exported VTUs as backup.
 
-    Sampled values come from a *different* mesh than ``result.vertices`` /
-    ``result.cells``. Writing them into ``point_data`` / ``cell_data`` would
-    attach them to the wrong mesh and make ``to_meshio()`` lie. Instead we
-    route them through ``Result.set_sampled_field`` so they stay discoverable
-    via ``result.stress`` / ``result.von_mises`` / ``result.field(...)`` but
-    are *excluded* from ``to_meshio()`` output.
+    The old temporary-``export_vtu()`` path is intentionally gone. We now only
+    use two data sources:
 
-    The per-field ``meta["<name>_source"]`` entries tell consumers whether a
-    value is native (``meta`` has no ``_source`` suffix for it) or sampled
-    (the corresponding ``_source`` key is set).
+    1. in-memory ``result.history`` populated by ``solver.solution_frames``
+    2. user-exported ``impact_step_*.vtu`` files, when on-disk export is enabled
     """
-    if not _should_run_fallback(result, runtime):
+    result = _populate_result_from_history(result)
+    if result.history.available:
         return result
 
-    if not hasattr(solver, "export_vtu"):
-        warnings.warn(
-            "sampled VTU fallback requested, but solver.export_vtu() is not available",
-            RuntimeWarning,
-        )
+    exported_history = _collect_history_from_exported_vtus(full_json)
+    if not exported_history.available:
         return result
 
-    mesh, tmp_dir = _export_and_read_vtu(
-        solver,
-        native.fields.get("u"),
-        native.fields.get("p"),
-        full_json,
-        runtime.temp_storage,
-        runtime.keep_temp_files,
+    result.history = exported_history
+    result.meta["sampled_vtu_fallback"] = True
+    result.meta["sampled_vtu_fallback_mode"] = "exported_files"
+    result.meta["sampled_vtu_point_count"] = int(
+        getattr(exported_history, "points", np.empty((0, 0))).shape[0]
     )
-    if mesh is None:
-        return result
-
-    extracted_any = False
-
-    stress_arr, stress_loc = _reconstruct_sampled_cauchy_stress(mesh)
-    if stress_arr is not None and stress_arr.size > 0:
-        result.set_sampled_field("stress", stress_arr)
-        result.meta["stress_source"] = "temp_vtu_sampled_cauchy"
-        result.meta["stress_location"] = stress_loc
-        extracted_any = True
-
-    for name in ("von_mises", "von_mises_avg"):
-        arr, loc = _extract_meshio_array(mesh, name)
-        if arr is None:
-            continue
-        arr = np.asarray(arr)
-        if arr.size == 0:
-            continue
-        result.set_sampled_field(name, arr)
-        result.meta[f"{name}_source"] = "temp_vtu"
-        result.meta[f"{name}_location"] = loc
-        extracted_any = True
-
-    # Auxiliary per-point metadata worth riding along when the VTU has it.
-    # These don't drive the "should_run_fallback?" decision (that's still
-    # governed by stress / von_mises requests), they just hitchhike when the
-    # fallback already ran for other reasons. Users who want to split the
-    # sampled fields by body — e.g. ``result.stress[result.field("body_ids")==1]``
-    # — need ``body_ids`` to be available without any extra plumbing.
-    #
-    # ``flatten_trailing_singleton`` squeezes a ``(N, 1)`` storage layout back
-    # to ``(N,)`` — PolyFEM's VTU writer stores scalar per-point labels like
-    # ``body_ids`` as ``(N, 1)`` columns, which breaks ``stress[body == 1]``
-    # style boolean indexing on ``(N, k)`` payloads.
-    _AUX_PROBES = (
-        # (field_name, dtype, flatten_trailing_singleton)
-        ("body_ids", np.int32, True),
-        ("velocity", None, False),
-    )
-    for name, dtype, flatten_singleton in _AUX_PROBES:
-        arr, loc = _extract_meshio_array(mesh, name)
-        if arr is None:
-            continue
-        arr = np.asarray(arr)
-        if arr.size == 0:
-            continue
-        if flatten_singleton and arr.ndim == 2 and arr.shape[1] == 1:
-            arr = arr[:, 0]
-        if dtype is not None:
-            arr = arr.astype(dtype, copy=False)
-        result.set_sampled_field(name, arr)
-        result.meta[f"{name}_source"] = "temp_vtu"
-        result.meta[f"{name}_location"] = loc
-        # Intentionally NOT flipping ``extracted_any`` here: auxiliary hitch-
-        # hikers alone don't count as "the fallback found something useful" —
-        # if the caller only asked for body_ids, we don't want the fallback
-        # metadata block (sampled_vtu_fallback=True, etc.) to suggest the
-        # probe VTU provided a primary result.
-
-    if extracted_any:
-        result.meta["sampled_vtu_fallback"] = True
-        result.meta["sampled_vtu_point_count"] = int(
-            getattr(mesh, "points", np.empty((0, 0))).shape[0]
-        )
-        result.meta["sampled_vtu_point_data_names"] = sorted(
-            (getattr(mesh, "point_data", {}) or {}).keys()
-        )
-        result.meta["sampled_vtu_temp_storage"] = runtime.temp_storage
-        if runtime.keep_temp_files and tmp_dir is not None:
-            result.meta["sampled_vtu_debug_dir"] = str(tmp_dir)
-
+    result = _populate_result_from_history(result)
     return result
 
 
@@ -1098,9 +1144,13 @@ def _collect_solver_history(solver, full_json: Optional[dict]):
     that don't care about history simply ignore it.
 
     Time values for each frame are derived from ``full_json["time"]`` when
-    possible (``t0 + i * dt`` ... ``tend``); otherwise we fall back to step
-    indices. The exact number of saved frames is whatever PolyFEM actually
-    populated — we don't second-guess that count.
+    possible. We prefer the saved frame names (``...step_17.vtu`` -> step 17)
+    over raw frame order because PolyFEM may emit duplicate initial frames
+    (e.g. nonlinear transient solves often save ``step_0`` twice). We also
+    collapse consecutive duplicate step indices, keeping the last frame in each
+    run so ``result.history`` reflects user-visible timesteps rather than the
+    solver's internal bookkeeping saves. If we can't infer step numbers from
+    names, we fall back to frame order.
     """
     from .result import HistoryView
 
@@ -1114,16 +1164,91 @@ def _collect_solver_history(solver, full_json: Optional[dict]):
     if not frames:
         return HistoryView()
 
-    # Best-effort per-step simulation times from the time block.
-    times = None
-    if isinstance(full_json, dict):
-        tcfg = full_json.get("time") or {}
-        if isinstance(tcfg, dict):
-            t0 = float(tcfg.get("t0", 0.0) or 0.0)
-            dt = float(tcfg.get("dt", 0.0) or 0.0)
-            if dt > 0.0:
-                times = [t0 + i * dt for i in range(len(frames))]
-    return HistoryView(frames=frames, times=times)
+    raw_count = len(frames)
+    frames = _dedupe_history_frames(frames)
+    times = _infer_history_times(frames, full_json)
+    history = HistoryView(frames=frames, times=times)
+    history.raw_frame_count = raw_count
+    history.deduped_frame_count = len(frames)
+    history.dropped_duplicate_frames = raw_count - len(frames)
+    history.source = "solver.solution_frames"
+    return history
+
+
+def _extract_history_step_index(name: str) -> Optional[int]:
+    """Parse ``impact_step_12.vtu``-style names emitted by PolyFEM."""
+    if not isinstance(name, str) or not name.strip():
+        return None
+    stem = Path(name).stem
+    match = re.search(r"(?:^|_)step_(\d+)$", stem)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _dedupe_history_frames(frames):
+    """Collapse consecutive duplicate saved step indices.
+
+    PolyFEM's nonlinear transient path currently saves the initial state twice:
+    once in ``init_solve()`` and again when entering the nonlinear time loop.
+    Those frames share the same ``...step_0.vtu`` name. For the public
+    ``result.history`` API we keep the last frame in each consecutive run so
+    callers see one frame per saved timestep.
+    """
+    if len(frames) < 2:
+        return list(frames)
+
+    step_indices = []
+    for frame in frames:
+        if not isinstance(frame, dict):
+            return list(frames)
+        step = _extract_history_step_index(frame.get("name"))
+        if step is None:
+            return list(frames)
+        step_indices.append(step)
+
+    deduped = []
+    run_start = 0
+    for i in range(1, len(frames) + 1):
+        if i < len(frames) and step_indices[i] == step_indices[run_start]:
+            continue
+        deduped.append(frames[i - 1])  # keep the last frame in the run
+        run_start = i
+    return deduped
+
+
+def _infer_history_times(frames, full_json: Optional[dict]):
+    """Best-effort simulation times for history frames.
+
+    Preference order:
+    1. Parse the saved step index from each frame name and map ``step -> t0 + step*dt``.
+    2. Fall back to raw frame order when ``dt`` is known but names are not parseable.
+    3. Return ``None`` so ``HistoryView`` uses default indices.
+    """
+    if not frames or not isinstance(full_json, dict):
+        return None
+
+    tcfg = full_json.get("time") or {}
+    if not isinstance(tcfg, dict):
+        return None
+
+    dt = float(tcfg.get("dt", 0.0) or 0.0)
+    if dt <= 0.0:
+        return None
+    t0 = float(tcfg.get("t0", 0.0) or 0.0)
+
+    step_indices = []
+    for frame in frames:
+        step = _extract_history_step_index(frame.get("name") if isinstance(frame, dict) else None)
+        if step is None:
+            step_indices = []
+            break
+        step_indices.append(step)
+
+    if step_indices:
+        return [t0 + step * dt for step in step_indices]
+
+    return [t0 + i * dt for i in range(len(frames))]
 
 
 def run_pipeline(
@@ -1163,7 +1288,16 @@ def run_pipeline(
         full_json=full_json,
         runtime=runtime,
     )
-    if history.available:
-        result.meta["history_frames"] = len(history)
-        result.meta["history_source"] = "solver.solution_frames"
+    final_history = result.history
+    if final_history.available:
+        result.meta["history_frames"] = len(final_history)
+        raw_history_frames = getattr(final_history, "raw_frame_count", len(final_history))
+        result.meta["history_raw_frames"] = int(raw_history_frames)
+        if raw_history_frames != len(final_history):
+            result.meta["history_dropped_duplicate_frames"] = int(
+                raw_history_frames - len(final_history)
+            )
+        result.meta["history_source"] = getattr(
+            final_history, "source", "solver.solution_frames"
+        )
     return finalize_result(result, runtime)
