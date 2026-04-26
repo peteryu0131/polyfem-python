@@ -161,6 +161,16 @@ python -c "import gmsh, numpy, shapely, polyfempy; print('imports OK')"
 python experiment/new_experiment/run_impact_microstructure.py
 ```
 
+Experiment 02 的 cross-body shape-gradient 诊断可以这样跑：
+
+```bash
+python -m experiment.experiment_api_solve.diagnose_experiment02_cross_body_shape_gradient
+```
+
+它会输出 `cross_body_shape_gradient_probe.json` 和
+`cross_body_shape_gradient_probe.txt`，用于比较 finite difference 与当前
+adjoint gradient。
+
 更稳妥（**不依赖** `PATH` 上的 `python` 名字）：
 
 ```bash

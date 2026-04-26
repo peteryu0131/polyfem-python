@@ -61,6 +61,8 @@ class NormalizedInputs:
 
     V_np: Optional[np.ndarray]
     C_np: Optional[np.ndarray]
+    body_ids_np: Optional[np.ndarray]
+    boundary_ids_np: Optional[np.ndarray]
     v_backend: str
     use_json_mode: bool
 
@@ -98,6 +100,15 @@ def _first_attr(obj, *names):
 
 def _ensure_i32(cells):
     return cells.astype(np.int32, copy=False) if cells.dtype != np.int32 else cells
+
+
+def _cfg_array_mesh_payload(cfg) -> Optional[Dict[str, Any]]:
+    extras = getattr(cfg, "extras", None)
+    if isinstance(extras, dict):
+        payload = extras.get("_mesh_array_mode")
+        if isinstance(payload, dict):
+            return payload
+    return None
 
 
 def _field_available(result: Result, name: str) -> bool:
@@ -264,6 +275,9 @@ def build_full_json(cfg) -> Optional[dict]:
     if hasattr(cfg, "validate"):
         cfg.validate()
 
+    if _cfg_array_mesh_payload(cfg) is not None:
+        return None
+
     if hasattr(cfg, "extras") and cfg.extras and "_full_json_config" in cfg.extras:
         return merge_user_cfg_over_full_json(cfg, cfg.extras["_full_json_config"])
 
@@ -352,8 +366,16 @@ def normalize_mesh_inputs(
     cells,
     full_json: Optional[dict],
     dtype,
+    cfg=None,
 ) -> NormalizedInputs:
     """Resolve execution mode (JSON vs array) and normalize vertices/cells to NumPy."""
+    array_payload = _cfg_array_mesh_payload(cfg)
+    used_cfg_array_payload = False
+    if vertices is None and cells is None and array_payload is not None:
+        vertices = array_payload.get("vertices")
+        cells = array_payload.get("cells")
+        used_cfg_array_payload = True
+
     use_json_mode = (
         full_json is not None
         and "geometry" in full_json
@@ -364,13 +386,34 @@ def normalize_mesh_inputs(
         V_np, v_backend = T.as_numpy(vertices, dtype=dtype)
         C_np, _ = T.as_numpy(cells, dtype=np.int32)
         C_np = _ensure_i32(C_np)
-        return NormalizedInputs(V_np=V_np, C_np=C_np, v_backend=v_backend, use_json_mode=use_json_mode)
+        body_ids_np = None
+        boundary_ids_np = None
+        if used_cfg_array_payload and array_payload is not None:
+            if array_payload.get("body_ids") is not None:
+                body_ids_np = np.asarray(array_payload["body_ids"], dtype=np.int32).reshape(-1)
+            if array_payload.get("boundary_ids") is not None:
+                boundary_ids_np = np.asarray(array_payload["boundary_ids"], dtype=np.int32).reshape(-1)
+        return NormalizedInputs(
+            V_np=V_np,
+            C_np=C_np,
+            body_ids_np=body_ids_np,
+            boundary_ids_np=boundary_ids_np,
+            v_backend=v_backend,
+            use_json_mode=use_json_mode,
+        )
 
     if not use_json_mode:
         raise ValueError(
             "Either provide vertices/cells arrays, or use JSON config with geometry (mesh files)"
         )
-    return NormalizedInputs(V_np=None, C_np=None, v_backend="numpy", use_json_mode=True)
+    return NormalizedInputs(
+        V_np=None,
+        C_np=None,
+        body_ids_np=None,
+        boundary_ids_np=None,
+        v_backend="numpy",
+        use_json_mode=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -487,14 +530,23 @@ def _apply_mesh_array_mode(solver, inputs: NormalizedInputs) -> None:
             fn = getattr(solver, name)
             try:
                 fn(V_np, C_np)
-                return
+                break
             except TypeError:
                 try:
                     fn(points=V_np, cells=C_np)
-                    return
+                    break
                 except Exception:
                     pass
-    raise RuntimeError("No mesh setter found (set_mesh / set_mesh_data / load_mesh_from_points).")
+    else:
+        raise RuntimeError("No mesh setter found (set_mesh / set_mesh_data / load_mesh_from_points).")
+
+    mesh = solver.mesh() if hasattr(solver, "mesh") else None
+    if mesh is None:
+        return
+    if inputs.body_ids_np is not None and hasattr(mesh, "set_body_ids"):
+        mesh.set_body_ids(inputs.body_ids_np)
+    if inputs.boundary_ids_np is not None and hasattr(mesh, "set_boundary_ids"):
+        mesh.set_boundary_ids(inputs.boundary_ids_np)
 
 
 def _retouch_bc_after_mesh(solver, ctx: SolverConfigContext) -> None:
@@ -1263,7 +1315,7 @@ def run_pipeline(
     cfg = normalize_cfg(cfg)
     full_json = build_full_json(cfg)
     runtime = resolve_runtime_options(cfg, full_json, sampled_vtu_fallback)
-    inputs = normalize_mesh_inputs(vertices, cells, full_json, dtype)
+    inputs = normalize_mesh_inputs(vertices, cells, full_json, dtype, cfg=cfg)
 
     solver = build_solver()
     ctx = configure_solver(solver, cfg, full_json, inputs)

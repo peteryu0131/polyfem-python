@@ -31,14 +31,16 @@ void define_objective(py::module_ &m)
       .def(
           "derivative",
           [](AdjointForm &obj, State &solver, const Eigen::VectorXd &x,
-             const std::string &wrt) -> Eigen::VectorXd {
+             const std::string &wrt) -> Eigen::MatrixXd {
             if (wrt == "solution")
               return obj.compute_adjoint_rhs(x, solver);
             else if (wrt == obj.get_variable_to_simulations()[0]->name())
             {
               Eigen::VectorXd grad;
               obj.compute_partial_gradient(x, grad);
-              return grad;
+              Eigen::MatrixXd grad_mat(grad.rows(), 1);
+              grad_mat.col(0) = grad;
+              return grad_mat;
             }
             else
               throw std::runtime_error(

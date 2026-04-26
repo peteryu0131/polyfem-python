@@ -7,7 +7,7 @@ This module provides differentiable simulation support for PolyFEM, enabling aut
 ```python
 import torch
 import numpy as np
-from polyfempy.differentiable import solve_differentiable
+from polyfempy.differentiable import prepare_differentiable_simulation
 
 # Setup mesh
 V = np.array([[0., 0.], [1., 0.], [1., 1.], [0., 1.]], dtype=np.float64)
@@ -26,8 +26,8 @@ cfg = {
 # Make vertices differentiable
 vertices = torch.tensor(V, requires_grad=True)
 
-# Run simulation
-result = solve_differentiable(vertices, C, cfg)
+# Prepare a differentiable simulation result
+result = prepare_differentiable_simulation(vertices, C, cfg)
 
 # Compute loss and gradient
 loss = torch.norm(result.u)
@@ -44,12 +44,12 @@ grad = vertices.grad  # Automatic gradient computation!
 
 ## API Reference
 
-### `solve_differentiable()`
+### `prepare_differentiable_simulation()`
 
-Main function for differentiable simulations.
+Main user-facing function for one-off differentiable loss/gradient runs.
 
 ```python
-result = solve_differentiable(
+result = prepare_differentiable_simulation(
     V,                    # Vertices (numpy or torch.Tensor), or None for config+mesh mode
     C,                    # Connectivity, or None for config+mesh mode
     cfg,                  # Configuration (dict or SimulationConfig)
@@ -57,6 +57,8 @@ result = solve_differentiable(
     derivative_type="shape",            # Type of derivative
 )
 ```
+
+`solve_differentiable()` is kept as the lower-level backward-compatible alias.
 
 ### `PolyFEMFunction`
 
@@ -75,4 +77,3 @@ Result container with PyTorch tensors that support `.backward()`.
 
 - The C++ module must be built with differentiable support
 - Currently uses the old `pf.Solver()` API internally for direct access to differentiable features
-

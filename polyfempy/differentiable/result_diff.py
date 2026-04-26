@@ -45,6 +45,54 @@ class DifferentiableResult:
         self.meta["backend"] = "nanobind"
         self.meta["differentiable"] = True
         self.meta["derivative_type"] = derivative_type
+        self._history = None
+
+    @property
+    def history(self):
+        """Best-effort per-step history, mirroring ``Result.history`` enough for reporting."""
+        if self._history is not None:
+            return self._history
+
+        from ..api.result import HistoryView
+
+        if self.solver is None:
+            self._history = HistoryView()
+            return self._history
+
+        full_json = self.meta.get("_solve_settings")
+        if not isinstance(full_json, dict):
+            full_json = None
+
+        try:
+            from ..api._solve_pipeline import _collect_solver_history
+
+            self._history = _collect_solver_history(self.solver, full_json)
+        except Exception:
+            self._history = HistoryView()
+
+        if getattr(self._history, "available", False):
+            self.meta.setdefault(
+                "history_source",
+                getattr(self._history, "source", "solver.solution_frames"),
+            )
+        return self._history
+
+    @property
+    def body_ids(self):
+        """Per-sample body ids from in-memory history, when available."""
+        history = self.history
+        body_ids = getattr(history, "body_ids", None)
+        if body_ids is None:
+            return None
+        arr = np.asarray(body_ids)
+        return arr if arr.size > 0 else None
+
+    @property
+    def shape_gradient(self):
+        """Return the shape gradient populated by ``loss.backward()``."""
+        if self.vertices is None:
+            return None
+        return self.vertices.grad
 
     def _try_get_stress_numpy(self) -> Optional[np.ndarray]:
         """Best-effort fetch stress from underlying C++ solver (if exposed).
@@ -130,6 +178,7 @@ class DifferentiableResult:
         """
         self.solver = None
         self.u = self.u.detach()
+        self._history = None
     
     def to_numpy(self) -> Dict[str, np.ndarray]:
         """Convert PyTorch tensors to numpy arrays."""
@@ -171,10 +220,56 @@ class DifferentiableMaterialResult:
         self.meta["backend"] = "nanobind"
         self.meta["differentiable"] = True
         self.meta["derivative_type"] = "per_element_material"
+        self._history = None
+
+    @property
+    def history(self):
+        """Best-effort per-step history, mirroring ``DifferentiableResult`` enough for reports."""
+        if self._history is not None:
+            return self._history
+
+        from ..api.result import HistoryView
+
+        if self.solver is None:
+            self._history = HistoryView()
+            return self._history
+
+        full_json = self.meta.get("_solve_settings")
+        if not isinstance(full_json, dict):
+            full_json = None
+
+        try:
+            from ..api._solve_pipeline import _collect_solver_history
+
+            self._history = _collect_solver_history(self.solver, full_json)
+        except Exception:
+            self._history = HistoryView()
+
+        if getattr(self._history, "available", False):
+            self.meta.setdefault(
+                "history_source",
+                getattr(self._history, "source", "solver.solution_frames"),
+            )
+        return self._history
+
+    @property
+    def body_ids(self):
+        """Per-sample body ids from in-memory history, when available."""
+        history = self.history
+        body_ids = getattr(history, "body_ids", None)
+        if body_ids is None:
+            return None
+        arr = np.asarray(body_ids)
+        return arr if arr.size > 0 else None
+
+    def release_solver(self) -> None:
+        """Release the C++ Solver reference and detach the solution tensor."""
+        self.solver = None
+        self.u = self.u.detach()
+        self._history = None
 
     def __repr__(self) -> str:
         return (
             f"DifferentiableMaterialResult(u.shape={self.u.shape}, "
             f"lam.shape={self.lam.shape}, mu.shape={self.mu.shape})"
         )
-

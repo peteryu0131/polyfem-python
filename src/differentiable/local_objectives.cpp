@@ -2,6 +2,7 @@
 
 #include <polyfem/assembler/Assembler.hpp>
 #include <polyfem/assembler/AssemblerData.hpp>
+#include <polyfem/io/Evaluator.hpp>
 #include <polyfem/solver/Optimizations.hpp>
 #include <polyfem/solver/forms/adjoint_forms/SpatialIntegralForms.hpp>
 #include <polyfem/solver/forms/parametrization/Parametrizations.hpp>
@@ -72,6 +73,11 @@ double von_mises_power_value(const Eigen::MatrixXd &sigma, const int power)
     return std::pow(std::max(vm, 0.0), static_cast<double>(power));
 }
 
+double matrix_inner_product(const Eigen::MatrixXd &a, const Eigen::MatrixXd &b)
+{
+    return (a.array() * b.array()).sum();
+}
+
 Eigen::MatrixXd numerical_von_mises_power_gradient(const Eigen::MatrixXd &sigma, const int power)
 {
     Eigen::MatrixXd grad = Eigen::MatrixXd::Zero(sigma.rows(), sigma.cols());
@@ -114,6 +120,8 @@ public:
     }
 
     std::string name() const override { return "von_mises"; }
+
+    int power() const { return power_; }
 
     void compute_partial_gradient_step(const int time_step, const Eigen::VectorXd &x, Eigen::VectorXd &gradv) const override
     {
@@ -230,6 +238,111 @@ protected:
 private:
     int power_ = 2;
 };
+
+class VonMisesMaterialForm : public VonMisesForm
+{
+public:
+    using VonMisesForm::VonMisesForm;
+
+    std::string name() const override { return "von_mises_material"; }
+
+    void compute_partial_gradient_step(const int time_step, const Eigen::VectorXd &x, Eigen::VectorXd &gradv) const override
+    {
+        const double dt = state_.problem->is_time_dependent() ? state_.args["time"]["dt"].get<double>() : 0.0;
+        const double t = state_.problem->is_time_dependent()
+            ? dt * time_step + state_.args["time"]["t0"].get<double>()
+            : 0.0;
+
+        SpatialIntegralForm::compute_partial_gradient_step(time_step, x, gradv);
+        gradv += weight() * variable_to_simulations_.apply_parametrization_jacobian(
+            ParameterType::LameParameter,
+            &state_,
+            x,
+            [this, time_step, t, dt]() {
+                const auto &bases = state_.bases;
+                const int dim = state_.mesh->dimension();
+                const std::string formulation = state_.formulation();
+                Eigen::VectorXd term = Eigen::VectorXd::Zero(bases.size() * 2);
+
+                for (int e = 0; e < bases.size(); ++e)
+                {
+                    if (!ids_.empty() && ids_.find(state_.mesh->get_body_id(e)) == ids_.end())
+                        continue;
+
+                    assembler::ElementAssemblyValues vals;
+                    state_.ass_vals_cache.compute(
+                        e,
+                        state_.mesh->is_volume(),
+                        bases[e],
+                        state_.geom_bases()[e],
+                        vals);
+
+                    const quadrature::Quadrature &quadrature = vals.quadrature;
+                    const Eigen::VectorXd da = vals.det.array() * quadrature.weights.array();
+
+                    Eigen::MatrixXd u;
+                    Eigen::MatrixXd grad_u;
+                    io::Evaluator::interpolate_at_local_vals(
+                        e,
+                        dim,
+                        dim,
+                        vals,
+                        state_.diff_cached.u(time_step),
+                        u,
+                        grad_u);
+
+                    Eigen::MatrixXd grad_u_q;
+                    for (int q = 0; q < quadrature.weights.size(); ++q)
+                    {
+                        utils::vector2matrix(grad_u.row(q), grad_u_q);
+
+                        const assembler::OptAssemblerData data(
+                            t,
+                            dt,
+                            e,
+                            quadrature.points.row(q),
+                            vals.val.row(q),
+                            grad_u_q);
+
+                        Eigen::MatrixXd stress;
+                        Eigen::MatrixXd grad_unused;
+                        state_.assembler->compute_stress_grad_multiply_mat(
+                            data,
+                            Eigen::MatrixXd::Zero(grad_u_q.rows(), grad_u_q.cols()),
+                            stress,
+                            grad_unused);
+
+                        Eigen::MatrixXd dstress_dmu;
+                        Eigen::MatrixXd dstress_dlambda;
+                        state_.assembler->compute_dstress_dmu_dlambda(
+                            data,
+                            dstress_dmu,
+                            dstress_dlambda);
+
+                        Eigen::MatrixXd sigma = stress;
+                        Eigen::MatrixXd dsigma_dmu = dstress_dmu;
+                        Eigen::MatrixXd dsigma_dlambda = dstress_dlambda;
+                        if (formulation != "LinearElasticity")
+                        {
+                            const Eigen::MatrixXd F =
+                                Eigen::MatrixXd::Identity(grad_u_q.rows(), grad_u_q.cols()) + grad_u_q;
+                            const double J = F.determinant();
+                            sigma = (stress * F.transpose()) / J;
+                            dsigma_dmu = (dstress_dmu * F.transpose()) / J;
+                            dsigma_dlambda = (dstress_dlambda * F.transpose()) / J;
+                        }
+
+                        const Eigen::MatrixXd dloss_dsigma =
+                            numerical_von_mises_power_gradient(sigma, power());
+                        term(e) += matrix_inner_product(dloss_dsigma, dsigma_dlambda) * da(q);
+                        term(e + bases.size()) += matrix_inner_product(dloss_dsigma, dsigma_dmu) * da(q);
+                    }
+                }
+
+                return term;
+            });
+    }
+};
 } // namespace
 
 namespace polyfempy::differentiable
@@ -247,6 +360,12 @@ std::shared_ptr<AdjointForm> create_local_objective(
         VariableToSimulationGroup var2sim;
         var2sim.push_back(VariableToSimulation::create(param_type, {state}, CompositeParametrization()));
         obj = std::make_shared<VonMisesForm>(var2sim, *state, args);
+    }
+    else if (obj_type == "von_mises_material")
+    {
+        VariableToSimulationGroup var2sim;
+        var2sim.push_back(VariableToSimulation::create(param_type, {state}, CompositeParametrization()));
+        obj = std::make_shared<VonMisesMaterialForm>(var2sim, *state, args);
     }
     else
     {

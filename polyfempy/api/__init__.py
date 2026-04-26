@@ -47,6 +47,8 @@ from .report import (
 )
 from .runtime import (
     make_timestamped_workspace,
+    terminal_log,
+    result_output,
     format_history_summary,
     write_history_artifacts,
     report_history_bundle,
@@ -59,7 +61,8 @@ __all__ = [
     "read_mesh", "Mesh",
     "summarize_result", "format_result_summary",
     "summarize_history_bundle", "format_history_bundle_txt", "write_history_bundle_txt",
-    "make_timestamped_workspace", "format_history_summary", "write_history_artifacts",
+    "make_timestamped_workspace", "terminal_log", "result_output",
+    "format_history_summary", "write_history_artifacts",
     "report_history_bundle", "emit_history_bundle", "solve_and_report",
     # Runtime helpers
     "configure_windows_runtime",
