@@ -4,192 +4,46 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional, Tuple, Union, overload
+from typing import Any, Callable, Mapping, Optional, Sequence, Union, overload
 
 import numpy as np
 import torch
 
+from .cpp_ext import get_cpp_polyfempy
+from .design import (
+    ParameterizedVertexDesign,
+    make_bounds_projector,
+    make_named_parameter_map,
+    normalize_design_parameters,
+)
 from .objective_bridge import (
     SmoothTimeAggregationName,
     TimeAggregation,
     TimeAggregationName,
     make_von_mises_loss,
 )
+from .shape_problem import (
+    LossBuilder,
+    LossOutput,
+    ParameterizedShapeOptimizationProblem,
+    ShapeOptimizationProblem,
+    ShapeOptimizationStep,
+)
 from .result_diff import DifferentiableResult
-from .solve_diff import _console_log_level_from_settings, prepare_differentiable_simulation
+from .solve_diff import (
+    _console_log_level_from_settings,
+    _differentiable_config_and_settings,
+    _geometry_uses_only_absolute_mesh_paths,
+    _solver_set_log_level_off,
+    prepare_differentiable_simulation,
+)
 from .summary import gradient_norm
-from .torch_integration import PolyFEMFunction
-from ..api.report import summarize_history_bundle
 from ..api.runtime import format_history_summary
 
 
 BaselineCallback = Callable[[DifferentiableResult], None]
-LossOutput = Union[torch.Tensor, Tuple[torch.Tensor, Any]]
-LossBuilder = Callable[[DifferentiableResult], LossOutput]
-
-
-@dataclass
-class ShapeOptimizationStep:
-    """Compact record for one completed shape optimization step."""
-
-    iteration: int
-    loss: torch.Tensor
-    state_col: Optional[int]
-    objective_info: Any
-    gradient: Optional[torch.Tensor]
-    step_norm: float
-    max_vertex_update: float
-    step_scale: float = 1.0
-    gradient_path: Optional[str] = None
-    history_bundle: Optional[dict[str, Any]] = None
-
-
-@dataclass
-class ShapeOptimizationProblem:
-    """Reusable array-mode payload for optimizing mesh vertices."""
-
-    vertices: torch.nn.Parameter
-    cells: torch.Tensor
-    cfg: dict[str, Any]
-    report_cfg: Any = None
-    body_ids: Optional[np.ndarray] = None
-    boundary_ids: Optional[np.ndarray] = None
-    derivative_type: str = "shape"
-    solver: Any = None
-    solve_log_level: int = 2
-    baseline_result: Optional[DifferentiableResult] = None
-
-    def solve(self) -> DifferentiableResult:
-        """Run one differentiable solve at the current design vertices."""
-        if self.solver is not None:
-            solutions = PolyFEMFunction.apply(
-                self.solver,
-                self.vertices,
-                self.derivative_type,
-                int(self.solve_log_level),
-            )
-            return DifferentiableResult(
-                u=solutions,
-                solver=self.solver,
-                derivative_type=self.derivative_type,
-                differentiable_params=["geometry"],
-                vertices=self.vertices,
-                meta={"_solve_settings": self.cfg},
-            )
-
-        return prepare_differentiable_simulation(
-            V=self.vertices,
-            C=self.cells,
-            cfg=self.cfg,
-            body_ids=self.body_ids,
-            boundary_ids=self.boundary_ids,
-            derivative_type=self.derivative_type,
-        )
-
-    def make_optimizer(self, *, name: str = "sgd", lr: float = 1e-6) -> torch.optim.Optimizer:
-        """Create a PyTorch optimizer for the design vertices."""
-        opt_name = str(name).strip().lower()
-        if opt_name == "sgd":
-            return torch.optim.SGD([self.vertices], lr=float(lr))
-        if opt_name == "adam":
-            return torch.optim.Adam([self.vertices], lr=float(lr))
-        raise ValueError(f"unsupported optimizer {name!r}")
-
-    def release_solver(self) -> None:
-        """Drop the reusable C++ solver reference held by this problem."""
-        if self.baseline_result is not None:
-            self.baseline_result.release_solver()
-            self.baseline_result = None
-        self.solver = None
-
-    def optimize(
-        self,
-        *,
-        steps: int,
-        optimizer: torch.optim.Optimizer,
-        loss_fn: LossBuilder,
-        max_vertex_step: Optional[float] = None,
-        collect_history: bool = False,
-    ) -> Iterator[ShapeOptimizationStep]:
-        """Yield completed optimization steps for a user-supplied loss."""
-        max_vertex_step_value = None if max_vertex_step is None else float(max_vertex_step)
-        if max_vertex_step_value is not None and max_vertex_step_value <= 0:
-            raise ValueError(f"max_vertex_step must be positive; got {max_vertex_step!r}")
-
-        for iteration in range(int(steps)):
-            optimizer.zero_grad(set_to_none=True)
-            result = self.solve()
-            try:
-                loss_out = loss_fn(result)
-                if isinstance(loss_out, tuple):
-                    loss, objective_info = loss_out
-                    if isinstance(objective_info, dict):
-                        state_col_raw = objective_info.get("selected_state_col")
-                    else:
-                        state_col_raw = objective_info
-                    state_col = int(state_col_raw) if state_col_raw is not None else None
-                else:
-                    loss = loss_out
-                    objective_info = None
-                    state_col = None
-
-                loss.backward()
-                gradient = (
-                    None
-                    if result.shape_gradient is None
-                    else result.shape_gradient.detach().clone()
-                )
-                history_bundle = (
-                    summarize_history_bundle(
-                        result,
-                        cfg=self.report_cfg if self.report_cfg is not None else self.cfg,
-                    )
-                    if collect_history
-                    else None
-                )
-
-                vertices_before = self.vertices.detach().clone()
-                optimizer.step()
-                step_scale = 1.0
-                with torch.no_grad():
-                    update = self.vertices.detach() - vertices_before
-                    per_vertex_update = torch.linalg.norm(update.reshape(update.shape[0], -1), dim=1)
-                    max_vertex_update = float(per_vertex_update.max().cpu().item()) if per_vertex_update.numel() else 0.0
-                    if (
-                        max_vertex_step_value is not None
-                        and max_vertex_update > max_vertex_step_value
-                    ):
-                        step_scale = max_vertex_step_value / max_vertex_update
-                        self.vertices.copy_(vertices_before + update * step_scale)
-                        update = self.vertices.detach() - vertices_before
-                        per_vertex_update = torch.linalg.norm(update.reshape(update.shape[0], -1), dim=1)
-                        max_vertex_update = (
-                            float(per_vertex_update.max().cpu().item())
-                            if per_vertex_update.numel()
-                            else 0.0
-                        )
-
-                step_norm = float(
-                    torch.linalg.norm(update)
-                    .cpu()
-                    .item()
-                )
-
-                yield ShapeOptimizationStep(
-                    iteration=iteration,
-                    loss=loss.detach(),
-                    state_col=state_col,
-                    objective_info=objective_info,
-                    gradient=gradient,
-                    step_norm=step_norm,
-                    max_vertex_update=max_vertex_update,
-                    step_scale=step_scale,
-                    history_bundle=history_bundle,
-                )
-            finally:
-                result.release_solver()
 
 
 def _config_to_array_mode_dict(cfg: Any) -> dict[str, Any]:
@@ -223,8 +77,48 @@ def _extract_boundary_ids(mesh: Any) -> Optional[np.ndarray]:
     )
 
 
+def _load_parameterized_shape_mesh_from_cfg(
+    *,
+    cfg: Any,
+    quiet_polyfem_setup: bool = True,
+) -> tuple[Any, dict[str, Any], torch.Tensor, torch.Tensor, Optional[np.ndarray], Optional[np.ndarray], int]:
+    """Load the fixed-topology mesh for parameterized shape without running a solve."""
+    config, _, settings, _ = _differentiable_config_and_settings(cfg)
+    if not settings.get("geometry"):
+        raise ValueError(
+            "parameterized_shape currently expects a config-backed mesh. "
+            "Use a config with geometry mesh paths so the fixed topology can be loaded."
+        )
+    if settings.get("geometry") and not settings.get("root_path") and not _geometry_uses_only_absolute_mesh_paths(settings):
+        raise ValueError(
+            "parameterized_shape requires root_path for relative mesh paths. "
+            "Pass cfg as a JSON path, set cfg.extras['_root_path'], or use absolute mesh paths."
+        )
+
+    pf = get_cpp_polyfempy()
+    solver = pf.Solver()
+    if quiet_polyfem_setup:
+        _solver_set_log_level_off(solver)
+    solver.set_settings(json.dumps(settings), strict_validation=False)
+    solver.load_mesh_from_settings()
+    if hasattr(solver, "build_basis"):
+        solver.build_basis()
+    mesh = solver.mesh()
+    vertices = torch.as_tensor(np.asarray(mesh.vertices(), dtype=np.float64), dtype=torch.get_default_dtype())
+    cells = torch.as_tensor(np.asarray(mesh.elements(), dtype=np.int32), dtype=torch.int32)
+    return (
+        solver,
+        settings,
+        vertices,
+        cells,
+        _extract_body_ids(mesh),
+        _extract_boundary_ids(mesh),
+        _console_log_level_from_settings(settings),
+    )
+
+
 def make_shape_optimizer(
-    problem: ShapeOptimizationProblem,
+    problem: Union[ShapeOptimizationProblem, ParameterizedShapeOptimizationProblem],
     *,
     name: str = "sgd",
     lr: float = 1e-6,
@@ -246,6 +140,13 @@ def prepare_shape_differentiable_simulation(
         result = problem.baseline_result
         problem.baseline_result = None
         return result
+    return problem.solve()
+
+
+def prepare_parameterized_shape_differentiable_simulation(
+    problem: ParameterizedShapeOptimizationProblem,
+) -> DifferentiableResult:
+    """Run one differentiable parameterized-shape simulation."""
     return problem.solve()
 
 
@@ -385,7 +286,7 @@ def format_shape_optimization_history_summary(steps: list[ShapeOptimizationStep]
 
 
 def run_shape_optimization(
-    problem: ShapeOptimizationProblem,
+    problem: Union[ShapeOptimizationProblem, ParameterizedShapeOptimizationProblem],
     *,
     steps: int,
     optimizer: torch.optim.Optimizer,
@@ -509,15 +410,142 @@ def prepare_shape_optimization_problem(
             result.u = result.u.detach()
 
 
+def prepare_parameterized_shape_optimization_problem(
+    *,
+    cfg: Any,
+    parameters: Optional[Sequence[torch.nn.Parameter]] = None,
+    vertex_map: Optional[Callable[[Any, torch.Tensor, Any], torch.Tensor]] = None,
+    geometry: Any = None,
+    design: Optional[ParameterizedVertexDesign] = None,
+    parameter_map: Optional[Callable[[Sequence[torch.nn.Parameter]], Any]] = None,
+    project: Optional[Callable[[Sequence[torch.nn.Parameter]], None]] = None,
+    context: Any = None,
+    differentiable_params: Optional[list[str]] = None,
+    derivative_type: str = "shape",
+    quiet_polyfem_setup: bool = True,
+) -> ParameterizedShapeOptimizationProblem:
+    """Prepare a user-parameterized shape problem.
+
+    The user supplies either:
+
+    - ``parameters`` + ``vertex_map(design_value, base_vertices, context)``
+    - or a ``geometry`` module/callable whose ``forward`` returns vertices.
+
+    The returned vertices must keep the same shape and fixed connectivity as
+    the mesh loaded from ``cfg``.
+    """
+    (
+        solver,
+        settings,
+        base_vertices,
+        cells,
+        body_ids,
+        boundary_ids,
+        solve_log_level,
+    ) = _load_parameterized_shape_mesh_from_cfg(
+        cfg=cfg,
+        quiet_polyfem_setup=quiet_polyfem_setup,
+    )
+
+    if design is None:
+        design = ParameterizedVertexDesign(
+            parameters=parameters,
+            vertex_map=vertex_map,
+            base_vertices=base_vertices,
+            parameter_map=parameter_map,
+            project=project,
+            context=context,
+            geometry=geometry,
+            differentiable_params=differentiable_params,
+        )
+    else:
+        if design.base_vertices is None:
+            design.base_vertices = base_vertices
+        if context is not None and design.context is None:
+            design.context = context
+
+    return ParameterizedShapeOptimizationProblem(
+        design=design,
+        cells=cells,
+        cfg=settings,
+        report_cfg=cfg,
+        body_ids=body_ids,
+        boundary_ids=boundary_ids,
+        derivative_type=str(derivative_type),
+        solver=solver,
+        solve_log_level=int(solve_log_level),
+        reference_vertices=base_vertices,
+    )
+
+
+def prepare_parameterized_shape_problem(
+    *,
+    cfg: Any,
+    parameters: Sequence[torch.nn.Parameter],
+    vertex_map: Callable[[Any, torch.Tensor, Any], torch.Tensor],
+    parameter_names: Optional[Sequence[str]] = None,
+    bounds: Optional[Mapping[str, Sequence[Optional[float]]]] = None,
+    context: Any = None,
+    parameter_map: Optional[Callable[[Sequence[torch.nn.Parameter]], Any]] = None,
+    project: Optional[Callable[[Sequence[torch.nn.Parameter]], None]] = None,
+    differentiable_params: Optional[list[str]] = None,
+    derivative_type: str = "shape",
+    quiet_polyfem_setup: bool = True,
+) -> ParameterizedShapeOptimizationProblem:
+    """Prepare a named-parameter shape problem with a user vertex map.
+
+    This is the user-friendly wrapper around
+    ``prepare_parameterized_shape_optimization_problem(...)``. It expects
+    parameters created by ``make_parameter(...)`` or explicit
+    ``parameter_names``. The ``vertex_map`` receives a dictionary by default:
+
+    ``vertex_map({"h": h, "theta": theta}, base_vertices, context)``.
+    """
+    torch_params, names, _ = normalize_design_parameters(
+        parameters,
+        parameter_names=parameter_names,
+        bounds=bounds,
+    )
+    if parameter_map is None:
+        parameter_map = make_named_parameter_map(
+            torch_params,
+            parameter_names=names,
+        )
+    if project is None:
+        project = make_bounds_projector(
+            torch_params,
+            parameter_names=names,
+            bounds=bounds,
+        )
+    if differentiable_params is None:
+        differentiable_params = names
+
+    return prepare_parameterized_shape_optimization_problem(
+        cfg=cfg,
+        parameters=torch_params,
+        vertex_map=vertex_map,
+        parameter_map=parameter_map,
+        project=project,
+        context={} if context is None else context,
+        differentiable_params=differentiable_params,
+        derivative_type=derivative_type,
+        quiet_polyfem_setup=quiet_polyfem_setup,
+    )
+
+
 __all__ = [
     "ShapeOptimizationProblem",
+    "ParameterizedShapeOptimizationProblem",
     "ShapeOptimizationStep",
     "make_shape_optimizer",
     "prepare_shape_differentiable_simulation",
+    "prepare_parameterized_shape_differentiable_simulation",
     "make_von_mises_shape_loss",
     "format_shape_optimization_step",
     "format_shape_optimization_history_summary",
     "print_shape_optimization_step",
     "run_shape_optimization",
     "prepare_shape_optimization_problem",
+    "prepare_parameterized_shape_problem",
+    "prepare_parameterized_shape_optimization_problem",
 ]

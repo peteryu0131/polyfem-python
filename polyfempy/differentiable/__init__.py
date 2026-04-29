@@ -7,6 +7,8 @@ This public module intentionally exposes a small user-facing surface:
 - ``solve_differentiable_material_from_youngs(...)`` for ``E, nu`` material solves
 - ``make_von_mises_loss(...)`` / ``make_stress_norm_loss(...)`` for common losses
 - ``prepare_optimization_problem(...)`` as a unified shape/material optimizer entry point
+- ``make_parameter(...)`` / ``prepare_parameterized_shape_problem(...)`` for named shape parameters
+- ``ParameterizedVertexDesign`` for user-defined ``params -> vertices`` shape maps
 - ``prepare_shape_optimization_problem(...)`` for small vertex-optimization loops
 - ``get_direct_von_mises_monitor(...)`` for monitor-only solver output
 - ``print_loss_summary(...)`` / ``gradient_norm(...)`` for tiny demo summaries
@@ -45,6 +47,12 @@ if _TORCH_AVAILABLE:
         build_lame_from_youngs,
     )
     from .result_diff import DifferentiableResult, DifferentiableMaterialResult
+    from .design import (
+        ParameterizedVertexDesign,
+        make_bounds_projector,
+        make_named_parameter_map,
+        make_parameter,
+    )
     from .objective_bridge import (
         ObjectiveLossResult,
         SmoothTimeAggregationName,
@@ -77,12 +85,16 @@ if _TORCH_AVAILABLE:
         usable_scalar_gradient,
     )
     from .shape_optimization import (
+        ParameterizedShapeOptimizationProblem,
         ShapeOptimizationProblem,
         ShapeOptimizationStep,
         format_shape_optimization_history_summary,
         format_shape_optimization_step,
         make_shape_optimizer,
         make_von_mises_shape_loss,
+        prepare_parameterized_shape_differentiable_simulation,
+        prepare_parameterized_shape_problem,
+        prepare_parameterized_shape_optimization_problem,
         prepare_shape_differentiable_simulation,
         prepare_shape_optimization_problem,
         print_shape_optimization_step,
@@ -113,6 +125,10 @@ if _TORCH_AVAILABLE:
         "build_lame_from_youngs",
         "DifferentiableResult",
         "DifferentiableMaterialResult",
+        "ParameterizedVertexDesign",
+        "make_bounds_projector",
+        "make_named_parameter_map",
+        "make_parameter",
         "ObjectiveLossResult",
         "SmoothTimeAggregationName",
         "TimeAggregation",
@@ -146,12 +162,16 @@ if _TORCH_AVAILABLE:
         "prepare_material_optimization_problem",
         "run_scalar_material_optimization",
         "usable_scalar_gradient",
+        "ParameterizedShapeOptimizationProblem",
         "ShapeOptimizationProblem",
         "ShapeOptimizationStep",
         "format_shape_optimization_history_summary",
         "format_shape_optimization_step",
         "make_shape_optimizer",
         "make_von_mises_shape_loss",
+        "prepare_parameterized_shape_differentiable_simulation",
+        "prepare_parameterized_shape_problem",
+        "prepare_parameterized_shape_optimization_problem",
         "prepare_shape_differentiable_simulation",
         "prepare_shape_optimization_problem",
         "print_shape_optimization_step",
@@ -233,6 +253,30 @@ else:
         )
 
     def DifferentiableMaterialResult(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def ParameterizedVertexDesign(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def make_bounds_projector(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def make_named_parameter_map(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def make_parameter(*args, **kwargs):
         raise ImportError(
             "PyTorch is required for differentiable simulations. "
             "Please install PyTorch: pip install torch"
@@ -376,6 +420,12 @@ else:
             "Please install PyTorch: pip install torch"
         )
 
+    def ParameterizedShapeOptimizationProblem(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
     def ShapeOptimizationStep(*args, **kwargs):
         raise ImportError(
             "PyTorch is required for differentiable simulations. "
@@ -389,6 +439,24 @@ else:
         )
 
     def make_von_mises_shape_loss(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def prepare_parameterized_shape_differentiable_simulation(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def prepare_parameterized_shape_problem(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for differentiable simulations. "
+            "Please install PyTorch: pip install torch"
+        )
+
+    def prepare_parameterized_shape_optimization_problem(*args, **kwargs):
         raise ImportError(
             "PyTorch is required for differentiable simulations. "
             "Please install PyTorch: pip install torch"

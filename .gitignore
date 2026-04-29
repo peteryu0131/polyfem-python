@@ -41,6 +41,7 @@ examples/output/*
 
 # Local solve dump at repo root only (avoid matching .../experiment/.../sim.json)
 /sim.json
+/impact_stats.json
 
 # IDE
 .vscode/*
