@@ -1,9 +1,20 @@
-"""Generic PyTorch-outer / PolyFEM-inner bridge helpers.
+"""Legacy PyTorch-outer / PolyFEM-inner bridge helpers.
 
-These helpers keep experiment scripts thin:
+These helpers were useful while validating the first differentiable API:
 - patch differentiable runtime settings
 - run one differentiable bridge step
 - run a tiny optimizer-style probe loop
+
+New user code should prefer the clearer problem-based API:
+
+``prepare_differentiable_simulation(...)``
+``prepare_optimization_problem(...)``
+``make_optimizer(...)``
+``run_optimization(...)``
+
+The functions in this file are kept for compatibility with older experiments
+and for low-level probes. They are also re-exported from
+``polyfempy.differentiable.advanced``.
 """
 
 # pyright: reportMissingImports=false
@@ -62,7 +73,7 @@ class PolyFEMTorchBridgeOptimizerProbe:
     steps: list[PolyFEMTorchBridgeOptimizerStep]
 
 
-TORCH_BRIDGE_METHOD_NAME = "PolyFEM Torch Bridge"
+TORCH_BRIDGE_METHOD_NAME = "PolyFEM Torch Bridge (legacy)"
 TORCH_BRIDGE_METHOD_PATTERN = "PyTorch outer optimize + PolyFEM autograd inner objective"
 
 

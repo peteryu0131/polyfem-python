@@ -13,7 +13,7 @@ from typing import Any, Callable, Iterator, Optional, Tuple, Union
 import numpy as np
 import torch
 
-from .design import ParameterizedVertexDesign
+from .design import ParameterizedVertexDesign, parameter_name
 from .result_diff import DifferentiableResult
 from .solve_diff import prepare_differentiable_simulation
 from .torch_integration import PolyFEMFunction
@@ -38,6 +38,8 @@ class ShapeOptimizationStep:
     step_scale: float = 1.0
     gradient_path: Optional[str] = None
     history_bundle: Optional[dict[str, Any]] = None
+    parameter_values_before: Optional[dict[str, torch.Tensor]] = None
+    parameter_values_after: Optional[dict[str, torch.Tensor]] = None
 
 
 @dataclass
@@ -269,10 +271,17 @@ class ParameterizedShapeOptimizationProblem:
                 "implement projection in the design instead"
             )
 
+        def parameter_snapshot() -> dict[str, torch.Tensor]:
+            return {
+                str(parameter_name(parameter, f"param_{index}")): parameter.detach().clone()
+                for index, parameter in enumerate(self.design.torch_parameters())
+            }
+
         for iteration in range(int(steps)):
             optimizer.zero_grad(set_to_none=True)
             result = self.solve()
             try:
+                parameter_values_before = parameter_snapshot()
                 vertices_before = result.vertices.detach().clone()
                 loss_out = loss_fn(result)
                 if isinstance(loss_out, tuple):
@@ -305,6 +314,7 @@ class ParameterizedShapeOptimizationProblem:
                 optimizer.step()
                 self.design.project_()
                 with torch.no_grad():
+                    parameter_values_after = parameter_snapshot()
                     vertices_after = self.design.vertices().detach()
                     update = vertices_after - vertices_before
                     per_vertex_update = torch.linalg.norm(update.reshape(update.shape[0], -1), dim=1)
@@ -323,6 +333,8 @@ class ParameterizedShapeOptimizationProblem:
                     max_vertex_update=max_vertex_update,
                     step_scale=step_scale,
                     history_bundle=history_bundle,
+                    parameter_values_before=parameter_values_before,
+                    parameter_values_after=parameter_values_after,
                 )
             finally:
                 result.release_solver()

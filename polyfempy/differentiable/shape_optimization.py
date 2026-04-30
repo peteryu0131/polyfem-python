@@ -414,7 +414,7 @@ def prepare_parameterized_shape_optimization_problem(
     *,
     cfg: Any,
     parameters: Optional[Sequence[torch.nn.Parameter]] = None,
-    vertex_map: Optional[Callable[[Any, torch.Tensor, Any], torch.Tensor]] = None,
+    vertex_map: Optional[Callable[..., torch.Tensor]] = None,
     geometry: Any = None,
     design: Optional[ParameterizedVertexDesign] = None,
     parameter_map: Optional[Callable[[Sequence[torch.nn.Parameter]], Any]] = None,
@@ -424,10 +424,17 @@ def prepare_parameterized_shape_optimization_problem(
     derivative_type: str = "shape",
     quiet_polyfem_setup: bool = True,
 ) -> ParameterizedShapeOptimizationProblem:
-    """Prepare a user-parameterized shape problem.
+    """Advanced builder for a user-parameterized shape problem.
+
+    Most user scripts should call ``prepare_parameterized_shape_problem(...)``
+    or ``prepare_optimization_problem(kind="parameterized_shape", ...)``. This
+    lower-level helper stays available for callers that already own a
+    ``ParameterizedVertexDesign`` or need full control over ``parameter_map``,
+    ``project``, or ``geometry``.
 
     The user supplies either:
 
+    - ``parameters`` + ``vertex_map(design_value, base_vertices)``
     - ``parameters`` + ``vertex_map(design_value, base_vertices, context)``
     - or a ``geometry`` module/callable whose ``forward`` returns vertices.
 
@@ -481,26 +488,67 @@ def prepare_parameterized_shape_optimization_problem(
 def prepare_parameterized_shape_problem(
     *,
     cfg: Any,
-    parameters: Sequence[torch.nn.Parameter],
-    vertex_map: Callable[[Any, torch.Tensor, Any], torch.Tensor],
+    parameters: Optional[Sequence[torch.nn.Parameter]] = None,
+    vertex_map: Optional[Callable[..., torch.Tensor]] = None,
     parameter_names: Optional[Sequence[str]] = None,
     bounds: Optional[Mapping[str, Sequence[Optional[float]]]] = None,
     context: Any = None,
     parameter_map: Optional[Callable[[Sequence[torch.nn.Parameter]], Any]] = None,
     project: Optional[Callable[[Sequence[torch.nn.Parameter]], None]] = None,
     differentiable_params: Optional[list[str]] = None,
+    geometry: Any = None,
+    design: Optional[ParameterizedVertexDesign] = None,
     derivative_type: str = "shape",
     quiet_polyfem_setup: bool = True,
 ) -> ParameterizedShapeOptimizationProblem:
     """Prepare a named-parameter shape problem with a user vertex map.
 
-    This is the user-friendly wrapper around
+    This is the user-friendly wrapper around the lower-level
     ``prepare_parameterized_shape_optimization_problem(...)``. It expects
     parameters created by ``make_parameter(...)`` or explicit
     ``parameter_names``. The ``vertex_map`` receives a dictionary by default:
 
-    ``vertex_map({"h": h, "theta": theta}, base_vertices, context)``.
+    ``vertex_map({"h": h, "theta": theta}, base_vertices)``.
+
+    ``context`` is optional. If the map accepts a third argument, the wrapper
+    passes this context so the map may cache non-differentiable helper data such
+    as masks. If the map only accepts two arguments, no context is passed.
+
+    Advanced callers may still pass ``parameter_map``, ``project``, ``geometry``,
+    or a prebuilt ``ParameterizedVertexDesign``. Those routes are kept here so
+    the public dispatcher can stay thin without breaking existing experiments.
     """
+    if design is not None or geometry is not None:
+        if parameter_names is not None or bounds is not None:
+            raise ValueError(
+                "parameter_names and bounds are only applied when using "
+                "parameters + vertex_map directly"
+            )
+        return prepare_parameterized_shape_optimization_problem(
+            cfg=cfg,
+            parameters=parameters,
+            vertex_map=vertex_map,
+            geometry=geometry,
+            design=design,
+            parameter_map=parameter_map,
+            project=project,
+            context=context,
+            differentiable_params=differentiable_params,
+            derivative_type=derivative_type,
+            quiet_polyfem_setup=quiet_polyfem_setup,
+        )
+
+    if parameters is None:
+        raise ValueError(
+            "prepare_parameterized_shape_problem requires parameters when "
+            "geometry/design is not provided"
+        )
+    if vertex_map is None:
+        raise ValueError(
+            "prepare_parameterized_shape_problem requires vertex_map when "
+            "geometry/design is not provided"
+        )
+
     torch_params, names, _ = normalize_design_parameters(
         parameters,
         parameter_names=parameter_names,

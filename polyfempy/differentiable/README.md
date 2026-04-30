@@ -45,6 +45,34 @@ grad = vertices.grad  # Automatic gradient computation!
 - **Multiple derivative types**: Support for shape, material, initial condition derivatives
 - **PyTorch integration**: Seamless integration with PyTorch's autograd
 
+## API Boundary
+
+Most user scripts should stay on this small surface:
+
+```python
+from polyfempy.differentiable import (
+    make_optimizer,
+    make_parameter,
+    make_von_mises_loss,
+    prepare_differentiable_simulation,
+    prepare_optimization_problem,
+    prepare_parameterized_shape_problem,
+    prepare_scalar_youngs_material_problem,
+    run_optimization,
+)
+```
+
+Lower-level diagnostics, finite-difference checks, and the older torch-bridge
+probe helpers live under:
+
+```python
+from polyfempy.differentiable import advanced
+```
+
+Some advanced helpers are still importable from `polyfempy.differentiable` for
+backward compatibility, but new examples should not rely on them as the normal
+API path.
+
 ## Parameterized Shape API
 
 The main optimization cleanup is that experiment-specific parameters such as
@@ -116,27 +144,90 @@ problem = prepare_parameterized_shape_problem(
 
 optimizer = make_optimizer(problem, name="adam", lr=1e-2)
 loss_fn = make_von_mises_loss(
-    volume_selection=1,
-    time_aggregation="smooth_max",
+    body=1,
+    time="smooth_max",
 )
 
-run_optimization(
+run = run_optimization(
     problem,
     steps=5,
     optimizer=optimizer,
     loss_fn=loss_fn,
     workspace="runs/parameterized_shape_example",
+    return_result=True,
 )
+print(run.final_loss)
 ```
 
-The user-provided `vertex_map` may also use a `context` dictionary for cached
-indices, masks, or precomputed non-differentiable metadata. Do not detach or
-convert differentiable values to NumPy inside the gradient path.
+### Vertex Map Contract
+
+The user-provided `vertex_map` is the only experiment-specific shape rule:
+
+```python
+def vertex_map(params, base_vertices, context):
+    ...
+    return vertices
+```
+
+Inputs:
+
+```text
+params:
+  dict[str, torch.Tensor] by default, keyed by make_parameter(...) names
+
+base_vertices:
+  fixed-topology mesh vertices loaded from cfg
+
+context:
+  mutable cache for masks, index arrays, or other non-differentiable metadata
+```
+
+Output:
+
+```text
+vertices:
+  torch.Tensor with the same shape as base_vertices
+```
+
+Rules:
+
+```text
+use torch operations for differentiable math
+keep vertex count and cell topology fixed
+do not remesh inside vertex_map
+do not detach or convert differentiable values to NumPy
+put cached masks or precomputed index sets in context
+```
+
+The API validates this contract before calling PolyFEM. Common mistakes fail
+early with user-facing errors:
+
+```text
+wrong return type:
+  vertex_map must return a torch.Tensor, got ndarray
+
+changed topology:
+  vertex_map must return vertices with shape (...), got (...)
+
+broken autograd chain:
+  vertex_map returned vertices that are not connected to differentiable parameters
+
+invalid geometry:
+  vertex_map returned vertices containing NaN or Inf values
+```
+
+The parameter names are arbitrary. `h` and `theta_deg` are examples, not API
+requirements.
 
 `prepare_parameterized_shape_problem(...)` is a user-friendly wrapper. It
 builds the lower-level `ParameterizedVertexDesign`, passes a name dictionary to
 `vertex_map`, uses parameter names for reports, and clamps parameters to their
 optional bounds after each optimizer step.
+
+The lower-level `prepare_parameterized_shape_optimization_problem(...)` remains
+available for advanced callers that already own a `ParameterizedVertexDesign`
+or need custom `parameter_map` / `project` plumbing. New examples should prefer
+`prepare_parameterized_shape_problem(...)`.
 
 ### h/theta Example
 
@@ -159,6 +250,133 @@ In that script, `HThetaVertexMap` is not a library concept anymore. It is just
 one experiment's implementation of `vertex_map(params, base_vertices, context)`.
 PolyFEM still computes the underlying shape derivative with respect to vertices
 `X`; PyTorch chains that gradient back to `h` and `theta_deg`.
+
+### Non h/theta Example
+
+This uses two unrelated design parameters: a vertical scale on one selected
+body and a horizontal shift. The names and formulas are entirely user-defined:
+
+```python
+lattice_y_scale = make_parameter("lattice_y_scale", 1.0, bounds=(0.98, 1.02))
+block_shift_x = make_parameter("block_shift_x", 0.0, bounds=(-0.10, 0.10))
+
+
+def vertex_map(params, base_vertices, context):
+    lattice_mask = context.get("lattice_mask")
+    block_mask = context.get("block_mask")
+    if lattice_mask is None:
+        y = base_vertices[:, 1]
+        lattice_mask = y <= 4.98
+        block_mask = ~lattice_mask
+        context["lattice_mask"] = lattice_mask
+        context["block_mask"] = block_mask
+
+    vertices = base_vertices.clone()
+    vertices[lattice_mask, 1] = base_vertices[lattice_mask, 1] * params["lattice_y_scale"]
+    vertices[block_mask, 0] = base_vertices[block_mask, 0] + params["block_shift_x"]
+    return vertices
+
+
+problem = prepare_parameterized_shape_problem(
+    cfg=cfg,
+    parameters=[lattice_y_scale, block_shift_x],
+    vertex_map=vertex_map,
+    context={},
+)
+```
+
+After `loss.backward()`, PyTorch gives:
+
+```text
+lattice_y_scale.grad = dL/d lattice_y_scale
+block_shift_x.grad   = dL/d block_shift_x
+```
+
+## Scalar Material API
+
+The material side has the same user-facing parameter style for the common
+scalar Young's modulus case:
+
+```python
+from polyfempy.differentiable import (
+    make_optimizer,
+    make_parameter,
+    make_von_mises_loss,
+    prepare_scalar_youngs_material_problem,
+    run_optimization,
+)
+
+E_lattice = make_parameter("E_lattice_MPa", 20.0, bounds=(1.0, None))
+
+problem = prepare_scalar_youngs_material_problem(
+    cfg=cfg,
+    body_id=1,
+    E_parameter=E_lattice,
+    E_unit="MPa",
+)
+
+optimizer = make_optimizer(problem, name="adam", lr=1e-2)
+loss_fn = make_von_mises_loss(
+    body=1,
+    time="smooth_max",
+)
+
+run = run_optimization(
+    problem,
+    steps=5,
+    optimizer=optimizer,
+    loss_fn=loss_fn,
+    workspace="runs/scalar_material_example",
+    return_result=True,
+)
+print(run.final_loss)
+```
+
+This path optimizes the physical scalar `E_lattice_MPa` directly. Internally,
+the solver still receives Lamé `lambda/mu` tensors because that is the current
+PolyFEM material backward interface.
+
+`make_von_mises_loss(...)` works for both shape and material differentiable
+results. It detects material results and routes them to the elastic objective
+bridge internally. The older `make_material_von_mises_loss(...)` helper remains
+available for compatibility and explicit advanced use.
+
+`body=...` and `time=...` are user-facing aliases. The older
+`volume_selection=...` and `time_aggregation=...` names still work for
+compatibility and for callers that want to use PolyFEM's lower-level wording.
+
+The older `prepare_material_optimization_problem(...)` remains available and
+optimizes an unconstrained internal `log_E` through a softplus transform. It is
+kept for compatibility and for experiments that prefer that parameterization.
+
+`run_optimization(...)` returns the legacy list of step records by default.
+New code can request a stable result object:
+
+```python
+run = run_optimization(..., return_result=True)
+run.steps
+run.final_step
+run.final_loss
+run.summary()
+```
+
+The unified dispatcher can also call this physical-E path when an explicit
+`E_parameter` is supplied:
+
+```python
+from polyfempy.differentiable import prepare_optimization_problem
+
+problem = prepare_optimization_problem(
+    cfg=cfg,
+    kind="material",
+    body_id=1,
+    E_parameter=E_lattice,
+    E_unit="MPa",
+)
+```
+
+Calling `prepare_optimization_problem(cfg=cfg, kind="material", body_id=1)`
+without `E_parameter` keeps the old `log_E` behavior for compatibility.
 
 ## API Reference
 

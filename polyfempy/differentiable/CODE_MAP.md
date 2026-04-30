@@ -38,8 +38,9 @@ from polyfempy.differentiable import (
     report_optimization_baseline,
     make_optimizer,
     make_von_mises_loss,
-    make_material_von_mises_loss,
+    prepare_scalar_youngs_material_problem,
     run_optimization,
+    OptimizationRunResult,
 )
 ```
 
@@ -59,8 +60,14 @@ prepare_differentiable_simulation(...)
 prepare_optimization_problem(...)
   -> report_optimization_baseline(...)
   -> make_optimizer(problem)
-  -> make_*_loss(...)
+  -> make_von_mises_loss(...)
   -> run_optimization(problem, ...)
+```
+
+诊断、finite-difference 检查和旧 torch bridge probe 统一放在 advanced 命名空间：
+
+```python
+from polyfempy.differentiable import advanced
 ```
 
 ## File Map
@@ -69,8 +76,9 @@ prepare_optimization_problem(...)
 
 Top-level export surface for `polyfempy.differentiable`.
 
-It currently exports both user-facing helpers and many debugging helpers. This is convenient during
-development, but it makes the public API look larger than it really should be.
+The recommended API is tracked by `PUBLIC_API`. Older debugging and compatibility exports are
+tracked separately by `ADVANCED_COMPAT_API` and are also available from
+`polyfempy.differentiable.advanced`.
 
 Important user-facing exports:
 
@@ -82,17 +90,19 @@ prepare_optimization_problem
 report_optimization_baseline
 make_optimizer
 make_von_mises_loss
-make_material_von_mises_loss
+prepare_scalar_youngs_material_problem
 run_optimization
 ```
 
-Likely advanced/debug exports:
+Advanced/debug helpers are still re-exported for compatibility, but new code should import them
+through `polyfempy.differentiable.advanced`:
 
 ```text
 objective_solution_rhs_diagnostics
 collect_material_chain_diagnostics
 finite_difference_material_E_gradient
 apply_finite_difference_gradient_fallback
+run_polyfem_bridge_step
 ```
 
 ### `design.py`
@@ -128,6 +138,19 @@ It also owns optional post-step projection:
 ```text
 project(parameters)
 ```
+
+It validates the user map before PolyFEM is called:
+
+```text
+return value must be a torch.Tensor
+shape must match base_vertices
+dtype/device must match base_vertices
+values must be finite
+returned vertices must stay connected to differentiable parameters when grad is enabled
+```
+
+These checks belong here instead of in experiment scripts so every
+parameterized-shape workflow gets the same contract and error messages.
 
 The intended layering is:
 
@@ -315,7 +338,6 @@ Main user-facing loss builders:
 ```text
 make_von_mises_loss(...)
 make_stress_norm_loss(...)
-make_material_von_mises_loss(...)
 ```
 
 Shape objective bridge:
@@ -342,11 +364,13 @@ Time aggregation is also handled here:
 last / first / max / mean / sum / smooth_max
 ```
 
-Current API issue:
+Current API behavior:
 
 ```text
-Users need to choose make_von_mises_loss vs make_material_von_mises_loss.
-Long term, make_von_mises_loss could dispatch from result type.
+make_von_mises_loss(...) accepts both shape results and material results.
+Material results are detected from their lambda/mu tensors and routed to the elastic objective bridge.
+make_material_von_mises_loss(...) remains available for explicit advanced/compatibility use.
+body=... and time=... are user-facing aliases for volume_selection=... and time_aggregation=....
 ```
 
 ### `shape_optimization.py`
@@ -395,6 +419,18 @@ prepare_parameterized_shape_problem(...)
   -> prepare_parameterized_shape_optimization_problem(...)
 ```
 
+Advanced lower-level builder:
+
+```text
+prepare_parameterized_shape_optimization_problem(...)
+  -> accepts prebuilt ParameterizedVertexDesign or custom parameter_map/project
+  -> loads the fixed-topology mesh
+  -> constructs ParameterizedShapeOptimizationProblem
+```
+
+New user examples should call `prepare_parameterized_shape_problem(...)` unless
+they specifically need that lower-level control.
+
 Direct shape still means:
 
 ```text
@@ -409,6 +445,22 @@ design variable == user parameters
 PolyFEM-supported tensor == mapped vertices
 ```
 
+### `material_config.py`
+
+Small parsing helpers for reading scalar material data from `cfg.materials`.
+
+It owns:
+
+```text
+material id lookup
+Young's modulus value/unit parsing
+Poisson ratio parsing
+fixed non-design material inference
+```
+
+This keeps `material_optimization.py` from carrying low-level config parsing
+logic directly.
+
 ### `material_optimization.py`
 
 Reusable optimization helpers for scalar Young's modulus optimization.
@@ -422,19 +474,31 @@ ScalarMaterialOptimizationProblem
 It owns:
 
 ```text
-log_E: torch.nn.Parameter
+log_E: torch.nn.Parameter for the compatibility softplus path
+E_parameter: torch.nn.Parameter for the newer physical-E path
 slot_mask for selected body
 nu
 other material constants
 solver
 ```
 
-Its solve path:
+Compatibility solve path:
 
 ```text
 log_E
   -> softplus(log_E) + e_floor
   -> E
+  -> unit conversion
+  -> lambda/mu through youngs_to_lame
+  -> solve_differentiable_material_from_youngs(...)
+  -> DifferentiableMaterialResult
+```
+
+User-facing physical-E solve path:
+
+```text
+E_parameter
+  -> optional bounds projection after optimizer step
   -> unit conversion
   -> lambda/mu through youngs_to_lame
   -> solve_differentiable_material_from_youngs(...)
@@ -450,30 +514,42 @@ loss = loss_fn(result)
 loss.backward()
 gradient = current_E.grad
 optimizer.step()
+optional physical-E bounds projection
 ```
 
 This is scalar material optimization:
 
 ```text
-design variable == log_E
+design variable == physical E_parameter, or compatibility log_E
 PolyFEM-supported tensor == lambda/mu
 ```
 
-The first part of this file also contains diagnostics and finite-difference fallback utilities.
-Those are useful for debugging but should be considered advanced/debug API.
+Diagnostics and finite-difference fallback utilities were moved out of this
+file. This module should stay focused on scalar material problem setup,
+per-iteration solves, optimizer creation, and reports.
+
+### `material_diagnostics.py`
+
+Advanced/debug helpers for scalar material work:
+
+```text
+objective_solution_rhs_diagnostics(...)
+collect_material_chain_diagnostics(...)
+finite_difference_material_E_gradient(...)
+apply_finite_difference_gradient_fallback(...)
+```
+
+These remain available from `polyfempy.differentiable` for compatibility, but
+new user-facing examples should not need them.
 
 ### `optimization_problem.py`
 
-Thin public dispatcher that makes shape and material optimization look similar from the user
-script.
+Thin public dispatcher for preparing optimization problems.
 
 Main functions:
 
 ```text
 prepare_optimization_problem(cfg=..., kind="shape"|"parameterized_shape"|"material", ...)
-report_optimization_baseline(...)
-make_optimizer(problem, ...)
-run_optimization(problem, ...)
 ```
 
 Dispatch rules:
@@ -483,20 +559,49 @@ kind="shape" or "geometry"
   -> prepare_shape_optimization_problem(...)
 
 kind="parameterized_shape" or "parametric_shape"
+  -> prepare_parameterized_shape_problem(...)
   -> prepare_parameterized_shape_optimization_problem(...)
 
 kind="material", "e", or "youngs"
   -> prepare_material_optimization_problem(...)
+
+kind="material", "e", or "youngs" with explicit E_parameter
+  -> prepare_scalar_youngs_material_problem(...)
 ```
 
-Current API issue:
+This file should not own optimizer-loop details. Those live in
+`optimization_runner.py`.
+
+### `optimization_runner.py`
+
+Runtime helpers for already-prepared optimization problems:
 
 ```text
-run_optimization still contains type-specific defaults:
-  shape: gradient_dir, max_vertex_step
-  material: no gradient_dir, no max_vertex_step
+prepare_optimization_baseline_simulation(...)
+report_optimization_baseline(...)
+make_optimizer(problem, ...)
+run_optimization(problem, ...)
+OptimizationRunResult
+```
 
-Long term, these constraints should live on the design/problem object.
+It still has type-specific defaults for output files and shape-only gradient
+artifacts, but that logic is separated from the problem-construction
+dispatcher.
+
+Compatibility behavior:
+
+```text
+run_optimization(...) returns list[Step] by default
+run_optimization(..., return_result=True) returns OptimizationRunResult
+```
+
+Stable result fields:
+
+```text
+run.steps
+run.final_step
+run.final_loss
+run.summary()
 ```
 
 ### `shape_mask.py`
@@ -545,12 +650,13 @@ print_loss_summary(...)
 
 ### `torch_bridge.py`
 
-Older / experiment-facing bridge utilities for running differentiable PolyFEM steps and optimizer
+Legacy / experiment-facing bridge utilities for running differentiable PolyFEM steps and optimizer
 probes.
 
 It overlaps conceptually with the newer `solve_diff.py`, `shape_optimization.py`, and
 `optimization_problem.py` stack. Treat it as compatibility / experiment support, not the cleanest
-new API surface.
+new API surface. Prefer importing it through `polyfempy.differentiable.advanced` when a low-level
+probe is actually needed.
 
 ## Chain 1: Direct Shape Optimization
 
@@ -559,8 +665,15 @@ User script:
 ```python
 problem = prepare_optimization_problem(cfg=cfg, kind="shape")
 optimizer = make_optimizer(problem)
-loss_fn = make_von_mises_loss(volume_selection=1, time_aggregation="smooth_max")
-run_optimization(problem, steps=1, optimizer=optimizer, loss_fn=loss_fn)
+loss_fn = make_von_mises_loss(body=1, time="smooth_max")
+run = run_optimization(
+    problem,
+    steps=1,
+    optimizer=optimizer,
+    loss_fn=loss_fn,
+    return_result=True,
+)
+print(run.final_loss)
 ```
 
 Code flow:
@@ -608,29 +721,43 @@ vertices
 User script:
 
 ```python
-problem = prepare_optimization_problem(cfg=cfg, kind="material", body_id=1)
+E_lattice = make_parameter("E_lattice_MPa", 20.0, bounds=(1.0, None))
+problem = prepare_scalar_youngs_material_problem(
+    cfg=cfg,
+    body_id=1,
+    E_parameter=E_lattice,
+    E_unit="MPa",
+)
 optimizer = make_optimizer(problem)
-loss_fn = make_material_von_mises_loss(volume_selection=1, time_aggregation="smooth_max")
-run_optimization(problem, steps=1, optimizer=optimizer, loss_fn=loss_fn)
+loss_fn = make_von_mises_loss(body=1, time="smooth_max")
+run = run_optimization(
+    problem,
+    steps=1,
+    optimizer=optimizer,
+    loss_fn=loss_fn,
+    return_result=True,
+)
+print(run.final_loss)
 ```
 
 Code flow:
 
 ```text
 new_api_experiment02_von_mises_E_optimization.py
-  -> prepare_optimization_problem(kind="material", body_id=1)
+  -> E_lattice = make_parameter(...)
+  -> prepare_scalar_youngs_material_problem(...)
   -> prepare_material_optimization_problem(...)
-  -> ScalarMaterialOptimizationProblem(log_E=Parameter(...))
+  -> ScalarMaterialOptimizationProblem(E_parameter=E_lattice)
   -> run_optimization(...)
   -> run_scalar_material_optimization(...)
   -> ScalarMaterialOptimizationProblem.optimize(...)
   -> ScalarMaterialOptimizationProblem.solve()
-  -> current_E = softplus(log_E) + e_floor
+  -> current_E = E_lattice
   -> youngs_value_to_internal(...)
   -> solve_differentiable_material_from_youngs(...)
   -> build_lame_from_youngs(...)
   -> PolyFEMPerElementMaterialFunction.apply(solver, lam, mu, ...)
-  -> make_material_von_mises_loss(result)
+  -> make_von_mises_loss(result) dispatches to the elastic objective bridge
   -> PolyFEMElasticAutogradObjective.apply(...)
   -> loss.backward()
 ```
@@ -649,20 +776,20 @@ PolyFEMPerElementMaterialFunction.backward:
 
 PyTorch:
   chains dL/dlambda,dL/dmu through lambda/mu(E)
-  chains dL/dE through E = softplus(log_E) + e_floor
-  accumulates gradient into log_E.grad
+  accumulates gradient into E_lattice.grad
 ```
 
 Final optimized variable:
 
 ```text
-log_E
+E_lattice
 ```
 
-Reported physical variable:
+Compatibility path:
 
 ```text
-current_E = softplus(log_E) + e_floor
+prepare_material_optimization_problem(...) still optimizes log_E:
+  log_E -> softplus(log_E) + e_floor -> E -> lambda/mu
 ```
 
 ## Chain 3: h/theta Parameterized Shape
@@ -699,13 +826,13 @@ Code flow in the paper script:
 
 ```text
 prepare_h_theta_optimization_problem(...)
-  -> design = torch.nn.Parameter([h/H_SCALE, theta/THETA_SCALE])
-  -> prepare_optimization_problem(kind="parameterized_shape", ...)
+  -> h = make_parameter("h", INITIAL_H, bounds=(H_MIN, H_MAX))
+  -> theta_deg = make_parameter("theta_deg", INITIAL_THETA_DEG, bounds=(...))
+  -> prepare_parameterized_shape_problem(...)
   -> ParameterizedVertexDesign(
-         parameters=[design],
-         parameter_map=_current_h_theta,
+         parameters=[h, theta_deg],
+         parameter_map=_h_theta_design_value,
          vertex_map=_h_theta_vertex_map,
-         project=_project_h_theta_design,
      )
 
 run_h_theta_optimization(...)
@@ -715,8 +842,12 @@ run_h_theta_optimization(...)
   -> make_von_mises_loss(result)
   -> loss.backward()
   -> h_theta.grad
-  -> optimizer.step() updates design
+  -> optimizer.step() updates h and theta_deg
 ```
+
+The paper optimizer uses per-parameter learning rates derived from
+`H_SCALE` and `THETA_SCALE_DEG` so the physical update sizes match the previous
+scaled-design implementation.
 
 Important point:
 
@@ -783,6 +914,9 @@ problem = prepare_optimization_problem(
 Rules for user-defined `vertex_map`:
 
 ```text
+params is a dict keyed by make_parameter(...) names unless an advanced parameter_map is provided
+base_vertices is the fixed-topology mesh loaded from cfg
+context is for cached masks, index sets, or non-differentiable metadata
 return shape must match the mesh vertices shape
 mesh connectivity/topology must stay fixed
 use torch operations for differentiable math
@@ -790,6 +924,10 @@ do not detach or convert differentiable values to numpy in the gradient path
 do not remesh inside the differentiable forward
 discrete changes like nx jumps are not represented by this gradient
 ```
+
+The parameter names are not special. `h`, `theta_deg`, `lattice_y_scale`,
+`block_shift_x`, or neural-network weights are all valid user parameters if
+their PyTorch map returns fixed-topology vertices.
 
 ## Current Pain Points
 
@@ -815,20 +953,23 @@ run_shape_optimization
 run_scalar_material_optimization
 ```
 
-4. Objective selection is still type-specific.
+4. Objective selection is mostly unified, but the older explicit material helper remains.
 
 ```text
 make_von_mises_loss
 make_material_von_mises_loss
 ```
 
-A cleaner API could let `make_von_mises_loss` inspect the result type and route to shape or elastic
-objective internally.
+`make_von_mises_loss` now inspects the result type and routes material results to the elastic
+objective bridge internally. `make_material_von_mises_loss` is kept for compatibility and explicit
+advanced use.
 
-5. Diagnostics are exported alongside production API.
+5. Diagnostics are still exported alongside production API.
 
 ```text
-finite-difference fallback and RHS probes should likely move to an advanced/debug namespace.
+finite-difference fallback and RHS probes now live in material_diagnostics.py,
+but __init__.py still re-exports them for compatibility. New code should import those helpers
+through polyfempy.differentiable.advanced.
 ```
 
 ## Recommended Refactor Direction
@@ -856,9 +997,9 @@ ParameterizedVertexDesign:
   status = implemented
 
 ScalarYoungsModulusDesign:
-  design variable = log_E
-  map = log_E -> E -> lambda/mu
-  status = still embedded in ScalarMaterialOptimizationProblem
+  design variable = physical E_parameter or compatibility log_E
+  map = E -> lambda/mu
+  status = implemented for scalar E inside ScalarMaterialOptimizationProblem
 
 MappedMaterialDesign:
   design variable = user params
@@ -898,7 +1039,7 @@ The code currently works by stacking three layers:
 
 ```text
 1. PyTorch user-design layer:
-   h/theta, vertices, or log_E are ordinary torch Parameters.
+   h/theta, vertices, physical E, or compatibility log_E are ordinary torch Parameters.
 
 2. PolyFEM-supported tensor layer:
    user parameters are mapped to vertices or lambda/mu.
@@ -916,6 +1057,10 @@ Two cleanup steps are now in place:
 
 2. Shape problem objects moved into shape_problem.py.
    shape_optimization.py is now mostly preparation/reporting glue.
+
+3. Scalar material optimization can now use a physical E_parameter through
+   prepare_scalar_youngs_material_problem(...), while the older log_E path is
+   still available for compatibility.
 ```
 
 The next cleanup step is to make direct vertex shape and scalar E look like the

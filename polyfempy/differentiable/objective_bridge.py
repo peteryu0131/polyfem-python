@@ -34,6 +34,7 @@ ObjectiveLossInfo: TypeAlias = Union[int, dict[str, Any]]
 ObjectiveLossWithInfo: TypeAlias = tuple[torch.Tensor, ObjectiveLossInfo]
 ObjectiveLossResult: TypeAlias = Union[torch.Tensor, ObjectiveLossWithInfo]
 ObjectiveLossBuilder: TypeAlias = Callable[[Any], ObjectiveLossResult]
+BodySelection: TypeAlias = Union[int, str]
 
 
 def _as_f64_vec(x: np.ndarray) -> np.ndarray:
@@ -60,6 +61,11 @@ def _array_summary(arr: Any) -> dict[str, Any]:
         }
     )
     return out
+
+
+def _is_material_result(result: Any) -> bool:
+    """Return True for differentiable material results without importing classes."""
+    return hasattr(result, "lam") and hasattr(result, "mu")
 
 
 def resolve_objective_state_column(spec: str, n_cols: int) -> int:
@@ -111,20 +117,56 @@ def objective_state_columns(
 
 def _resolve_time_aggregation(
     *,
+    time: Optional[TimeAggregation] = None,
     time_aggregation: Optional[TimeAggregation] = None,
     time_reduction: Optional[TimeAggregation] = None,
 ) -> Optional[TimeAggregation]:
-    """Resolve the public time aggregation name plus the older alias."""
-    if time_aggregation is None:
-        return time_reduction
-    if time_reduction is None:
-        return time_aggregation
-    if str(time_aggregation).strip().lower() != str(time_reduction).strip().lower():
+    """Resolve ``time`` plus the older time aggregation aliases."""
+    values = [
+        ("time", time),
+        ("time_aggregation", time_aggregation),
+        ("time_reduction", time_reduction),
+    ]
+    provided = [(name, value) for name, value in values if value is not None]
+    if not provided:
+        return None
+
+    _, resolved_value = provided[0]
+    resolved_key = str(resolved_value).strip().lower()
+    for name, value in provided[1:]:
+        if str(value).strip().lower() != resolved_key:
+            choices = ", ".join(f"{n}={v!r}" for n, v in provided)
+            raise ValueError(
+                "Use only one of time, time_aggregation, or time_reduction, "
+                f"not conflicting values ({choices})."
+            )
+    return resolved_value
+
+
+def _resolve_volume_selection(
+    *,
+    volume_selection: int = 1,
+    body: Optional[BodySelection] = None,
+) -> int:
+    """Resolve the friendly ``body`` alias to PolyFEM's volume selection id."""
+    if body is None:
+        return int(volume_selection)
+
+    try:
+        body_id = int(body)
+    except (TypeError, ValueError) as exc:
         raise ValueError(
-            "Use either time_aggregation or time_reduction, not conflicting values "
-            f"{time_aggregation!r} and {time_reduction!r}."
+            "body must be an integer PolyFEM volume selection id for now; "
+            f"got {body!r}. Use body=1 or volume_selection=1."
+        ) from exc
+
+    selected = int(volume_selection)
+    if selected != 1 and selected != body_id:
+        raise ValueError(
+            "Use either body or volume_selection, not conflicting values "
+            f"body={body!r} and volume_selection={volume_selection!r}."
         )
-    return time_aggregation
+    return body_id
 
 
 def _resolve_smooth_max_sharpness(
@@ -555,7 +597,9 @@ def make_polyfem_elastic_loss(
 def make_von_mises_loss(
     *,
     result: Any = None,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
+    time: Optional[SmoothTimeAggregationName] = None,
     time_aggregation: SmoothTimeAggregationName,
     smooth_max_sharpness: Optional[float] = None,
     return_info: bool = False,
@@ -569,7 +613,9 @@ def make_von_mises_loss(
 def make_von_mises_loss(
     *,
     result: Any = None,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
+    time: Optional[TimeAggregationName] = None,
     time_aggregation: TimeAggregationName = "last",
     return_info: bool = False,
     power: int = 2,
@@ -583,8 +629,10 @@ def make_von_mises_loss(
     *,
     result: Any = None,
     power: int = 2,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
     state: Optional[Union[str, int]] = "last",
+    time: Optional[TimeAggregationName] = None,
     time_aggregation: Optional[TimeAggregationName] = None,
     smooth_max_sharpness: Optional[float] = None,
     return_info: bool = False,
@@ -598,8 +646,10 @@ def make_von_mises_loss(
     *,
     result: Any = None,
     power: int = 2,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
     state: Optional[Union[str, int]] = "last",
+    time: Optional[TimeAggregation] = None,
     time_aggregation: Optional[TimeAggregation] = None,
     smooth_max_sharpness: Optional[float] = None,
     return_info: bool = False,
@@ -614,13 +664,19 @@ def make_von_mises_loss(
     - ``time_aggregation="mean"`` to average all time steps
 
     Args:
-        result: Output from ``prepare_differentiable_simulation``.
+        result: Output from ``prepare_differentiable_simulation`` or from a
+            material differentiable solve. Material results are detected from
+            their ``lambda/mu`` tensors and routed to the elastic objective
+            bridge automatically.
             If omitted, the function returns a reusable loss builder that
             accepts a result later. This is useful for optimization loops.
         power: Objective power. Defaults to ``2``.
+        body: Friendly alias for ``volume_selection``. For now this must be an
+            integer PolyFEM volume selection id, e.g. ``body=1``.
         volume_selection: Body/volume id used by PolyFEM. In experiment 02,
             ``1`` is the lattice.
         state: Single state to use when ``time_aggregation`` is omitted.
+        time: Friendly alias for ``time_aggregation``.
         time_aggregation: How to combine per-time-step losses. Allowed values:
             ``"last"``/``"final"`` uses the final time step, ``"first"`` uses
             the first, ``"max"`` uses the largest per-step loss,
@@ -635,31 +691,51 @@ def make_von_mises_loss(
         smooth_max_beta: Backward-compatible alias for
             ``smooth_max_sharpness``.
     """
+    resolved_volume_selection = _resolve_volume_selection(
+        volume_selection=volume_selection,
+        body=body,
+    )
+    resolved_time_aggregation = _resolve_time_aggregation(
+        time=time,
+        time_aggregation=time_aggregation,
+        time_reduction=time_reduction,
+    )
+
     if result is None:
         def loss_fn(run_result: Any) -> ObjectiveLossResult:
             return make_von_mises_loss(
                 result=run_result,
                 power=power,
-                volume_selection=volume_selection,
+                volume_selection=resolved_volume_selection,
                 state=state,
-                time_aggregation=time_aggregation,
+                time_aggregation=resolved_time_aggregation,
                 smooth_max_sharpness=smooth_max_sharpness,
                 return_info=return_info,
-                time_reduction=time_reduction,
                 smooth_max_beta=smooth_max_beta,
             )
 
         return loss_fn
 
+    if _is_material_result(result):
+        return make_material_von_mises_loss(
+            result=result,
+            power=power,
+            volume_selection=resolved_volume_selection,
+            state=state,
+            time_aggregation=resolved_time_aggregation,
+            smooth_max_sharpness=smooth_max_sharpness,
+            return_info=return_info,
+            smooth_max_beta=smooth_max_beta,
+        )
+
     loss_with_info = make_polyfem_autograd_loss(
         result=result,
         objective_name="von_mises",
         objective_power=int(power),
-        objective_volume_selection=int(volume_selection),
+        objective_volume_selection=int(resolved_volume_selection),
         objective_state=state,
-        time_aggregation=time_aggregation,
+        time_aggregation=resolved_time_aggregation,
         smooth_max_sharpness=smooth_max_sharpness,
-        time_reduction=time_reduction,
         smooth_max_beta=smooth_max_beta,
     )
     return loss_with_info if return_info else loss_with_info[0]
@@ -669,7 +745,9 @@ def make_von_mises_loss(
 def make_stress_norm_loss(
     *,
     result: Any = None,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
+    time: Optional[SmoothTimeAggregationName] = None,
     time_aggregation: SmoothTimeAggregationName,
     smooth_max_sharpness: Optional[float] = None,
     return_info: bool = False,
@@ -683,7 +761,9 @@ def make_stress_norm_loss(
 def make_stress_norm_loss(
     *,
     result: Any = None,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
+    time: Optional[TimeAggregationName] = None,
     time_aggregation: TimeAggregationName = "last",
     return_info: bool = False,
     power: int = 2,
@@ -697,8 +777,10 @@ def make_stress_norm_loss(
     *,
     result: Any = None,
     power: int = 2,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
     state: Optional[Union[str, int]] = "last",
+    time: Optional[TimeAggregationName] = None,
     time_aggregation: Optional[TimeAggregationName] = None,
     smooth_max_sharpness: Optional[float] = None,
     return_info: bool = False,
@@ -712,8 +794,10 @@ def make_stress_norm_loss(
     *,
     result: Any = None,
     power: int = 2,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
     state: Optional[Union[str, int]] = "last",
+    time: Optional[TimeAggregation] = None,
     time_aggregation: Optional[TimeAggregation] = None,
     smooth_max_sharpness: Optional[float] = None,
     return_info: bool = False,
@@ -726,17 +810,26 @@ def make_stress_norm_loss(
     be ``"last"``, ``"final"``, ``"first"``, ``"max"``, ``"smooth_max"``,
     ``"mean"``, or ``"sum"``.
     """
+    resolved_volume_selection = _resolve_volume_selection(
+        volume_selection=volume_selection,
+        body=body,
+    )
+    resolved_time_aggregation = _resolve_time_aggregation(
+        time=time,
+        time_aggregation=time_aggregation,
+        time_reduction=time_reduction,
+    )
+
     if result is None:
         def loss_fn(run_result: Any) -> ObjectiveLossResult:
             return make_stress_norm_loss(
                 result=run_result,
                 power=power,
-                volume_selection=volume_selection,
+                volume_selection=resolved_volume_selection,
                 state=state,
-                time_aggregation=time_aggregation,
+                time_aggregation=resolved_time_aggregation,
                 smooth_max_sharpness=smooth_max_sharpness,
                 return_info=return_info,
-                time_reduction=time_reduction,
                 smooth_max_beta=smooth_max_beta,
             )
 
@@ -746,11 +839,10 @@ def make_stress_norm_loss(
         result=result,
         objective_name="stress_norm",
         objective_power=int(power),
-        objective_volume_selection=int(volume_selection),
+        objective_volume_selection=int(resolved_volume_selection),
         objective_state=state,
-        time_aggregation=time_aggregation,
+        time_aggregation=resolved_time_aggregation,
         smooth_max_sharpness=smooth_max_sharpness,
-        time_reduction=time_reduction,
         smooth_max_beta=smooth_max_beta,
     )
     return loss_with_info if return_info else loss_with_info[0]
@@ -760,7 +852,9 @@ def make_stress_norm_loss(
 def make_material_von_mises_loss(
     *,
     result: Any = None,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
+    time: Optional[SmoothTimeAggregationName] = None,
     time_aggregation: SmoothTimeAggregationName,
     smooth_max_sharpness: Optional[float] = None,
     return_info: bool = False,
@@ -775,7 +869,9 @@ def make_material_von_mises_loss(
 def make_material_von_mises_loss(
     *,
     result: Any = None,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
+    time: Optional[TimeAggregationName] = None,
     time_aggregation: TimeAggregationName = "last",
     return_info: bool = False,
     power: int = 2,
@@ -790,8 +886,10 @@ def make_material_von_mises_loss(
     *,
     result: Any = None,
     power: int = 2,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
     state: Optional[Union[str, int]] = "last",
+    time: Optional[TimeAggregationName] = None,
     time_aggregation: Optional[TimeAggregationName] = None,
     smooth_max_sharpness: Optional[float] = None,
     return_info: bool = False,
@@ -806,8 +904,10 @@ def make_material_von_mises_loss(
     *,
     result: Any = None,
     power: int = 2,
+    body: Optional[BodySelection] = None,
     volume_selection: int = 1,
     state: Optional[Union[str, int]] = "last",
+    time: Optional[TimeAggregation] = None,
     time_aggregation: Optional[TimeAggregation] = None,
     smooth_max_sharpness: Optional[float] = None,
     return_info: bool = False,
@@ -816,17 +916,26 @@ def make_material_von_mises_loss(
     objective_names: tuple[str, ...] = ("von_mises_material", "von_mises"),
 ) -> Union[ObjectiveLossResult, ObjectiveLossBuilder]:
     """Build a differentiable von Mises loss for material/elastic optimization."""
+    resolved_volume_selection = _resolve_volume_selection(
+        volume_selection=volume_selection,
+        body=body,
+    )
+    resolved_time_aggregation = _resolve_time_aggregation(
+        time=time,
+        time_aggregation=time_aggregation,
+        time_reduction=time_reduction,
+    )
+
     if result is None:
         def loss_fn(run_result: Any) -> ObjectiveLossResult:
             return make_material_von_mises_loss(
                 result=run_result,
                 power=power,
-                volume_selection=volume_selection,
+                volume_selection=resolved_volume_selection,
                 state=state,
-                time_aggregation=time_aggregation,
+                time_aggregation=resolved_time_aggregation,
                 smooth_max_sharpness=smooth_max_sharpness,
                 return_info=return_info,
-                time_reduction=time_reduction,
                 smooth_max_beta=smooth_max_beta,
                 objective_names=objective_names,
             )
@@ -837,11 +946,10 @@ def make_material_von_mises_loss(
         result=result,
         objective_names=objective_names,
         objective_power=int(power),
-        objective_volume_selection=int(volume_selection),
+        objective_volume_selection=int(resolved_volume_selection),
         objective_state=state,
-        time_aggregation=time_aggregation,
+        time_aggregation=resolved_time_aggregation,
         smooth_max_sharpness=smooth_max_sharpness,
-        time_reduction=time_reduction,
         smooth_max_beta=smooth_max_beta,
     )
     return loss_with_info if return_info else loss_with_info[0]
@@ -853,6 +961,7 @@ __all__ = [
     "ObjectiveLossBuilder",
     "ObjectiveLossInfo",
     "ObjectiveLossWithInfo",
+    "BodySelection",
     "TimeAggregationName",
     "TimeAggregation",
     "SmoothTimeAggregationName",
