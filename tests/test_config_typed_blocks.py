@@ -47,7 +47,7 @@ SurfaceSelection = CONFIG_MODULE.SurfaceSelection
 Constraints = CONFIG_MODULE.Constraints
 SoftConstraint = CONFIG_MODULE.SoftConstraint
 Space = CONFIG_MODULE.Space
-Tests = CONFIG_MODULE.Tests
+ConfigTests = CONFIG_MODULE.Tests
 Input = CONFIG_MODULE.Input
 Time = CONFIG_MODULE.Time
 AugmentedLagrangian = CONFIG_MODULE.AugmentedLagrangian
@@ -362,7 +362,7 @@ class SimulationConfigTypedBlockRoundTripTests(unittest.TestCase):
         self.assertIsInstance(cfg.initial_conditions, InitialConditions)
         self.assertIsInstance(cfg.constraints, Constraints)
         self.assertIsInstance(cfg.space, Space)
-        self.assertIsInstance(cfg.tests, Tests)
+        self.assertIsInstance(cfg.tests, ConfigTests)
         self.assertIsInstance(cfg.input, Input)
         self.assertIsInstance(cfg.output, Output)
         self.assertIsInstance(cfg.output.log, OutputLog)

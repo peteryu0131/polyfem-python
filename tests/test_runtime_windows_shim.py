@@ -132,6 +132,8 @@ class WindowsBranchTests(unittest.TestCase):
     def test_kmp_is_set_when_not_present(self):
         os.environ.pop("KMP_DUPLICATE_LIB_OK", None)
         with unittest.mock.patch.object(sys, "platform", "win32"), \
+                unittest.mock.patch.object(sys, "stdout", io.StringIO()), \
+                unittest.mock.patch.object(sys, "stderr", io.StringIO()), \
                 unittest.mock.patch("os.system", return_value=0):
             result = configure_windows_runtime()
         self.assertEqual(os.environ.get("KMP_DUPLICATE_LIB_OK"), "TRUE")
@@ -140,6 +142,8 @@ class WindowsBranchTests(unittest.TestCase):
     def test_kmp_not_overwritten_when_already_set(self):
         os.environ["KMP_DUPLICATE_LIB_OK"] = "FALSE"  # user's deliberate choice
         with unittest.mock.patch.object(sys, "platform", "win32"), \
+                unittest.mock.patch.object(sys, "stdout", io.StringIO()), \
+                unittest.mock.patch.object(sys, "stderr", io.StringIO()), \
                 unittest.mock.patch("os.system", return_value=0):
             result = configure_windows_runtime()
         self.assertEqual(os.environ.get("KMP_DUPLICATE_LIB_OK"), "FALSE")
@@ -148,6 +152,8 @@ class WindowsBranchTests(unittest.TestCase):
     def test_kmp_overwritten_when_force_is_true(self):
         os.environ["KMP_DUPLICATE_LIB_OK"] = "FALSE"
         with unittest.mock.patch.object(sys, "platform", "win32"), \
+                unittest.mock.patch.object(sys, "stdout", io.StringIO()), \
+                unittest.mock.patch.object(sys, "stderr", io.StringIO()), \
                 unittest.mock.patch("os.system", return_value=0):
             result = configure_windows_runtime(force=True)
         self.assertEqual(os.environ.get("KMP_DUPLICATE_LIB_OK"), "TRUE")

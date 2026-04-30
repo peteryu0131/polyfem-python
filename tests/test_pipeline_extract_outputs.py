@@ -37,13 +37,27 @@ from polyfempy.api._solve_pipeline import (  # noqa: E402
 def _array_mode_inputs() -> NormalizedInputs:
     V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
     C = np.array([[0, 1, 2]], dtype=np.int32)
-    return NormalizedInputs(V_np=V, C_np=C, v_backend="numpy", use_json_mode=False)
+    return NormalizedInputs(
+        V_np=V,
+        C_np=C,
+        body_ids_np=None,
+        boundary_ids_np=None,
+        v_backend="numpy",
+        use_json_mode=False,
+    )
 
 
 def _json_mode_inputs() -> NormalizedInputs:
     # JSON mode: no vertices/cells supplied by the caller. Extraction must
     # rely entirely on what the solver can report back.
-    return NormalizedInputs(V_np=None, C_np=None, v_backend="numpy", use_json_mode=True)
+    return NormalizedInputs(
+        V_np=None,
+        C_np=None,
+        body_ids_np=None,
+        boundary_ids_np=None,
+        v_backend="numpy",
+        use_json_mode=True,
+    )
 
 
 class BundleStrategyTests(unittest.TestCase):

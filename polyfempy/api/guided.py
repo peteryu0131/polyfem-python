@@ -4,12 +4,10 @@ This module is the user-facing import path for the guided section workflow:
 
     from polyfempy.api.guided import body_section, experiment_template, build_config
 
-The current implementation still lives in the experiment support layer so the
-examples can evolve quickly, but callers should treat this module as the
-stable public entry point.
+Callers should treat this module as the stable public entry point.
 """
 
-from experiment.experiment_api_solve._guided_sections import (
+from polyfempy.api.guided_sections import (
     AdhesionSection,
     AxisSideName,
     BasisTypeName,
