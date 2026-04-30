@@ -28,6 +28,14 @@ def test_guided_api_imports():
     assert build_config is not None
 
 
+def test_predefined_problem_helpers_import():
+    from polyfempy.api.problems import Problem, get_problem_class
+
+    assert Problem is not None
+    assert get_problem_class("Gravity") is not None
+    assert get_problem_class("TorsionElastic") is not None
+
+
 def test_differentiable_api_imports():
     from polyfempy.differentiable import (
         prepare_differentiable_simulation,

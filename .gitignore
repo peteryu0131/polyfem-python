@@ -28,6 +28,11 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Local agent/build scratch
+.codex
+.codex_tmp/
+/build_log.txt
+
 # Output files (PolyFEM / Paraview; see end of file for experiment/ override)
 *.vtu
 *.vtm
@@ -38,6 +43,7 @@ htmlcov/
 # Ignore output contents but keep folder visible (track examples/output/.gitkeep)
 examples/output/*
 !examples/output/.gitkeep
+examples/runs/
 
 # Local solve dump at repo root only (avoid matching .../experiment/.../sim.json)
 /sim.json

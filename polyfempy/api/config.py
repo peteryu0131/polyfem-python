@@ -3292,12 +3292,9 @@ class SimulationConfig:
             problem_name = c.problem_type
             problem_class = getattr(pf, problem_name, None)
             if problem_class is None:
-                # Try legacy Problems module
-                try:
-                    from polyfempy.legacy import Problems
-                    problem_class = getattr(Problems, problem_name, None)
-                except ImportError:
-                    pass
+                from polyfempy.api.problems import get_problem_class
+
+                problem_class = get_problem_class(problem_name)
             
             if problem_class is None:
                 raise ValueError(f"Unknown problem type: {problem_name}. "
