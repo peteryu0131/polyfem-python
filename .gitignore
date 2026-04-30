@@ -43,6 +43,9 @@ examples/output/*
 /sim.json
 /impact_stats.json
 
+# Slurm batch logs written at the repo root.
+/slurm_logs/
+
 # IDE
 .vscode/*
 !.vscode/settings.json
