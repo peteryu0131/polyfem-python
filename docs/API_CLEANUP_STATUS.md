@@ -18,11 +18,23 @@ than a collection of experiments. The important user-facing imports are now:
 ```python
 from polyfempy.api import solve, SimulationConfig, Result
 from polyfempy.api.guided import body_section, material_section, contact_section, build_config
-from polyfempy.differentiable import solve_differentiable, prepare_differentiable_simulation
+from polyfempy.differentiable import (
+    make_von_mises_loss,
+    prepare_differentiable_simulation,
+    prepare_optimization_problem,
+    prepare_parameterized_shape_problem,
+    run_optimization,
+)
 ```
 
 The cleaned public examples live in `examples/`, while research and HPC scripts
 remain under `experiment/`.
+
+The current teacher-facing paper demos live in
+`experiment/paper_experiment/`.  The clean h/theta shape optimization demo is
+`experiment/paper_experiment/08_h_theta_shape_optimization.py`; the longer
+`07_h_theta_fix06_global_affine_vertex_map.py` is the experiment driver with
+reporting, early stopping, and mesh snapshots.
 
 ## What Was Done
 
@@ -103,6 +115,9 @@ Added or rewrote:
 - `BUILD.md`
 - `ARTIFACT.md`
 - `examples/README.md`
+- `experiment/paper_experiment/README.md`
+- `experiment/paper_experiment/CLEAN_API_WALKTHROUGH.md`
+- `docs/TEACHER_REVIEW_GUIDE.md`
 
 The README now starts with the library value proposition instead of build notes.
 Build details live in `BUILD.md`. Artifact/reproduction guidance lives in
@@ -144,15 +159,32 @@ problem = prepare_parameterized_shape_problem(cfg=cfg, vertex_map=my_vertex_map)
 Scalar Young's modulus optimization:
 
 ```python
-problem = prepare_scalar_youngs_material_problem(cfg=cfg, body_id=1)
+E_lattice = torch.nn.Parameter(torch.tensor(20.0))
+problem = prepare_optimization_problem(
+    cfg=cfg,
+    kind="material",
+    body_id=1,
+    E_parameter=E_lattice,
+    parameter_name="E_lattice_MPa",
+    bounds=(1.0, None),
+    E_unit="MPa",
+)
 ```
 
 Stable differentiable paths:
 
 - shape gradients through `prepare_differentiable_simulation(..., derivative_type="shape")`
-- scalar Young's modulus optimization through `prepare_scalar_youngs_material_problem(...)`
+- scalar Young's modulus optimization through `prepare_optimization_problem(..., kind="material")`
 - fixed-topology parameterized shape optimization through
   `prepare_parameterized_shape_problem(...)` and a user `vertex_map`
+
+Teacher-facing paper demos:
+
+- `experiment/paper_experiment/01_forward_von_mises.py`: forward `solve(cfg=cfg)`
+- `experiment/paper_experiment/02_shape_diff.py`: shape gradient chain
+- `experiment/paper_experiment/03_E_diff.py`: scalar `E` gradient chain
+- `experiment/paper_experiment/04_x_shape_optimization.py`: raw vertex optimization
+- `experiment/paper_experiment/08_h_theta_shape_optimization.py`: clean h/theta parameterized shape optimization
 
 Advanced or experimental differentiable paths:
 

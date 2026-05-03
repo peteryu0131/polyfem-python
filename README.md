@@ -79,9 +79,9 @@ Optimization helpers:
 
 ```python
 from polyfempy.differentiable import (
-    make_parameter,
-    prepare_scalar_youngs_material_problem,
+    prepare_optimization_problem,
     prepare_parameterized_shape_problem,
+    make_von_mises_loss,
     run_optimization,
 )
 ```
@@ -91,7 +91,7 @@ from polyfempy.differentiable import (
 The recommended differentiable paths for new users are:
 
 - shape gradients through `prepare_differentiable_simulation(..., derivative_type="shape")`
-- scalar Young's modulus optimization through `prepare_scalar_youngs_material_problem(...)`
+- scalar Young's modulus optimization through `prepare_optimization_problem(..., kind="material")`
 - parameterized fixed-topology shape optimization through `prepare_parameterized_shape_problem(...)`
 
 Advanced or experimental paths include initial-condition/initial-velocity
@@ -131,13 +131,25 @@ when the backend is present.
 
 ## Paper Artifact
 
+The teacher-facing Experiment 02 API demos live in:
+
+- `experiment/paper_experiment/README.md`
+
+The shortest h/theta shape-optimization demo is:
+
+- `experiment/paper_experiment/08_h_theta_shape_optimization.py`
+
 For reviewer-facing artifact instructions, see:
 
 - `ARTIFACT.md`
 
-For paper optimization and Compute Canada reproduction scripts, see:
+For current paper optimization and Compute Canada reproduction scripts, see:
 
-- `experiment/experiment_api_solve/paper_experiments/README.md`
+- `experiment/paper_experiment/README.md`
+
+For an advisor-oriented guide to the clean API demos and repository layout, see:
+
+- `docs/TEACHER_REVIEW_GUIDE.md`
 
 The public examples are the recommended quick verification path. The paper
 experiment scripts are heavier reproduction runs.
