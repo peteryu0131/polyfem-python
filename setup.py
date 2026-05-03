@@ -209,7 +209,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 setup(
     name="polyfempy",
     version="0.8",
-    description="Polyfem Python Bindings",
+    description="PolyFEM Python bindings",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://polyfem.github.io/",
@@ -221,8 +221,9 @@ setup(
     packages=find_packages(include=["polyfempy*"]),
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License"
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
     ],
-    python_requires='>=3.6',
-    test_suite="test"
+    python_requires=">=3.10",
 )

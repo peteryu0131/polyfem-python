@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel", "nanobind", "cmake"]
+requires = ["setuptools>=77", "wheel", "nanobind>=2.0.0", "cmake>=3.18"]
 build-backend = "setuptools.build_meta"
 
 # Note: nanobind is used for Python bindings (pybind11 support removed).
@@ -13,31 +13,41 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "polyfempy"
 version = "0.8"
-description="Polyfem Python Bindings"
+description = "PolyFEM Python bindings"
 readme = "README.md"
+license = "MIT"
 authors = [
   { name = "Zizhou Huang", email = "zizhou@nyu.edu" },
 ]
-requires-python = ">=3.6"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.23",
+]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License"
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 [project.optional-dependencies]
-differentiable = [
-    "torch>=1.9.0",
-]
-nanobind = [
-    "nanobind>=2.0.0",
-]
 io = [
     "meshio>=5.0.0",
 ]
+differentiable = [
+    "torch>=2.0.0",
+]
+visualization = [
+    "matplotlib>=3.5",
+]
+dev = [
+    "pytest>=7.0",
+]
 all = [
-    "torch>=1.9.0",
-    "nanobind>=2.0.0",
+    "matplotlib>=3.5",
     "meshio>=5.0.0",
+    "pytest>=7.0",
+    "torch>=2.0.0",
 ]
 
 [tool.setuptools]

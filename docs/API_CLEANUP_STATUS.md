@@ -95,12 +95,11 @@ python -m pytest tests
 Added a clean top-level `examples/` directory:
 
 - `examples/01_forward_solve.py`
-- `examples/02_contact_impact.py`
-- `examples/03_result_fields.py`
-- `examples/04_differentiable_shape_gradient.py`
-- `examples/05_scalar_E_optimization.py`
-- `examples/06_parameterized_vertex_map.py`
-- `examples/07_dataset_one_case.py`
+- `examples/02_result_fields.py`
+- `examples/03_shape_gradient.py`
+- `examples/04_scalar_E_gradient.py`
+- `examples/05_parameterized_vertex_map.py`
+- `examples/06_dataset_one_case.py`
 - `examples/configs/contact_impact.json`
 - `examples/assets/impact/*.msh`
 
@@ -278,8 +277,8 @@ Backend quickstart check:
 
 ```bash
 python examples/01_forward_solve.py
-python examples/02_contact_impact.py
-python examples/04_differentiable_shape_gradient.py
+python examples/02_result_fields.py
+python examples/03_shape_gradient.py
 ```
 
 ## Suggested Next Step

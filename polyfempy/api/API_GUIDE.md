@@ -278,14 +278,13 @@ The top-level `examples/` directory contains the recommended short tutorials:
 
 ```bash
 python examples/01_forward_solve.py
-python examples/02_contact_impact.py
-python examples/03_result_fields.py
+python examples/02_result_fields.py
 ```
 
 Differentiable examples require PyTorch:
 
 ```bash
-python examples/04_differentiable_shape_gradient.py
-python examples/05_scalar_E_optimization.py
-python examples/06_parameterized_vertex_map.py
+python examples/03_shape_gradient.py
+python examples/04_scalar_E_gradient.py
+python examples/05_parameterized_vertex_map.py
 ```

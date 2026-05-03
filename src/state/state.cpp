@@ -831,9 +831,11 @@ void define_solver(py::module_ &m)
             //   - pressure       : (n_sampled, 1) or empty — pressure if present
             //   - scalar_value   : (n_sampled, 1)     — von Mises (per-point)
             //   - scalar_value_avg : (n_sampled, 1)   — node-averaged von Mises
-            //   - tensor_value   : (n_sampled, dim*dim) — stress / tensor field
-            //   - body_ids       : (n_sampled, 1) int  — per-sample body id
             //   - exact / error  : populated only when an exact solution is known
+            //
+            // The current PolyFEM ``SolutionFrame`` does not store tensor
+            // fields or body ids in memory. Those fields are still available
+            // through VTU/sample fallback paths when PolyFEM writes them.
             //
             // Zero VTU file I/O — the arrays come straight out of PolyFEM's
             // in-memory buffers via nanobind's Eigen → numpy zero-copy path.
@@ -847,8 +849,6 @@ void define_solver(py::module_ &m)
               d["pressure"] = f.pressure;
               d["scalar_value"] = f.scalar_value;
               d["scalar_value_avg"] = f.scalar_value_avg;
-              d["tensor_value"] = f.tensor_value;
-              d["body_ids"] = f.body_ids;
               d["exact"] = f.exact;
               d["error"] = f.error;
               frames.append(d);

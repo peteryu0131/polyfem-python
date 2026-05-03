@@ -83,8 +83,8 @@ Run these from the repository root after the C++ backend is available:
 
 ```bash
 python examples/01_forward_solve.py
-python examples/04_differentiable_shape_gradient.py
-python examples/06_parameterized_vertex_map.py
+python examples/03_shape_gradient.py
+python examples/05_parameterized_vertex_map.py
 ```
 
 These examples write timestamped outputs under:
@@ -167,24 +167,22 @@ All public examples live in `examples/`:
 
 ```bash
 python examples/01_forward_solve.py
-python examples/02_contact_impact.py
-python examples/03_result_fields.py
-python examples/04_differentiable_shape_gradient.py
-python examples/05_scalar_E_optimization.py
-python examples/06_parameterized_vertex_map.py
-python examples/07_dataset_one_case.py
+python examples/02_result_fields.py
+python examples/03_shape_gradient.py
+python examples/04_scalar_E_gradient.py
+python examples/05_parameterized_vertex_map.py
+python examples/06_dataset_one_case.py
 ```
 
 Example coverage:
 
 - `01_forward_solve.py`: guided config plus `solve(cfg=...)`.
-- `02_contact_impact.py`: two-body transient contact impact.
-- `03_result_fields.py`: `Result` fields and VTK-compatible export.
-- `04_differentiable_shape_gradient.py`: `d loss / d vertices`.
-- `05_scalar_E_optimization.py`: scalar Young's modulus optimization.
-- `06_parameterized_vertex_map.py`: user-defined `vertex_map` for named shape
+- `02_result_fields.py`: `Result` fields and VTK-compatible export.
+- `03_shape_gradient.py`: `d loss / d vertices`.
+- `04_scalar_E_gradient.py`: `d loss / d E`.
+- `05_parameterized_vertex_map.py`: user-defined `vertex_map` for named shape
   parameters.
-- `07_dataset_one_case.py`: one local training-sample export.
+- `06_dataset_one_case.py`: one local training-sample export.
 
 These examples use checked-in meshes under `examples/assets/impact/`, so they do
 not require Gmsh or a Slurm/Compute Canada environment.

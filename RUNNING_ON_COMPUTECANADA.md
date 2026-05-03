@@ -145,14 +145,14 @@ environment smoke test after building `polyfempy`:
 
 ```bash
 python examples/01_forward_solve.py
-python examples/03_result_fields.py
+python examples/02_result_fields.py
 ```
 
 Differentiable examples additionally require PyTorch:
 
 ```bash
-python examples/04_differentiable_shape_gradient.py
-python examples/06_parameterized_vertex_map.py
+python examples/03_shape_gradient.py
+python examples/05_parameterized_vertex_map.py
 ```
 
 Outputs are written under `examples/runs/`, which is ignored by git.

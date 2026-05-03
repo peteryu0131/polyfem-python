@@ -34,14 +34,14 @@ print(result.vertices.shape)
 Run the same idea as a script:
 
 ```bash
-python examples/02_contact_impact.py
+python examples/01_forward_solve.py
 ```
 
 Run differentiable shape-gradient and vertex-map examples:
 
 ```bash
-python examples/04_differentiable_shape_gradient.py
-python examples/06_parameterized_vertex_map.py
+python examples/03_shape_gradient.py
+python examples/05_parameterized_vertex_map.py
 ```
 
 Generated outputs go under `examples/runs/`, which is ignored by git.
@@ -104,12 +104,11 @@ the differentiable backend itself.
 The top-level `examples/` directory contains short user-facing tutorials:
 
 - `examples/01_forward_solve.py`: forward solve with guided config
-- `examples/02_contact_impact.py`: transient two-body contact impact
-- `examples/03_result_fields.py`: structured fields and `to_torch()`
-- `examples/04_differentiable_shape_gradient.py`: `d loss / d vertices`
-- `examples/05_scalar_E_optimization.py`: scalar Young's modulus optimization
-- `examples/06_parameterized_vertex_map.py`: user-defined shape `vertex_map`
-- `examples/07_dataset_one_case.py`: one local training-sample export
+- `examples/02_result_fields.py`: structured result fields and VTK export
+- `examples/03_shape_gradient.py`: `d loss / d vertices`
+- `examples/04_scalar_E_gradient.py`: `d loss / d E`
+- `examples/05_parameterized_vertex_map.py`: user-defined shape `vertex_map`
+- `examples/06_dataset_one_case.py`: one local training-sample export
 
 These examples use checked-in meshes under `examples/assets/impact/`, so they
 do not require Gmsh or a cluster environment.
