@@ -20,10 +20,10 @@ This repository contains:
   optimization helpers.
 - `examples/`: short user-facing examples that do not depend on Compute Canada.
 - `tests/`: import, config, result, runtime, and pipeline tests.
-- `experiment/experiment_api_solve/paper_experiments/`: paper-facing
-  optimization/reproduction scripts.
-- `experiment/compute_canada_training_cases/`: larger HPC dataset-generation
-  workflows.
+- `experiment/paper_experiment/`: paper-facing API demos, optimization
+  scripts, mesh-generation checks, and current Slurm wrappers.
+- `experiment/prepare_paper/`: paper notes, figure/table planning, and
+  dataset/result layout documentation.
 
 The intended use cases are:
 
@@ -230,39 +230,39 @@ returned.
 The paper-facing optimization scripts live in:
 
 ```text
-experiment/experiment_api_solve/paper_experiments/
+experiment/paper_experiment/
 ```
 
 Run from the repository root after activating a working environment:
 
 ```bash
-python -m experiment.experiment_api_solve.paper_experiments.paper_E_opt
-python -m experiment.experiment_api_solve.paper_experiments.paper_shape_opt
-python -m experiment.experiment_api_solve.paper_experiments.paper_h_theta_autograd_opt
+python experiment/paper_experiment/03_E_diff.py
+python experiment/paper_experiment/04_x_shape_optimization.py
+python experiment/paper_experiment/08_h_theta_shape_optimization.py
 ```
 
-The h/theta vertex-map API comparison runs are:
+The h/theta vertex-map and reporting runs are:
 
 ```bash
-python -m experiment.experiment_api_solve.paper_experiments.paper_h_theta_autograd_opt
-python -m experiment.experiment_api_solve.paper_experiments.paper_h_theta_helper_vertex_map_test
-python -m experiment.experiment_api_solve.paper_experiments.paper_h_theta_inline_vertex_map_test
+python experiment/paper_experiment/05_h_theta_manual_vertex_map.py
+python experiment/paper_experiment/06_h_theta_before_after_report.py
+python experiment/paper_experiment/07_h_theta_fix06_global_affine_vertex_map.py
 ```
 
 For Compute Canada / Slurm runs, see:
 
 ```text
-experiment/experiment_api_solve/paper_experiments/README.md
+RUNNING_ON_COMPUTECANADA.md
+experiment/paper_experiment/compute_canada_run_test/README.md
+experiment/paper_experiment/compute_canada_run_07/README.md
 ```
 
 The Slurm scripts are intentionally separate from the public examples:
 
 ```bash
-sbatch experiment/experiment_api_solve/paper_experiments/sbatch_paper_E_opt.sh
-sbatch experiment/experiment_api_solve/paper_experiments/sbatch_paper_shape_opt.sh
-sbatch experiment/experiment_api_solve/paper_experiments/sbatch_paper_h_theta_autograd_opt.sh
-sbatch experiment/experiment_api_solve/paper_experiments/sbatch_paper_h_theta_helper_vertex_map_test.sh
-sbatch experiment/experiment_api_solve/paper_experiments/sbatch_paper_h_theta_inline_vertex_map_test.sh
+sbatch experiment/paper_experiment/compute_canada_run_test/sbatch_E_h_theta_tests.sh
+sbatch experiment/paper_experiment/compute_canada_run_07/sbatch_07_h_theta_cases.sh
+sbatch experiment/paper_experiment/compute_canada_run_07/find_best_demo/sbatch_h_theta_demo_cases.sh
 ```
 
 These paper runs are heavier than the public examples. Use the public examples
@@ -289,7 +289,9 @@ Common outputs include:
 Paper experiments write to:
 
 ```text
-experiment/experiment_api_solve/paper_experiments/runs/<run_name>_<timestamp>/
+experiment/paper_experiment/runs/<run_name>_<timestamp>/
+experiment/paper_experiment/compute_canada_run_test/runs/<run_name>/
+experiment/paper_experiment/compute_canada_run_07/runs/<run_name>/
 ```
 
 Common paper-run outputs include:
