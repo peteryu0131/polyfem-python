@@ -31,6 +31,7 @@ htmlcov/
 # Local agent/build scratch
 .codex
 .codex_tmp/
+/Class-Generation-From-Json-main/
 /build_log.txt
 
 # Output files (PolyFEM / Paraview; see end of file for experiment/ override)
@@ -54,7 +55,6 @@ examples/runs/
 
 # IDE
 .vscode/*
-!.vscode/settings.json
 .idea/
 *.sublime-workspace
 *.sublime-project
