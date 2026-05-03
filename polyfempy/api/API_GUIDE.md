@@ -178,9 +178,12 @@ result.meta
 Inspect available fields before assuming a particular quantity is present:
 
 ```python
-print(result.summary())
 print(sorted(result.field_names()))
 ```
+
+`result.summary()` is available for quick terminal inspection, but examples and
+library code should use structured fields such as `result.u`,
+`result.von_mises`, and `result.history`.
 
 For arbitrary fields:
 
@@ -227,7 +230,7 @@ There are two output concerns:
 2. Python-facing result extraction, such as requested fields and fallback
    behavior
 
-For examples and scripts, prefer the runtime helpers:
+When a script needs file output or logging, use the runtime helpers explicitly:
 
 ```python
 from polyfempy.api.runtime import result_output, terminal_log
@@ -256,7 +259,6 @@ result_output(cfg, directory="runs/case_001", save_vtu=False)
 
 result = solve(cfg=cfg)
 
-print(result.summary())
 print(result.von_mises)
 ```
 

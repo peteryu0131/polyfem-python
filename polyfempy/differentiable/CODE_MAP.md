@@ -35,7 +35,6 @@ from polyfempy.differentiable import (
     prepare_optimization_problem,
     prepare_parameterized_shape_problem,
     prepare_scalar_youngs_material_problem,
-    report_optimization_baseline,
     run_optimization,
     save_training_sample,
     shape_gradient_for_body,
@@ -56,11 +55,13 @@ Generic optimization flow:
 
 ```text
 prepare_optimization_problem(...)
-  -> report_optimization_baseline(...)
   -> make_optimizer(problem)
   -> make_von_mises_loss(...)
   -> run_optimization(problem, ...)
 ```
+
+`report_optimization_baseline(...)` is available when an experiment needs a
+baseline report, but it is not part of the minimal optimization path.
 
 Advanced diagnostics and legacy bridge probes should be imported from:
 
@@ -87,15 +88,18 @@ autograd bridge. It owns:
 - body-slot helpers for material masks
 - high-level differentiable solve entry points
 
-Recommended public functions:
+Key exported functions:
 
 ```text
 prepare_differentiable_simulation
-solve_differentiable
 solve_differentiable_material_from_youngs
 youngs_value_to_internal
 youngs_to_lame
 ```
+
+`solve_differentiable(...)` is still exported as the lower-level compatibility
+entry point, but new user scripts should prefer
+`prepare_differentiable_simulation(...)`.
 
 ### `torch_integration.py`
 

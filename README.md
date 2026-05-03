@@ -70,10 +70,14 @@ Differentiable simulation:
 ```python
 from polyfempy.differentiable import (
     prepare_differentiable_simulation,
-    solve_differentiable,
     make_von_mises_loss,
+    shape_gradient_for_body,
 )
 ```
+
+`solve_differentiable(...)` remains available as a lower-level compatibility
+entry point, but new scripts should usually start with
+`prepare_differentiable_simulation(...)`.
 
 Optimization helpers:
 
@@ -98,6 +102,9 @@ Advanced or experimental paths include initial-condition/initial-velocity
 gradients, raw `derivative_type="material"` use, and lower-level torch-bridge
 diagnostics. Prefer the public helper functions above unless you are extending
 the differentiable backend itself.
+
+Reporting and runtime helpers are available for scripts that need logs or
+history artifacts, but they are optional helpers rather than the core API path.
 
 ## Examples
 

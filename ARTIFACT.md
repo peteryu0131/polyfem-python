@@ -119,10 +119,14 @@ Differentiable simulation:
 ```python
 from polyfempy.differentiable import (
     prepare_differentiable_simulation,
-    solve_differentiable,
     make_von_mises_loss,
+    shape_gradient_for_body,
 )
 ```
+
+`solve_differentiable(...)` remains available as a lower-level compatibility
+entry point; new examples should normally use
+`prepare_differentiable_simulation(...)`.
 
 Optimization helpers:
 
