@@ -11,8 +11,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypeAlias, overload
 
-import numpy as np
-
 from polyfempy.api import (
     Adhesion,
     CollisionMesh,
@@ -44,6 +42,10 @@ from polyfempy.api import (
     SurfaceSelection,
     Time,
     Units,
+)
+from polyfempy.api._guided_array_mesh import (
+    build_guided_array_mesh_payload,
+    is_array_backed_body,
 )
 
 
@@ -1675,84 +1677,6 @@ def add_body_from_section(cfg: SimulationConfig, section: BodySection):
     return body
 
 
-def _is_array_backed_body(section: BodySection) -> bool:
-    return section.vertices is not None or section.cells is not None
-
-
-def _coerce_body_vertices(vertices: Any, *, body_name: str) -> np.ndarray:
-    vertices_np = np.asarray(vertices, dtype=np.float64)
-    if vertices_np.ndim != 2:
-        raise ValueError(
-            f"array-backed body '{body_name}' requires vertices with shape (n_vertices, dim), "
-            f"got {vertices_np.shape!r}"
-        )
-    if vertices_np.shape[0] == 0:
-        raise ValueError(f"array-backed body '{body_name}' requires at least one vertex")
-    return vertices_np
-
-
-def _coerce_body_cells(cells: Any, *, body_name: str) -> np.ndarray:
-    cells_np = np.asarray(cells, dtype=np.int32)
-    if cells_np.ndim != 2:
-        raise ValueError(
-            f"array-backed body '{body_name}' requires cells/faces with shape (n_cells, k), "
-            f"got {cells_np.shape!r}"
-        )
-    if cells_np.shape[0] == 0:
-        raise ValueError(f"array-backed body '{body_name}' requires at least one cell/face")
-    return cells_np
-
-
-def _build_guided_array_mesh_payload(
-    array_bodies: list[tuple[BodySection, Any]],
-) -> dict[str, np.ndarray]:
-    merged_vertices: list[np.ndarray] = []
-    merged_cells: list[np.ndarray] = []
-    merged_body_ids: list[np.ndarray] = []
-
-    expected_dim: int | None = None
-    expected_cell_width: int | None = None
-    vertex_offset = 0
-
-    for section, body in array_bodies:
-        vertices_np = _coerce_body_vertices(section.vertices, body_name=section.name)
-        cells_np = _coerce_body_cells(section.cells, body_name=section.name)
-
-        if expected_dim is None:
-            expected_dim = int(vertices_np.shape[1])
-        elif vertices_np.shape[1] != expected_dim:
-            raise ValueError(
-                "all array-backed bodies must use the same vertex dimension; "
-                f"expected {expected_dim}, got {vertices_np.shape[1]} for body '{section.name}'"
-            )
-
-        if expected_cell_width is None:
-            expected_cell_width = int(cells_np.shape[1])
-        elif cells_np.shape[1] != expected_cell_width:
-            raise ValueError(
-                "all array-backed bodies must use the same cell width; "
-                f"expected {expected_cell_width}, got {cells_np.shape[1]} for body '{section.name}'"
-            )
-
-        if np.any(cells_np < 0):
-            raise ValueError(f"array-backed body '{section.name}' contains negative cell indices")
-        if int(cells_np.max()) >= int(vertices_np.shape[0]):
-            raise ValueError(
-                f"array-backed body '{section.name}' has cell indices outside its vertex range"
-            )
-
-        merged_vertices.append(vertices_np)
-        merged_cells.append(cells_np + vertex_offset)
-        merged_body_ids.append(np.full(cells_np.shape[0], body.volume_id, dtype=np.int32))
-        vertex_offset += int(vertices_np.shape[0])
-
-    return {
-        "vertices": np.vstack(merged_vertices),
-        "cells": np.vstack(merged_cells),
-        "body_ids": np.concatenate(merged_body_ids),
-    }
-
-
 def build_surface_selection(section: FixedSurfaceSection) -> SurfaceSelection:
     side_to_axis = {
         "x_min": -1,
@@ -2077,7 +2001,7 @@ def build_config(template: ExperimentTemplate, workspace: Path) -> SimulationCon
 
     for body_section_obj in template.bodies:
         body = add_body_from_section(cfg, body_section_obj)
-        if _is_array_backed_body(body_section_obj):
+        if is_array_backed_body(body_section_obj):
             array_bodies.append((body_section_obj, body))
         else:
             file_backed_body_seen = True
@@ -2087,7 +2011,7 @@ def build_config(template: ExperimentTemplate, workspace: Path) -> SimulationCon
             raise ValueError(
                 "guided templates cannot currently mix mesh-file bodies with vertices/cells bodies"
             )
-        cfg.extras["_mesh_array_mode"] = _build_guided_array_mesh_payload(array_bodies)
+        cfg.extras["_mesh_array_mode"] = build_guided_array_mesh_payload(array_bodies)
 
     if template.geometry_extras:
         geometry_obj = cfg._ensure_geometry_object()
