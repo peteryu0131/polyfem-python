@@ -272,9 +272,16 @@ class ParameterizedShapeOptimizationProblem:
             )
 
         def parameter_snapshot() -> dict[str, torch.Tensor]:
+            params = self.design.torch_parameters()
+            design_names = self.design.differentiable_param_names()
             return {
-                str(parameter_name(parameter, f"param_{index}")): parameter.detach().clone()
-                for index, parameter in enumerate(self.design.torch_parameters())
+                str(
+                    parameter_name(
+                        parameter,
+                        design_names[index] if index < len(design_names) else f"param_{index}",
+                    )
+                ): parameter.detach().clone()
+                for index, parameter in enumerate(params)
             }
 
         for iteration in range(int(steps)):

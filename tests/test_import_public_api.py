@@ -136,3 +136,12 @@ def test_differentiable_api_imports():
 
     assert solve_differentiable is not None
     assert prepare_differentiable_simulation is not None
+
+
+def test_differentiable_compatibility_api_is_not_public_all():
+    import polyfempy.differentiable as diff
+
+    assert hasattr(diff, "COMPATIBILITY_API")
+    for name in diff.COMPATIBILITY_API:
+        assert hasattr(diff, name)
+        assert name not in diff.__all__

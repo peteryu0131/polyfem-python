@@ -2,8 +2,9 @@
 
 Recommended user scripts should stay on the small public surface below. Lower
 level diagnostics, finite-difference checks, and legacy torch-bridge probes live
-under ``polyfempy.differentiable.advanced``; selected names remain re-exported
-here only for backward compatibility with older experiments.
+under ``polyfempy.differentiable.advanced``. Compatibility names are still
+available by explicit import when PyTorch is installed, but they are excluded
+from ``__all__`` so the recommended API is easy to inspect.
 """
 
 # pyright: reportMissingImports=false
@@ -30,11 +31,34 @@ except ImportError:
 
 PUBLIC_API = [
     "prepare_differentiable_simulation",
-    "solve_differentiable",
-    "solve_differentiable_material_from_youngs",
     "DifferentiableResult",
     "DifferentiableMaterialResult",
     "ParameterizedVertexDesign",
+    "ObjectiveLossResult",
+    "make_von_mises_loss",
+    "make_stress_norm_loss",
+    "make_optimizer",
+    "OptimizationKind",
+    "OptimizationProblem",
+    "OptimizationRunResult",
+    "prepare_optimization_problem",
+    "prepare_parameterized_shape_problem",
+    "run_optimization",
+    "body_vertex_mask",
+    "shape_gradient_for_body",
+    "save_training_sample",
+]
+
+ADVANCED_COMPAT_API = [
+    "solve_differentiable",
+    "solve_differentiable_material_from_youngs",
+    "build_solver_from_settings",
+    "solver_body_ids_for_assembly",
+    "solver_body_slot_mask",
+    "solve_differentiable_material",
+    "youngs_value_to_internal",
+    "youngs_to_lame",
+    "build_lame_from_youngs",
     "make_bounds_projector",
     "make_named_parameter_map",
     "make_parameter",
@@ -47,42 +71,12 @@ PUBLIC_API = [
     "tan_half_angle_scale",
     "vertices_axis_le",
     "vertices_y_le",
-    "ObjectiveLossResult",
-    "SmoothTimeAggregationName",
-    "TimeAggregation",
-    "TimeAggregationName",
-    "make_von_mises_loss",
-    "make_stress_norm_loss",
-    "make_optimizer",
-    "OptimizationKind",
-    "OptimizationProblem",
-    "OptimizationRunResult",
-    "prepare_optimization_baseline_simulation",
-    "prepare_optimization_problem",
-    "report_optimization_baseline",
-    "run_optimization",
-    "prepare_scalar_youngs_material_problem",
-    "prepare_parameterized_shape_problem",
-    "body_vertex_mask",
-    "shape_gradient_for_body",
-    "gradient_norm",
-    "print_loss_summary",
-    "print_parameterized_shape_summary",
-    "print_scalar_material_summary",
-    "save_training_sample",
-]
-
-ADVANCED_COMPAT_API = [
-    "build_solver_from_settings",
-    "solver_body_ids_for_assembly",
-    "solver_body_slot_mask",
-    "solve_differentiable_material",
-    "youngs_value_to_internal",
-    "youngs_to_lame",
-    "build_lame_from_youngs",
     "create_polyfem_objective",
     "make_material_von_mises_loss",
     "material_design_vector",
+    "SmoothTimeAggregationName",
+    "TimeAggregation",
+    "TimeAggregationName",
     "ScalarMaterialOptimizationProblem",
     "ScalarMaterialOptimizationStep",
     "apply_finite_difference_gradient_fallback",
@@ -96,8 +90,11 @@ ADVANCED_COMPAT_API = [
     "objective_solution_rhs_diagnostics",
     "print_material_chain_diagnostics",
     "print_objective_rhs_diagnostics",
+    "prepare_optimization_baseline_simulation",
     "prepare_material_differentiable_simulation",
     "prepare_material_optimization_problem",
+    "prepare_scalar_youngs_material_problem",
+    "report_optimization_baseline",
     "run_scalar_material_optimization",
     "usable_scalar_gradient",
     "ParameterizedShapeOptimizationProblem",
@@ -114,10 +111,15 @@ ADVANCED_COMPAT_API = [
     "print_shape_optimization_step",
     "run_shape_optimization",
     "get_direct_von_mises_monitor",
+    "gradient_norm",
+    "print_loss_summary",
+    "print_parameterized_shape_summary",
+    "print_scalar_material_summary",
 ]
 
 ADVANCED_API = ADVANCED_COMPAT_API
-__all__ = PUBLIC_API + [name for name in ADVANCED_COMPAT_API if name not in PUBLIC_API]
+COMPATIBILITY_API = ADVANCED_COMPAT_API
+__all__ = list(PUBLIC_API)
 
 
 def _missing_torch_stub(name: str) -> Callable[..., None]:
@@ -233,6 +235,6 @@ if _TORCH_AVAILABLE:
     from .shape_mask import body_vertex_mask, shape_gradient_for_body
     from .training_data import save_training_sample
 else:
-    for _name in __all__:
+    for _name in dict.fromkeys(PUBLIC_API + ADVANCED_COMPAT_API):
         globals()[_name] = _missing_torch_stub(_name)
     del _name

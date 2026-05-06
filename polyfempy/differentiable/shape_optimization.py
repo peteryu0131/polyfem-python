@@ -505,8 +505,8 @@ def prepare_parameterized_shape_problem(
 
     This is the user-friendly wrapper around the lower-level
     ``prepare_parameterized_shape_optimization_problem(...)``. It expects
-    parameters created by ``make_parameter(...)`` or explicit
-    ``parameter_names``. The ``vertex_map`` receives a dictionary by default:
+    plain ``torch.nn.Parameter`` objects plus explicit ``parameter_names``.
+    The ``vertex_map`` receives a dictionary by default:
 
     ``vertex_map({"h": h, "theta": theta}, base_vertices)``.
 
