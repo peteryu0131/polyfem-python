@@ -117,7 +117,7 @@ tests 分成两类。
 | --- | --- | --- | --- |
 | `README.md` | `from polyfempy.api import SimulationConfig, solve` | 推荐 public | 保留 |
 | `polyfempy/README.md` | `from polyfempy.api import SimulationConfig, Result, solve` | 推荐 public | 保留 |
-| `polyfempy/api/API_GUIDE.md` | 多个 `polyfempy.api` imports | user guide | 后续同步 public surface wording |
+| `polyfempy/api/DOC/API_GUIDE.md` | 多个 `polyfempy.api` imports | archived user guide | 后续同步 public surface wording |
 
 后续文档 cleanup 应该统一说法：
 

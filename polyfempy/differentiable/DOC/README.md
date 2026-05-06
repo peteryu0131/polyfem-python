@@ -52,12 +52,10 @@ Most user scripts should stay on this small surface:
 ```python
 from polyfempy.differentiable import (
     make_optimizer,
-    make_parameter,
     make_von_mises_loss,
     prepare_differentiable_simulation,
     prepare_optimization_problem,
     prepare_parameterized_shape_problem,
-    prepare_scalar_youngs_material_problem,
     run_optimization,
 )
 ```
@@ -104,7 +102,6 @@ PolyFEM still differentiates with respect to vertices. The new API makes the
 ```python
 import torch
 from polyfempy.differentiable import (
-    make_parameter,
     make_optimizer,
     make_von_mises_loss,
     prepare_parameterized_shape_problem,
@@ -113,10 +110,9 @@ from polyfempy.differentiable import (
 
 torch.set_default_dtype(torch.float64)
 
-# User design variables. These are normal torch Parameters with name/bounds
-# metadata used by the wrapper.
-h = make_parameter("h", 0.04, bounds=(0.03, 0.07))
-theta_deg = make_parameter("theta_deg", 90.0, bounds=(60.0, 110.0))
+# User design variables are plain PyTorch Parameters.
+h = torch.nn.Parameter(torch.tensor(0.04))
+theta_deg = torch.nn.Parameter(torch.tensor(90.0))
 
 
 def vertex_map(params, base_vertices, context):
@@ -139,6 +135,8 @@ def vertex_map(params, base_vertices, context):
 problem = prepare_parameterized_shape_problem(
     cfg=cfg,
     parameters=[h, theta_deg],
+    parameter_names=["h", "theta_deg"],
+    bounds={"h": (0.03, 0.07), "theta_deg": (60.0, 110.0)},
     vertex_map=vertex_map,
 )
 
@@ -173,7 +171,7 @@ Inputs:
 
 ```text
 params:
-  dict[str, torch.Tensor] by default, keyed by make_parameter(...) names
+  dict[str, torch.Tensor] by default, keyed by parameter_names
 
 base_vertices:
   fixed-topology mesh vertices loaded from cfg
@@ -222,7 +220,10 @@ requirements.
 `prepare_parameterized_shape_problem(...)` is a user-friendly wrapper. It
 builds the lower-level `ParameterizedVertexDesign`, passes a name dictionary to
 `vertex_map`, uses parameter names for reports, and clamps parameters to their
-optional bounds after each optimizer step.
+optional bounds after each optimizer step. Plain `torch.nn.Parameter` objects
+are the recommended inputs. The older `make_parameter(...)` helper remains
+available for compatibility when a script wants to attach name/bounds metadata
+directly to the parameter object.
 
 The lower-level `prepare_parameterized_shape_optimization_problem(...)` remains
 available for advanced callers that already own a `ParameterizedVertexDesign`
@@ -235,12 +236,14 @@ The paper h/theta script can use the same API. Its experiment-specific part is
 only the vertex map:
 
 ```python
-h = make_parameter("h", 0.04, bounds=(0.03, 0.07))
-theta_deg = make_parameter("theta_deg", 90.0, bounds=(60.0, 110.0))
+h = torch.nn.Parameter(torch.tensor(0.04))
+theta_deg = torch.nn.Parameter(torch.tensor(90.0))
 
 problem = prepare_parameterized_shape_problem(
     cfg=cfg,
     parameters=[h, theta_deg],
+    parameter_names=["h", "theta_deg"],
+    bounds={"h": (0.03, 0.07), "theta_deg": (60.0, 110.0)},
     vertex_map=_h_theta_vertex_map,
     context={},
 )
@@ -257,8 +260,8 @@ This uses two unrelated design parameters: a vertical scale on one selected
 body and a horizontal shift. The names and formulas are entirely user-defined:
 
 ```python
-lattice_y_scale = make_parameter("lattice_y_scale", 1.0, bounds=(0.98, 1.02))
-block_shift_x = make_parameter("block_shift_x", 0.0, bounds=(-0.10, 0.10))
+lattice_y_scale = torch.nn.Parameter(torch.tensor(1.0))
+block_shift_x = torch.nn.Parameter(torch.tensor(0.0))
 
 
 def vertex_map(params, base_vertices, context):
@@ -280,6 +283,8 @@ def vertex_map(params, base_vertices, context):
 problem = prepare_parameterized_shape_problem(
     cfg=cfg,
     parameters=[lattice_y_scale, block_shift_x],
+    parameter_names=["lattice_y_scale", "block_shift_x"],
+    bounds={"lattice_y_scale": (0.98, 1.02), "block_shift_x": (-0.10, 0.10)},
     vertex_map=vertex_map,
     context={},
 )
@@ -298,20 +303,23 @@ The material side has the same user-facing parameter style for the common
 scalar Young's modulus case:
 
 ```python
+import torch
 from polyfempy.differentiable import (
     make_optimizer,
-    make_parameter,
     make_von_mises_loss,
-    prepare_scalar_youngs_material_problem,
+    prepare_optimization_problem,
     run_optimization,
 )
 
-E_lattice = make_parameter("E_lattice_MPa", 20.0, bounds=(1.0, None))
+E_lattice = torch.nn.Parameter(torch.tensor(20.0))
 
-problem = prepare_scalar_youngs_material_problem(
+problem = prepare_optimization_problem(
     cfg=cfg,
+    kind="material",
     body_id=1,
     E_parameter=E_lattice,
+    parameter_name="E_lattice_MPa",
+    bounds=(1.0, None),
     E_unit="MPa",
 )
 
@@ -371,6 +379,8 @@ problem = prepare_optimization_problem(
     kind="material",
     body_id=1,
     E_parameter=E_lattice,
+    parameter_name="E_lattice_MPa",
+    bounds=(1.0, None),
     E_unit="MPa",
 )
 ```

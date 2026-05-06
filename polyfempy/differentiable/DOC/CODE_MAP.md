@@ -29,12 +29,10 @@ Recommended imports for user scripts:
 ```python
 from polyfempy.differentiable import (
     make_optimizer,
-    make_parameter,
     make_von_mises_loss,
     prepare_differentiable_simulation,
     prepare_optimization_problem,
     prepare_parameterized_shape_problem,
-    prepare_scalar_youngs_material_problem,
     run_optimization,
     save_training_sample,
     shape_gradient_for_body,
@@ -196,8 +194,10 @@ log_E or E parameter
   -> chain rule back to scalar E
 ```
 
-Use `prepare_scalar_youngs_material_problem(...)` for the public one-scalar
-material workflow.
+Use `prepare_optimization_problem(..., kind="material", E_parameter=...)` for
+the public one-scalar material workflow. The lower-level
+`prepare_scalar_youngs_material_problem(...)` helper remains available for
+compatibility.
 
 ### `optimization_problem.py` and `optimization_runner.py`
 
