@@ -52,8 +52,8 @@ The clean paper demos are:
 | `01_forward_von_mises.py` | Forward solve and structured result fields. |
 | `02_shape_diff.py` | Shape differentiation: `loss.backward()` gives `dL/dX`. |
 | `03_E_diff.py` | Material differentiation: scalar Young's modulus parameter gets `E.grad`. |
-| `04_x_shape_optimization.py` | Raw vertex-position shape optimization. |
-| `08_h_theta_shape_optimization.py` | Parameterized shape optimization through explicit `h/theta -> vertices` map. |
+| `04_x_shape_optimization.py` | Raw vertex-position shape optimization with `OptimizationRunResult.summary()`. |
+| `08_h_theta_shape_optimization.py` | Parameterized shape optimization through explicit `h/theta -> vertices` map, with `OptimizationRunResult.summary()`. |
 
 The longer `07_h_theta_fix06_global_affine_vertex_map.py` is the experiment
 driver. It keeps reporting, early stopping, and mesh snapshots for Compute
@@ -124,7 +124,8 @@ h, theta_deg
 - paths and shared constants,
 - workspace creation,
 - PolyFEM output/log configuration,
-- reporting helpers used by longer experiment scripts.
+- compact summary helpers used by optimization demos and longer experiment
+  scripts.
 
 It does not define the solve, the loss, the backward pass, the optimizer loop,
 or the h/theta geometry map used in the clean demo.

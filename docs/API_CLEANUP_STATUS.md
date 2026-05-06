@@ -216,8 +216,8 @@ Teacher-facing paper demos:
 - `experiment/paper_experiment/01_forward_von_mises.py`: forward `solve(cfg=cfg)`
 - `experiment/paper_experiment/02_shape_diff.py`: shape gradient chain
 - `experiment/paper_experiment/03_E_diff.py`: scalar `E` gradient chain
-- `experiment/paper_experiment/04_x_shape_optimization.py`: raw vertex optimization
-- `experiment/paper_experiment/08_h_theta_shape_optimization.py`: clean h/theta parameterized shape optimization
+- `experiment/paper_experiment/04_x_shape_optimization.py`: raw vertex optimization with `OptimizationRunResult.summary()`
+- `experiment/paper_experiment/08_h_theta_shape_optimization.py`: clean h/theta parameterized shape optimization with `OptimizationRunResult.summary()`
 
 Advanced or experimental differentiable paths:
 
