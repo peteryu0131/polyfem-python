@@ -2,6 +2,18 @@
 
 Start here when reviewing the repository:
 
+## Reviewer Quick Path
+
+- `TEACHER_REVIEW_GUIDE.md`: recommended reading order for advisor/reviewer
+  inspection.
+- `TOMS_REVIEW_CHECKLIST.md`: reviewer-style checklist for API clarity,
+  software contract, examples, tests, and reproducibility.
+- `ARTIFACT_REPRODUCIBILITY.md`: shortest validation path for the software
+  artifact.
+- `TEST_MATRIX.md`: cleanup-slice to test-subset matrix for future changes.
+
+## Full Index
+
 - `TEACHER_REVIEW_GUIDE.md`: advisor-facing map of the clean API demos, repo
   layout, and what is or is not hidden behind each helper.
 - `API_FUNCTION_MAP.md`: function-by-function call map for the public helpers,

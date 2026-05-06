@@ -9,6 +9,12 @@ Python configuration API, guided simulation helpers, differentiable PyTorch
 interfaces, result extraction utilities, small user-facing examples, and paper
 experiment scripts built on top of the PolyFEM C++ backend.
 
+For the Phase 3 reviewer-facing API contract and validation plan, see:
+
+- `docs/TOMS_REVIEW_CHECKLIST.md`
+- `docs/ARTIFACT_REPRODUCIBILITY.md`
+- `docs/TEST_MATRIX.md`
+
 ## 1. What This Repository Provides
 
 This repository contains:
@@ -83,8 +89,8 @@ Run these from the repository root after the C++ backend is available:
 
 ```bash
 python examples/01_forward_solve.py
+python examples/02_result_fields.py
 python examples/03_shape_gradient.py
-python examples/05_parameterized_vertex_map.py
 ```
 
 These examples write timestamped outputs under:
@@ -106,12 +112,7 @@ from polyfempy.api import solve, SimulationConfig, Result
 Guided config construction:
 
 ```python
-from polyfempy.api.guided import (
-    body_section,
-    material_section,
-    contact_section,
-    build_config,
-)
+import polyfempy.api.guided as g
 ```
 
 Differentiable simulation:
@@ -132,8 +133,8 @@ Optimization helpers:
 
 ```python
 from polyfempy.differentiable import (
-    make_parameter,
-    prepare_scalar_youngs_material_problem,
+    make_von_mises_loss,
+    prepare_optimization_problem,
     prepare_parameterized_shape_problem,
     run_optimization,
 )
@@ -143,7 +144,7 @@ Differentiable stability labels:
 
 - Stable: shape gradients with `derivative_type="shape"`.
 - Stable: scalar Young's modulus optimization through
-  `prepare_scalar_youngs_material_problem(...)`.
+  `prepare_optimization_problem(..., kind="material")`.
 - Stable: fixed-topology parameterized shape optimization through
   `prepare_parameterized_shape_problem(...)` and a user `vertex_map`.
 - Advanced / experimental: initial-condition or initial-velocity gradients,
@@ -152,7 +153,7 @@ Differentiable stability labels:
 Typical forward flow:
 
 ```python
-cfg = build_config(template, workspace)
+cfg = g.build_config(template, workspace)
 result = solve(cfg=cfg)
 ```
 
@@ -209,7 +210,7 @@ The tests include public import smoke tests:
 
 ```python
 from polyfempy.api import solve, SimulationConfig, Result
-from polyfempy.api.guided import body_section, material_section, contact_section, build_config
+import polyfempy.api.guided as g
 from polyfempy.differentiable import solve_differentiable, prepare_differentiable_simulation
 ```
 

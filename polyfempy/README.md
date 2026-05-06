@@ -15,6 +15,12 @@ Forward simulations:
 from polyfempy.api import SimulationConfig, Result, solve
 ```
 
+Guided config construction:
+
+```python
+import polyfempy.api.guided as g
+```
+
 Differentiable solves and optimization:
 
 ```python
@@ -64,7 +70,7 @@ The paper-facing optimization demos should not call those internals directly.
 They should stay on:
 
 ```text
-build_config / solve
+g.build_config / solve
 prepare_optimization_problem
 prepare_parameterized_shape_problem
 make_von_mises_loss
