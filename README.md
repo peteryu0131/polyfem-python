@@ -29,12 +29,27 @@ result = solve(cfg=cfg)
 
 print(result.u.shape)
 print(result.vertices.shape)
+print(result.available_fields())
 ```
 
 Run the same idea as a script:
 
 ```bash
 python examples/01_forward_solve.py
+```
+
+Inspect fields and export a VTU file:
+
+```python
+u = result.point_field("u")
+von_mises = result.field("von_mises")
+result.write("result_fields.vtu")
+```
+
+or run:
+
+```bash
+python examples/02_result_fields.py
 ```
 
 Run differentiable shape-gradient and vertex-map examples:
@@ -124,15 +139,16 @@ For the current API surface decision and import audit, see:
 
 The top-level `examples/` directory contains short user-facing tutorials:
 
-- `examples/01_forward_solve.py`: forward solve with guided config
-- `examples/02_result_fields.py`: structured result fields and VTK export
-- `examples/03_shape_gradient.py`: `d loss / d vertices`
-- `examples/04_scalar_E_gradient.py`: `d loss / d E`
-- `examples/05_parameterized_vertex_map.py`: user-defined shape `vertex_map`
-- `examples/06_dataset_one_case.py`: one local training-sample export
+- core: `examples/01_forward_solve.py`, `examples/02_result_fields.py`
+- advanced: `examples/03_shape_gradient.py` through `examples/06_dataset_one_case.py`
+- paper reproduction: `experiment/paper_experiment/`
 
 These examples use checked-in meshes under `examples/assets/impact/`, so they
 do not require Gmsh or a cluster environment.
+
+For the examples-to-capability matrix, see:
+
+- `docs/EXAMPLES_MATRIX.md`
 
 ## Tests
 
@@ -162,6 +178,9 @@ The shortest h/theta shape-optimization demo is:
 For reviewer-facing artifact instructions, see:
 
 - `ARTIFACT.md`
+- `docs/TOMS_REVIEW_CHECKLIST.md`
+- `docs/ARTIFACT_REPRODUCIBILITY.md`
+- `docs/TEST_MATRIX.md`
 
 For current paper optimization and Compute Canada reproduction scripts, see:
 

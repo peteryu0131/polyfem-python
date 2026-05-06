@@ -271,6 +271,7 @@ class Result:
         nc = self.n_cells
         for k, v in fields.items():
             a = np.ascontiguousarray(np.asarray(v))
+            a = self._normalize_vector_field(k, a, nv)
             n = a.shape[0] if a.ndim >= 1 else 0
             if n == nv:
                 self._point_data[k] = a
@@ -278,6 +279,21 @@ class Result:
                 self._cell_data[k] = a
             else:
                 self._point_data[k] = a
+
+    def _normalize_vector_field(self, name, arr, n_vertices):
+        """Reshape common solver DOF vectors into per-vertex vector fields."""
+        if name not in {"u", "v"}:
+            return arr
+        if self.vertices.ndim != 2:
+            return arr
+        dim = self.vertices.shape[1]
+        if n_vertices <= 0 or dim <= 0:
+            return arr
+        if arr.ndim == 1 and arr.size == n_vertices * dim:
+            return np.ascontiguousarray(arr.reshape(n_vertices, dim))
+        if arr.ndim == 2 and arr.shape[1] == 1 and arr.shape[0] == n_vertices * dim:
+            return np.ascontiguousarray(arr.reshape(n_vertices, dim))
+        return arr
 
     @property
     def n_vertices(self):

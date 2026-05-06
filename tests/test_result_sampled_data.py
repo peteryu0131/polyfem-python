@@ -216,6 +216,17 @@ class FieldByBodyTests(unittest.TestCase):
 
 
 class IntrospectionTests(unittest.TestCase):
+    def test_flat_displacement_vector_is_reshaped_to_vertex_dim(self):
+        V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
+        C = np.array([[0, 1, 2]], dtype=np.int32)
+        flat_u = np.arange(6, dtype=np.float64).reshape(6, 1)
+        r = Result("numpy", V, C, fields={"u": flat_u})
+
+        np.testing.assert_array_equal(
+            r.point_field("u"),
+            np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]]),
+        )
+
     def test_field_names_includes_sampled(self):
         r = _make_native_result(with_native_stress=True)
         r.set_sampled_field("von_mises", np.array([1.0, 2.0, 3.0]))
