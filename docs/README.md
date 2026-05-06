@@ -6,6 +6,21 @@ Start here when reviewing the repository:
   layout, and what is or is not hidden behind each helper.
 - `API_FUNCTION_MAP.md`: function-by-function call map for the public helpers,
   including what each helper calls internally and which pieces are shared.
+- `API_STABILITY.md`: Phase 3 stability contract for stable public API,
+  advanced/compatibility names, and internal-only modules.
+- `GUIDED_API.md`: guided configuration contract for `polyfempy.api.guided`.
+- `CONFIG_CONTRACT.md`: `SimulationConfig` contract, including full/minimal
+  JSON semantics and `solve(cfg=...)` input forms.
+- `RESULT_CONTRACT.md`: `Result` field namespaces, history, sampled-data, and
+  mesh I/O semantics.
+- `EXAMPLES_MATRIX.md`: examples-to-capability matrix for TOMS-style software
+  evaluation.
+- `TOMS_REVIEW_CHECKLIST.md`: reviewer-style checklist for API clarity,
+  software contract, examples, tests, and reproducibility.
+- `ARTIFACT_REPRODUCIBILITY.md`: shortest artifact validation path, including
+  no-backend contract checks, backend smoke, and example smoke commands.
+- `TEST_MATRIX.md`: cleanup-slice to test-subset matrix for safe future API
+  changes.
 - `API_CLEANUP_PHASE2_PLAN.md`: detailed Chinese plan for deciding the public
   API surface and safely sequencing the next cleanup phase.
 - `API_PUBLIC_SURFACE_DECISION.md`: concrete Phase 2 decision on recommended

@@ -224,6 +224,33 @@ class IntrospectionTests(unittest.TestCase):
         self.assertIn("stress", names)
         self.assertIn("von_mises", names)
 
+    def test_available_fields_groups_names_by_namespace(self):
+        r = _make_native_result(with_native_stress=True)
+        r.cell_data["mat_id"] = np.array([7], dtype=np.int32)
+        r.set_sampled_field("von_mises", np.array([1.0, 2.0, 3.0]))
+
+        self.assertEqual(
+            r.available_fields(),
+            {
+                "point_data": ["stress", "u"],
+                "cell_data": ["mat_id"],
+                "sampled_data": ["von_mises"],
+            },
+        )
+
+    def test_namespace_specific_field_accessors_do_not_fall_through(self):
+        r = _make_native_result(with_native_stress=True)
+        sampled_stress = np.array([[99.0, 99.0, 99.0]] * 5)
+        r.set_sampled_field("stress", sampled_stress)
+
+        np.testing.assert_array_equal(
+            r.point_field("stress"),
+            np.array([[1.0, 2.0, 0.5]] * 3),
+        )
+        np.testing.assert_array_equal(r.sampled_field("stress"), sampled_stress)
+        self.assertIsNone(r.cell_field("stress"))
+        self.assertEqual(r.cell_field("stress", default="missing"), "missing")
+
     def test_summary_reports_sampled_data_namespace(self):
         r = _make_native_result()
         r.set_sampled_field("stress", np.array([[1.0, 2.0, 3.0]] * 4))

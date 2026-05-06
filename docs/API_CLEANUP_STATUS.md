@@ -30,6 +30,27 @@ from polyfempy.differentiable import (
 The cleaned public examples live in `examples/`, while research and HPC scripts
 remain under `experiment/`.
 
+Phase 3 adds TOMS-facing contract documentation:
+
+- `docs/API_STABILITY.md`: stable public API vs compatibility vs internal.
+- `docs/GUIDED_API.md`: guided section authoring contract.
+- `docs/CONFIG_CONTRACT.md`: `SimulationConfig` and JSON semantics.
+- `docs/RESULT_CONTRACT.md`: `Result` fields/history/sampled-data semantics.
+- `docs/EXAMPLES_MATRIX.md`: examples-to-capability matrix.
+- `docs/TOMS_REVIEW_CHECKLIST.md`: reviewer-style API/artifact checklist.
+- `docs/ARTIFACT_REPRODUCIBILITY.md`: minimal reproducibility command path.
+- `docs/TEST_MATRIX.md`: cleanup-slice test subset matrix.
+
+Phase 3 also keeps `Result` lightweight but clearer for users:
+
+```python
+result.field("von_mises")          # merged lookup: point -> cell -> sampled
+result.point_field("u")            # native point namespace only
+result.cell_field("material_id")   # native cell namespace only
+result.sampled_field("stress")     # sampled/probe namespace only
+result.available_fields()          # names grouped by namespace
+```
+
 The current teacher-facing paper demos live in
 `experiment/paper_experiment/`.  The clean h/theta shape optimization demo is
 `experiment/paper_experiment/08_h_theta_shape_optimization.py`; the longer

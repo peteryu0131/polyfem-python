@@ -406,6 +406,18 @@ class Result:
             return self._cell_data[name]
         return self._sampled_data.get(name)
 
+    def point_field(self, name, default=None):
+        """Return a native point field without falling through to other namespaces."""
+        return self._point_data.get(name, default)
+
+    def cell_field(self, name, default=None):
+        """Return a native cell field without falling through to other namespaces."""
+        return self._cell_data.get(name, default)
+
+    def sampled_field(self, name, default=None):
+        """Return a sampled/probe-mesh field without falling through to native data."""
+        return self._sampled_data.get(name, default)
+
     def set_field(self, name, value):
         """Store a field aligned with the native mesh.
 
@@ -668,11 +680,19 @@ class Result:
         )
 
     def field_names(self):
-        return list(
+        return sorted(
             set(self._point_data)
             | set(self._cell_data)
             | set(self._sampled_data)
         )
+
+    def available_fields(self):
+        """Return field names grouped by namespace for user-facing introspection."""
+        return {
+            "point_data": sorted(self._point_data),
+            "cell_data": sorted(self._cell_data),
+            "sampled_data": sorted(self._sampled_data),
+        }
 
     def summary(self):
         dim = self.vertices.shape[1] if self.vertices.ndim == 2 else "?"

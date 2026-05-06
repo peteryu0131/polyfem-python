@@ -16,16 +16,28 @@ but they are not the recommended API entry point.
 2. `polyfempy/README.md`
    - Package-level map of the small recommended API and larger implementation
      layers.
-3. `examples/`
+3. `docs/API_STABILITY.md`
+   - Stable public API, compatibility API, and internal-only module boundaries.
+4. `docs/GUIDED_API.md`, `docs/CONFIG_CONTRACT.md`, `docs/RESULT_CONTRACT.md`
+   - Contracts for config authoring, solver-facing config, and structured
+     outputs.
+5. `docs/EXAMPLES_MATRIX.md`
+   - Examples-to-capability matrix for software evaluation.
+6. `docs/TOMS_REVIEW_CHECKLIST.md`
+   - Reviewer-style self-check for API clarity, stability, tests, and artifact
+     reproducibility.
+7. `docs/ARTIFACT_REPRODUCIBILITY.md`, `docs/TEST_MATRIX.md`
+   - Minimal validation commands and cleanup-slice test subsets.
+8. `examples/`
    - Small standalone tutorials that do not require Compute Canada.
-4. `experiment/paper_experiment/README.md`
+9. `experiment/paper_experiment/README.md`
    - Paper-facing Experiment 02 demos.
-5. `experiment/paper_experiment/CLEAN_API_WALKTHROUGH.md`
+10. `experiment/paper_experiment/CLEAN_API_WALKTHROUGH.md`
    - Function-by-function explanation of the clean demo scripts.
-6. `docs/API_FUNCTION_MAP.md`
+11. `docs/API_FUNCTION_MAP.md`
    - Public helper call map: what each function contains, what it calls, and
      which pieces are shared API versus demo code.
-7. `experiment/paper_experiment/08_h_theta_shape_optimization.py`
+12. `experiment/paper_experiment/08_h_theta_shape_optimization.py`
    - Clean h/theta parameterized shape optimization demo.
 
 ## Clean API Files
