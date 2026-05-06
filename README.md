@@ -115,6 +115,14 @@ from polyfempy.differentiable import (
 )
 ```
 
+Recommended optimization runs request a stable result object:
+
+```python
+run = run_optimization(..., return_result=True)
+print(run.final_loss, run.best_loss)
+print(run.summary())
+```
+
 ### Differentiable Stability
 
 The recommended differentiable paths for new users are:
@@ -181,6 +189,7 @@ For reviewer-facing artifact instructions, see:
 - `docs/TOMS_REVIEW_CHECKLIST.md`
 - `docs/ARTIFACT_REPRODUCIBILITY.md`
 - `docs/TEST_MATRIX.md`
+- `docs/DIFFERENTIABLE_CONTRACT.md`
 
 For current paper optimization and Compute Canada reproduction scripts, see:
 

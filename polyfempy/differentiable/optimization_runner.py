@@ -41,6 +41,8 @@ class OptimizationRunResult:
     summary_path: Optional[Path] = None
     history_summary_path: Optional[Path] = None
     gradient_dir: Optional[Path] = None
+    success: bool = True
+    message: str = "completed"
 
     @property
     def iterations(self) -> int:
@@ -55,13 +57,33 @@ class OptimizationRunResult:
     @property
     def final_loss(self) -> float | None:
         """Final loss as a Python float, or ``None`` when no step ran."""
-        step = self.final_step
-        if step is None or not hasattr(step, "loss"):
+        return _step_loss_float(self.final_step)
+
+    @property
+    def best_step(self) -> Any | None:
+        """Completed step with the smallest loss, or ``None`` when unavailable."""
+        candidates = [
+            (loss, step)
+            for step in self.steps
+            if (loss := _step_loss_float(step)) is not None
+        ]
+        if not candidates:
             return None
-        loss = step.loss
-        if hasattr(loss, "detach"):
-            return float(loss.detach().cpu().item())
-        return float(loss)
+        return min(candidates, key=lambda item: item[0])[1]
+
+    @property
+    def best_loss(self) -> float | None:
+        """Best loss across completed steps, or ``None`` when no loss exists."""
+        return _step_loss_float(self.best_step)
+
+    @property
+    def best_iteration(self) -> int | None:
+        """Iteration index for ``best_step``, if available."""
+        step = self.best_step
+        if step is None:
+            return None
+        iteration = getattr(step, "iteration", None)
+        return None if iteration is None else int(iteration)
 
     @property
     def final_gradient(self) -> Any | None:
@@ -74,9 +96,13 @@ class OptimizationRunResult:
         step = self.final_step
         out: dict[str, Any] = {
             "problem_type": type(self.problem).__name__,
+            "success": bool(self.success),
+            "message": str(self.message),
             "optimization_steps": self.iterations,
             "final_iteration": None if step is None else getattr(step, "iteration", None),
             "final_loss": self.final_loss,
+            "best_iteration": self.best_iteration,
+            "best_loss": self.best_loss,
             "workspace": None if self.workspace is None else str(self.workspace),
             "summary_path": None if self.summary_path is None else str(self.summary_path),
             "history_summary_path": None
@@ -266,6 +292,7 @@ def _run_shape_problem(
     )
     if not return_result:
         return completed_steps
+    success, message = _completion_status(completed_steps, steps)
     return OptimizationRunResult(
         problem=problem,
         steps=completed_steps,
@@ -273,6 +300,8 @@ def _run_shape_problem(
         summary_path=_path_or_none(summary_path),
         history_summary_path=_path_or_none(history_summary_path),
         gradient_dir=_path_or_none(gradient_dir),
+        success=success,
+        message=message,
     )
 
 
@@ -311,6 +340,7 @@ def _run_material_problem(
     )
     if not return_result:
         return completed_steps
+    success, message = _completion_status(completed_steps, steps)
     return OptimizationRunResult(
         problem=problem,
         steps=completed_steps,
@@ -318,7 +348,33 @@ def _run_material_problem(
         summary_path=_path_or_none(summary_path),
         history_summary_path=_path_or_none(history_summary_path),
         gradient_dir=None,
+        success=success,
+        message=message,
     )
+
+
+def _step_loss_float(step: Any) -> float | None:
+    if step is None or not hasattr(step, "loss"):
+        return None
+    loss = step.loss
+    if hasattr(loss, "detach"):
+        return float(loss.detach().cpu().item())
+    return float(loss)
+
+
+def _completion_status(completed_steps: list[Any], requested_steps: int) -> tuple[bool, str]:
+    requested = int(requested_steps)
+    completed = len(completed_steps)
+    if completed == requested:
+        return True, f"completed {completed} optimization {_step_word(completed)}"
+    return False, (
+        f"completed {completed} of {requested} requested optimization "
+        f"{_step_word(requested)}"
+    )
+
+
+def _step_word(count: int) -> str:
+    return "step" if int(count) == 1 else "steps"
 
 
 def _path_or_none(value: Any) -> Optional[Path]:

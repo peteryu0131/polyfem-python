@@ -140,6 +140,14 @@ from polyfempy.differentiable import (
 )
 ```
 
+For repeated optimization runs, new scripts should request the stable result
+object:
+
+```python
+run = run_optimization(..., return_result=True)
+summary = run.summary()
+```
+
 Differentiable stability labels:
 
 - Stable: shape gradients with `derivative_type="shape"`.

@@ -51,6 +51,16 @@ result.sampled_field("stress")     # sampled/probe namespace only
 result.available_fields()          # names grouped by namespace
 ```
 
+Phase 4 adds a differentiable / optimization result contract:
+
+- `docs/DIFFERENTIABLE_CONTRACT.md`: one-shot differentiable solve,
+  optimization problem kinds, `OptimizationRunResult`, compatibility policy,
+  and tests.
+- `run_optimization(..., return_result=True)` returns a stable object with
+  `steps`, `final_loss`, `best_loss`, `success`, `message`, and `summary()`.
+- Default `run_optimization(...)` still returns the legacy step list for
+  backward compatibility.
+
 The current teacher-facing paper demos live in
 `experiment/paper_experiment/`.  The clean h/theta shape optimization demo is
 `experiment/paper_experiment/08_h_theta_shape_optimization.py`; the longer

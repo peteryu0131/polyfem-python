@@ -25,6 +25,8 @@ Start here when reviewing the repository:
   JSON semantics and `solve(cfg=...)` input forms.
 - `RESULT_CONTRACT.md`: `Result` field namespaces, history, sampled-data, and
   mesh I/O semantics.
+- `DIFFERENTIABLE_CONTRACT.md`: Phase 4 differentiable / optimization API
+  contract, including `OptimizationRunResult`.
 - `EXAMPLES_MATRIX.md`: examples-to-capability matrix for TOMS-style software
   evaluation.
 - `TOMS_REVIEW_CHECKLIST.md`: reviewer-style checklist for API clarity,

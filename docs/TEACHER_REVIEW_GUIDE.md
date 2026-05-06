@@ -21,23 +21,26 @@ but they are not the recommended API entry point.
 4. `docs/GUIDED_API.md`, `docs/CONFIG_CONTRACT.md`, `docs/RESULT_CONTRACT.md`
    - Contracts for config authoring, solver-facing config, and structured
      outputs.
-5. `docs/EXAMPLES_MATRIX.md`
+5. `docs/DIFFERENTIABLE_CONTRACT.md`
+   - Differentiable solve, optimization problem, and optimization result
+     contracts.
+6. `docs/EXAMPLES_MATRIX.md`
    - Examples-to-capability matrix for software evaluation.
-6. `docs/TOMS_REVIEW_CHECKLIST.md`
+7. `docs/TOMS_REVIEW_CHECKLIST.md`
    - Reviewer-style self-check for API clarity, stability, tests, and artifact
      reproducibility.
-7. `docs/ARTIFACT_REPRODUCIBILITY.md`, `docs/TEST_MATRIX.md`
+8. `docs/ARTIFACT_REPRODUCIBILITY.md`, `docs/TEST_MATRIX.md`
    - Minimal validation commands and cleanup-slice test subsets.
-8. `examples/`
+9. `examples/`
    - Small standalone tutorials that do not require Compute Canada.
-9. `experiment/paper_experiment/README.md`
+10. `experiment/paper_experiment/README.md`
    - Paper-facing Experiment 02 demos.
-10. `experiment/paper_experiment/CLEAN_API_WALKTHROUGH.md`
+11. `experiment/paper_experiment/CLEAN_API_WALKTHROUGH.md`
    - Function-by-function explanation of the clean demo scripts.
-11. `docs/API_FUNCTION_MAP.md`
+12. `docs/API_FUNCTION_MAP.md`
    - Public helper call map: what each function contains, what it calls, and
      which pieces are shared API versus demo code.
-12. `experiment/paper_experiment/08_h_theta_shape_optimization.py`
+13. `experiment/paper_experiment/08_h_theta_shape_optimization.py`
    - Clean h/theta parameterized shape optimization demo.
 
 ## Clean API Files

@@ -77,5 +77,12 @@ make_von_mises_loss
 run_optimization
 ```
 
+For new optimization scripts, prefer:
+
+```python
+run = run_optimization(..., return_result=True)
+run.summary()
+```
+
 Lower-level helpers remain importable for older experiments, but the docs and
 examples should treat them as compatibility or advanced APIs.
