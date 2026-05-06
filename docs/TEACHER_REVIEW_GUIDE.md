@@ -13,16 +13,19 @@ but they are not the recommended API entry point.
 
 1. `README.md`
    - High-level project scope and public API summary.
-2. `examples/`
+2. `polyfempy/README.md`
+   - Package-level map of the small recommended API and larger implementation
+     layers.
+3. `examples/`
    - Small standalone tutorials that do not require Compute Canada.
-3. `experiment/paper_experiment/README.md`
+4. `experiment/paper_experiment/README.md`
    - Paper-facing Experiment 02 demos.
-4. `experiment/paper_experiment/CLEAN_API_WALKTHROUGH.md`
+5. `experiment/paper_experiment/CLEAN_API_WALKTHROUGH.md`
    - Function-by-function explanation of the clean demo scripts.
-5. `docs/API_FUNCTION_MAP.md`
+6. `docs/API_FUNCTION_MAP.md`
    - Public helper call map: what each function contains, what it calls, and
      which pieces are shared API versus demo code.
-6. `experiment/paper_experiment/08_h_theta_shape_optimization.py`
+7. `experiment/paper_experiment/08_h_theta_shape_optimization.py`
    - Clean h/theta parameterized shape optimization demo.
 
 ## Clean API Files

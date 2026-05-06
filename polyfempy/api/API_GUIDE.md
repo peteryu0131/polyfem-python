@@ -201,9 +201,9 @@ The preferred approach is to request fields through the config/result-output
 helpers before solving. The public examples use:
 
 ```python
-from polyfempy.api.guided import results_section
+import polyfempy.api.guided as g
 
-results = results_section(requested_fields=["u", "stress", "von_mises"])
+results = g.results_section(requested_fields=["u", "stress", "von_mises"])
 ```
 
 When native solver output already includes `stress`, `Result.von_mises` can be

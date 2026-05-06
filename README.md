@@ -48,6 +48,10 @@ Generated outputs go under `examples/runs/`, which is ignored by git.
 
 ## Public API
 
+The recommended user-facing surface is intentionally small. Lower-level config
+classes and reporting helpers remain available, but they are treated as
+advanced or compatibility APIs rather than the first path for new users.
+
 Forward simulation:
 
 ```python
@@ -57,12 +61,18 @@ from polyfempy.api import solve, SimulationConfig, Result
 Guided config construction:
 
 ```python
-from polyfempy.api.guided import (
-    body_section,
-    material_section,
-    contact_section,
-    build_config,
+import polyfempy.api.guided as g
+
+template = g.simulation_template(
+    bodies=g.bodies_section(
+        g.body_section(
+            name="body",
+            mesh="mesh.msh",
+            material=g.material_section(model="NeoHookean", E=20.0, nu=0.45),
+        )
+    ),
 )
+cfg = g.build_config(template, workspace)
 ```
 
 Differentiable simulation:
@@ -105,6 +115,10 @@ the differentiable backend itself.
 
 Reporting and runtime helpers are available for scripts that need logs or
 history artifacts, but they are optional helpers rather than the core API path.
+For the current API surface decision and import audit, see:
+
+- `docs/API_PUBLIC_SURFACE_DECISION.md`
+- `docs/API_INTERNAL_IMPORT_AUDIT.md`
 
 ## Examples
 

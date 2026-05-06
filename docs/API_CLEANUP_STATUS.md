@@ -17,7 +17,7 @@ than a collection of experiments. The important user-facing imports are now:
 
 ```python
 from polyfempy.api import solve, SimulationConfig, Result
-from polyfempy.api.guided import body_section, material_section, contact_section, build_config
+import polyfempy.api.guided as g
 from polyfempy.differentiable import (
     make_von_mises_loss,
     prepare_differentiable_simulation,
@@ -138,7 +138,10 @@ print(result.vertices.shape)
 Guided config:
 
 ```python
-from polyfempy.api.guided import body_section, material_section, contact_section, build_config
+import polyfempy.api.guided as g
+
+template = g.simulation_template(...)
+cfg = g.build_config(template, workspace)
 ```
 
 Differentiable shape:

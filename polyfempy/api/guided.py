@@ -2,9 +2,12 @@
 
 This module is the user-facing import path for the guided section workflow:
 
-    from polyfempy.api.guided import body_section, experiment_template, build_config
+    import polyfempy.api.guided as g
+    template = g.simulation_template(...)
 
-Callers should treat this module as the stable public entry point.
+Callers should treat this module as the stable public entry point. The larger
+``guided_sections`` module owns the implementation; this file owns the import
+surface and preserves compatibility for existing examples.
 """
 
 from polyfempy.api.guided_sections import (
@@ -59,6 +62,7 @@ from polyfempy.api.guided_sections import (
     RotationModeName,
     SolverContactSection,
     SolverSection,
+    SimulationTemplate,
     SpaceSection,
     SurfaceSelectionModeName,
     LineSearchName,
@@ -100,13 +104,17 @@ from polyfempy.api.guided_sections import (
     results_section,
     solver_contact_section,
     solver_section,
+    simulation_template,
     space_section,
     time_section,
     transformation_section,
     units_section,
 )
 
+# Keep the export list explicit so public examples do not accidentally depend
+# on implementation-only names from guided_sections.py.
 __all__ = [
+    # Section dataclasses and type aliases.
     "AdhesionSection",
     "AxisSideName",
     "BasisTypeName",
@@ -158,6 +166,7 @@ __all__ = [
     "RotationModeName",
     "SolverContactSection",
     "SolverSection",
+    "SimulationTemplate",
     "SpaceSection",
     "SurfaceSelectionModeName",
     "LineSearchName",
@@ -167,6 +176,7 @@ __all__ = [
     "TransformationSection",
     "UnitsSection",
     "YoungPoissonModelName",
+    # Section factory and builder functions.
     "adhesion_section",
     "bodies_section",
     "body_section",
@@ -199,6 +209,7 @@ __all__ = [
     "results_section",
     "solver_contact_section",
     "solver_section",
+    "simulation_template",
     "space_section",
     "time_section",
     "transformation_section",

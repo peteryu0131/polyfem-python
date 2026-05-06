@@ -10,6 +10,8 @@ previous version; this refactor is behavior-preserving.
 
 from typing import Callable, Optional
 
+# ``solve`` is the only recommended public entry in this module. The staged
+# helpers are imported here only to preserve older import paths.
 from . import _solve_pipeline as _p
 from ._solve_pipeline import (
     RuntimeOptions,
@@ -39,10 +41,23 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Backward-compat aliases for internal callers that previously imported the
-# private helpers from this module. New code should use ``_solve_pipeline``
-# directly.
+# Backward-compat aliases for callers that previously imported private helpers
+# from this module. New code and tests should use ``_solve_pipeline`` directly.
+# These names intentionally stay out of ``__all__``.
 # ---------------------------------------------------------------------------
+
+COMPATIBILITY_ALIASES = (
+    "_process_json_config",
+    "_clean_json_for_cpp",
+    "_merge_user_cfg_over_full_json",
+    "_extract_runtime_output_request",
+    "_extract_additional_fields",
+    "_maybe_fill_result_from_temp_vtu",
+    "_finalize_result_output",
+    "_reconstruct_sampled_cauchy_stress",
+    "_extract_meshio_array",
+    "_field_available",
+)
 
 _process_json_config = _p.process_json_config
 _clean_json_for_cpp = _p.clean_json_for_cpp

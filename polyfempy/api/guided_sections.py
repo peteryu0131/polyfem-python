@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypeAlias, overload
 
-from polyfempy.api import (
+from .config import (
     Adhesion,
     CollisionMesh,
     Contact,
@@ -43,7 +43,7 @@ from polyfempy.api import (
     Time,
     Units,
 )
-from polyfempy.api._guided_array_mesh import (
+from ._guided_array_mesh import (
     build_guided_array_mesh_payload,
     is_array_backed_body,
 )
@@ -551,6 +551,7 @@ class ExperimentTemplate:
     output: OutputSection = field(default_factory=OutputSection)
 
 
+SimulationTemplate = ExperimentTemplate
 ImpactTemplate = ExperimentTemplate
 
 
@@ -589,7 +590,7 @@ def default_impact_bodies() -> list[BodySection]:
 
 def default_impact_template() -> ExperimentTemplate:
     """Create a fully-filled runnable preset for the impact example."""
-    return experiment_template(
+    return simulation_template(
         problem=problem_section(
             pde="NonLinearElasticity",
         ),
@@ -1508,7 +1509,7 @@ def output_section(
     )
 
 
-def experiment_template(
+def simulation_template(
     *,
     problem: ProblemSection | None = None,
     units: UnitsSection | None = None,
@@ -1521,8 +1522,8 @@ def experiment_template(
     contact: ContactSection | None = None,
     results: ResultsSection | None = None,
     output: OutputSection | None = None,
-) -> ExperimentTemplate:
-    """Assemble the full guided experiment template.
+) -> SimulationTemplate:
+    """Assemble a guided simulation template.
 
     This is the top-level container that gathers all sections before
     ``build_config(...)`` turns them into a concrete ``SimulationConfig``.
@@ -1540,6 +1541,11 @@ def experiment_template(
         results=results_section() if results is None else results,
         output=output_section() if output is None else output,
     )
+
+
+def experiment_template(**kwargs) -> ExperimentTemplate:
+    """Compatibility alias for ``simulation_template(...)``."""
+    return simulation_template(**kwargs)
 
 
 def impact_template(**kwargs) -> ExperimentTemplate:
@@ -1980,7 +1986,7 @@ def build_output(section: OutputSection, results: ResultsSection, workspace: Pat
     return output
 
 
-def build_config(template: ExperimentTemplate, workspace: Path) -> SimulationConfig:
+def build_config(template: SimulationTemplate, workspace: Path) -> SimulationConfig:
     if not template.bodies:
         raise ValueError("guided template requires at least one body in template.bodies")
 
