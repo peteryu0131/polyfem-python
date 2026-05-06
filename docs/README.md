@@ -23,8 +23,8 @@ Start here when reviewing the repository:
 - `GUIDED_API.md`: guided configuration contract for `polyfempy.api.guided`.
 - `CONFIG_CONTRACT.md`: `SimulationConfig` contract, including full/minimal
   JSON semantics and `solve(cfg=...)` input forms.
-- `RESULT_CONTRACT.md`: `Result` field namespaces, history, sampled-data, and
-  mesh I/O semantics.
+- `RESULT_CONTRACT.md`: `Result` field namespaces, strict field lookup,
+  history, sampled-data, and mesh I/O semantics.
 - `DIFFERENTIABLE_CONTRACT.md`: Phase 4 differentiable / optimization API
   contract, including `OptimizationRunResult`.
 - `EXAMPLES_MATRIX.md`: examples-to-capability matrix for TOMS-style software

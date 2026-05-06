@@ -249,6 +249,79 @@ class IntrospectionTests(unittest.TestCase):
             },
         )
 
+    def test_has_field_respects_merged_and_specific_namespaces(self):
+        r = _make_native_result(with_native_stress=True)
+        r.cell_data["mat_id"] = np.array([7], dtype=np.int32)
+        r.set_sampled_field("von_mises", np.array([1.0, 2.0, 3.0]))
+
+        self.assertTrue(r.has_field("stress"))
+        self.assertTrue(r.has_field("stress", namespace="point_data"))
+        self.assertFalse(r.has_field("stress", namespace="sampled_data"))
+        self.assertTrue(r.has_field("mat_id", namespace="cell"))
+        self.assertTrue(r.has_field("von_mises"))
+
+    def test_require_field_returns_array_or_clear_error(self):
+        r = _make_native_result(with_native_stress=True)
+        np.testing.assert_array_equal(
+            r.require_field("stress", namespace="point_data"),
+            np.array([[1.0, 2.0, 0.5]] * 3),
+        )
+
+        with self.assertRaisesRegex(KeyError, "available fields: point_data"):
+            r.require_field("stress", namespace="cell_data")
+
+    def test_require_field_can_return_derived_von_mises(self):
+        r = _make_native_result(with_native_stress=True)
+        vm = r.require_field("von_mises")
+        np.testing.assert_allclose(vm, np.array([1.9364916731037085] * 3))
+
+    def test_field_info_reports_namespace_shape_dtype_and_source(self):
+        r = _make_native_result()
+        r.set_sampled_field("von_mises", np.array([1.0, 2.0, 3.0]))
+        r.meta["von_mises_source"] = "solver.solution_frames"
+        r.meta["von_mises_location"] = "point"
+
+        info = r.field_info("von_mises")
+        self.assertEqual(info["name"], "von_mises")
+        self.assertTrue(info["available"])
+        self.assertEqual(info["namespace"], "sampled_data")
+        self.assertEqual(info["stored_name"], "von_mises")
+        self.assertEqual(info["shape"], (3,))
+        self.assertEqual(info["dtype"], "float64")
+        self.assertEqual(info["source"], "solver.solution_frames")
+        self.assertEqual(info["location"], "point")
+        self.assertFalse(info["derived"])
+
+    def test_field_info_reports_derived_von_mises_from_stress(self):
+        r = _make_native_result(with_native_stress=True)
+        info = r.field_info("von_mises")
+
+        self.assertTrue(info["available"])
+        self.assertEqual(info["namespace"], "derived")
+        self.assertEqual(info["stored_name"], "stress")
+        self.assertEqual(info["shape"], (3,))
+        self.assertEqual(info["source"], "derived_from_stress")
+        self.assertTrue(info["derived"])
+
+    def test_field_info_for_missing_field_is_json_friendly(self):
+        r = _make_native_result()
+        info = r.field_info("missing")
+
+        self.assertEqual(
+            info,
+            {
+                "name": "missing",
+                "available": False,
+                "namespace": None,
+                "stored_name": None,
+                "shape": None,
+                "dtype": None,
+                "source": None,
+                "location": None,
+                "derived": False,
+            },
+        )
+
     def test_namespace_specific_field_accessors_do_not_fall_through(self):
         r = _make_native_result(with_native_stress=True)
         sampled_stress = np.array([[99.0, 99.0, 99.0]] * 5)

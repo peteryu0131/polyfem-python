@@ -41,8 +41,9 @@ python examples/01_forward_solve.py
 Inspect fields and export a VTU file:
 
 ```python
-u = result.point_field("u")
-von_mises = result.field("von_mises")
+u = result.require_field("u", namespace="point_data")
+von_mises = result.require_field("von_mises")
+print(result.field_info("von_mises"))
 result.write("result_fields.vtu")
 ```
 

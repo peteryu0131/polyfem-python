@@ -49,6 +49,8 @@ result.point_field("u")            # native point namespace only
 result.cell_field("material_id")   # native cell namespace only
 result.sampled_field("stress")     # sampled/probe namespace only
 result.available_fields()          # names grouped by namespace
+result.require_field("u", namespace="point_data")
+result.field_info("von_mises")     # namespace/source/shape/dtype metadata
 ```
 
 Phase 4 adds a differentiable / optimization result contract:

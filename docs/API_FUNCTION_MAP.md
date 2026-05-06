@@ -524,7 +524,10 @@ result.history
 
 | 方法 | 作用 |
 | --- | --- |
-| `field(name)` | 在 point/cell/sampled namespace 里找 field。 |
+| `field(name)` | 兼容 lookup：在 point/cell/sampled namespace 里找 field，缺失时返回 `None`。 |
+| `has_field(name, namespace=None)` | 检查 field 是否存在，可限制到某个 namespace。 |
+| `require_field(name, namespace=None)` | strict lookup：缺失时抛 `KeyError` 并列出 available fields。 |
+| `field_info(name, namespace=None)` | 返回 namespace/source/shape/dtype/derived metadata，适合写 JSON summary。 |
 | `set_field(name, value)` | 存 native mesh-aligned point/cell data。 |
 | `set_sampled_field(name, value)` | 存 sampled/probe data。 |
 | `field_by_body(name)` | 用 `body_ids` 把 field 按 body 分开。 |

@@ -198,8 +198,9 @@ class Result:
 
     Use ``.u / .p / .stress / .strain / .von_mises`` for common fields. Those
     properties look up point_data → cell_data → sampled_data, so user code
-    keeps working even when the value came via fallback (check ``meta`` for a
-    ``stress_source`` entry to tell the two apart).
+    keeps working even when the value came via fallback (check ``field_info``
+    or ``meta`` for source details). Use ``require_field(...)`` when missing
+    fields should fail immediately instead of returning ``None``.
     """
 
     def __init__(
@@ -416,11 +417,140 @@ class Result:
 
         Priority: point_data → cell_data → sampled_data. ``None`` if missing.
         """
+        arr, _, _ = self._lookup_stored_field(name)
+        return arr
+
+    @staticmethod
+    def _normalize_field_namespace(namespace):
+        if namespace is None:
+            return None
+        aliases = {
+            "point": "point_data",
+            "point_data": "point_data",
+            "cell": "cell_data",
+            "cell_data": "cell_data",
+            "sampled": "sampled_data",
+            "sampled_data": "sampled_data",
+        }
+        key = str(namespace)
+        if key not in aliases:
+            raise ValueError(
+                "namespace must be one of None, 'point_data', 'cell_data', "
+                f"or 'sampled_data'; got {namespace!r}"
+            )
+        return aliases[key]
+
+    def _field_store(self, namespace):
+        namespace = self._normalize_field_namespace(namespace)
+        if namespace == "point_data":
+            return self._point_data
+        if namespace == "cell_data":
+            return self._cell_data
+        if namespace == "sampled_data":
+            return self._sampled_data
+        raise ValueError(f"internal error: expected a concrete namespace, got {namespace!r}")
+
+    def _lookup_stored_field(self, name, namespace=None):
+        namespace = self._normalize_field_namespace(namespace)
+        if namespace is not None:
+            store = self._field_store(namespace)
+            if name in store:
+                return store[name], namespace, name
+            return None, None, name
         if name in self._point_data:
-            return self._point_data[name]
+            return self._point_data[name], "point_data", name
         if name in self._cell_data:
-            return self._cell_data[name]
-        return self._sampled_data.get(name)
+            return self._cell_data[name], "cell_data", name
+        if name in self._sampled_data:
+            return self._sampled_data[name], "sampled_data", name
+        return None, None, name
+
+    def _available_fields_message(self):
+        groups = self.available_fields()
+        return (
+            f"available fields: point_data={groups['point_data']}, "
+            f"cell_data={groups['cell_data']}, sampled_data={groups['sampled_data']}"
+        )
+
+    def _derived_von_mises_field(self):
+        arr, namespace, stored_name = self._lookup_stored_field("von_mises_avg")
+        if arr is not None:
+            return arr, namespace, stored_name, False
+        stress = self.stress
+        if stress is None:
+            return None, None, None, False
+        return self._von_mises_from_stress_voigt(stress), "derived", "stress", True
+
+    def has_field(self, name, namespace=None, *, include_derived=True):
+        """Return True when a field is available.
+
+        With ``namespace=None`` this follows the same merged lookup as
+        ``field(name)``.  Passing ``"point_data"``, ``"cell_data"``, or
+        ``"sampled_data"`` checks only that namespace.  By default,
+        ``has_field("von_mises")`` is also true when von Mises can be derived
+        from ``stress`` or served by ``von_mises_avg``.
+        """
+        arr, _, _ = self._lookup_stored_field(name, namespace=namespace)
+        if arr is not None:
+            return True
+        if include_derived and namespace is None and name == "von_mises":
+            arr, _, _, _ = self._derived_von_mises_field()
+            return arr is not None
+        return False
+
+    def require_field(self, name, namespace=None, *, include_derived=True):
+        """Return a field or raise ``KeyError`` with available-field context.
+
+        This is the strict counterpart to ``field(name)``.  Use it in examples,
+        tests, and analysis scripts when a missing field should fail early
+        instead of propagating ``None``.
+        """
+        arr, _, _ = self._lookup_stored_field(name, namespace=namespace)
+        if arr is not None:
+            return arr
+        if include_derived and namespace is None and name == "von_mises":
+            arr, _, _, _ = self._derived_von_mises_field()
+            if arr is not None:
+                return arr
+        namespace_msg = "" if namespace is None else f" in namespace {self._normalize_field_namespace(namespace)!r}"
+        raise KeyError(
+            f"Field {name!r} is not present{namespace_msg}; {self._available_fields_message()}"
+        )
+
+    def field_info(self, name, namespace=None, *, include_derived=True):
+        """Return JSON-friendly metadata for one field lookup.
+
+        The returned dict reports whether the field is available, which
+        namespace supplied it, its shape/dtype, and any source/location metadata
+        recorded in ``result.meta``.  For ``von_mises``, ``include_derived=True``
+        also describes the common property fallback through ``von_mises_avg``
+        or stress-derived von Mises.
+        """
+        arr, found_namespace, stored_name = self._lookup_stored_field(name, namespace=namespace)
+        derived = False
+        if arr is None and include_derived and namespace is None and name == "von_mises":
+            arr, found_namespace, stored_name, derived = self._derived_von_mises_field()
+
+        info = {
+            "name": str(name),
+            "available": arr is not None,
+            "namespace": found_namespace,
+            "stored_name": None if arr is None else stored_name,
+            "shape": None if arr is None else tuple(getattr(arr, "shape", ())),
+            "dtype": None if arr is None else str(getattr(arr, "dtype", type(arr).__name__)),
+            "source": None,
+            "location": None,
+            "derived": bool(derived),
+        }
+        if arr is not None:
+            if derived:
+                info["source"] = "derived_from_stress"
+            else:
+                source_key = f"{stored_name}_source"
+                location_key = f"{stored_name}_location"
+                info["source"] = self.meta.get(source_key)
+                info["location"] = self.meta.get(location_key)
+        return info
 
     def point_field(self, name, default=None):
         """Return a native point field without falling through to other namespaces."""

@@ -79,10 +79,83 @@ result.sampled_field("von_mises")
 ```python
 result.field_names()
 result.available_fields()
+result.field_info("von_mises")
 ```
 
 `field_names()` 返回所有 namespace 合并后的 field 名字；`available_fields()`
 按 `point_data` / `cell_data` / `sampled_data` 分组，适合写 report 或 debug。
+
+## Optional Lookup vs Strict Lookup
+
+`field(...)` 是兼容 API：缺 field 时返回 `None`。
+
+```python
+vm = result.field("von_mises")
+if vm is None:
+    ...
+```
+
+如果某个脚本必须依赖某个 field，推荐用 strict API：
+
+```python
+u = result.require_field("u", namespace="point_data")
+vm = result.require_field("von_mises")
+```
+
+`require_field(...)` 找不到 field 时会抛 `KeyError`，并在错误信息里列出当前
+`point_data` / `cell_data` / `sampled_data` 里有哪些 fields。这样 example 或
+paper script 不会把 `None` 继续传下去，错误位置更清楚。
+
+可以先检查：
+
+```python
+result.has_field("stress")
+result.has_field("stress", namespace="sampled_data")
+```
+
+`namespace` 支持：
+
+- `point_data` 或 `point`
+- `cell_data` 或 `cell`
+- `sampled_data` 或 `sampled`
+
+`field_info(...)` 返回 JSON-friendly metadata：
+
+```python
+info = result.field_info("von_mises")
+```
+
+典型返回：
+
+```python
+{
+    "name": "von_mises",
+    "available": True,
+    "namespace": "sampled_data",
+    "stored_name": "von_mises",
+    "shape": (2500,),
+    "dtype": "float64",
+    "source": "solver.solution_frames",
+    "location": "point",
+    "derived": False,
+}
+```
+
+如果 `von_mises` 没有直接存储，但可以从 `stress` 算出来，
+`field_info("von_mises")` 会显示：
+
+```python
+{
+    "namespace": "derived",
+    "stored_name": "stress",
+    "source": "derived_from_stress",
+    "derived": True,
+    ...
+}
+```
+
+这保留了老行为：`result.von_mises` 仍然可以来自已有 `von_mises`、
+`von_mises_avg`，或者从 `stress` 计算。
 
 ## Native Data vs Sampled Data
 
@@ -221,6 +294,8 @@ from polyfempy.differentiable import prepare_differentiable_simulation
 后续 cleanup 必须保护：
 
 - `field(...)` 查找顺序：point -> cell -> sampled；
+- `field(...)` 缺 field 时返回 `None`；
+- `require_field(...)` 缺 field 时抛带 available-field context 的 `KeyError`；
 - `sampled_data` 不写入 native mesh output；
 - `von_mises` 从已有 field 或 stress 计算的优先级；
 - `history` 的 per-step shape；
