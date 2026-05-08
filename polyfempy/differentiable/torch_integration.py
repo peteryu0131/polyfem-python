@@ -25,6 +25,7 @@ except ImportError:
     Function = object  # Placeholder for type hints
 
 from .cpp_ext import get_cpp_polyfempy
+from ._solver_solution import solver_solution_array
 
 
 class PolyFEMFunction(Function):
@@ -70,32 +71,14 @@ class PolyFEMFunction(Function):
         except TypeError:
             ret = solver.solve()
 
-        # Prefer get_solutions() so adjoint_rhs matches diff_cached layout (transient / multi-step).
-        solutions_np = None
-        if hasattr(solver, "get_solutions"):
-            try:
-                solutions_np = np.asarray(solver.get_solutions())
-                if solutions_np.size == 0:
-                    solutions_np = None
-            except Exception:
-                solutions_np = None
-        if solutions_np is None and isinstance(ret, dict) and ret.get("_result_bundle") and "u" in ret:
-            solutions_np = np.asarray(ret["u"])
-        elif solutions_np is None and isinstance(ret, (tuple, list)) and len(ret) > 0:
-            solutions_np = np.asarray(ret[0])
-        elif solutions_np is None:
-            # Last-resort compatibility: try cache object if exposed
-            if hasattr(solver, "get_solution_cache"):
-                cache = solver.get_solution_cache()
-                if hasattr(cache, "solution"):
-                    solutions_np = np.asarray(cache.solution(0))
-                elif hasattr(cache, "displacement"):
-                    solutions_np = np.asarray(cache.displacement(0))
-
-        if solutions_np is None:
-            raise RuntimeError(
-                "Failed to retrieve solution after solve(): no return tuple and no known getters."
-            )
+        solutions_np = solver_solution_array(
+            solver,
+            ret,
+            error_message=(
+                "Failed to retrieve solution after solve(): "
+                "no return tuple and no known getters."
+            ),
+        )
         
         sol_tensor = torch.tensor(solutions_np, dtype=vertices.dtype, device=vertices.device)
         
@@ -230,30 +213,13 @@ class PolyFEMPerElementMaterialFunction(Function):
         except TypeError:
             ret = solver.solve()
 
-        solutions_np = None
-        if hasattr(solver, "get_solutions"):
-            try:
-                solutions_np = np.asarray(solver.get_solutions())
-                if solutions_np.size == 0:
-                    solutions_np = None
-            except Exception:
-                solutions_np = None
-        if solutions_np is None and isinstance(ret, dict) and ret.get("_result_bundle") and "u" in ret:
-            solutions_np = np.asarray(ret["u"])
-        elif solutions_np is None and isinstance(ret, (tuple, list)) and len(ret) > 0:
-            solutions_np = np.asarray(ret[0])
-        elif solutions_np is None:
-            if hasattr(solver, "get_solution_cache"):
-                cache_obj = solver.get_solution_cache()
-                if hasattr(cache_obj, "solution"):
-                    solutions_np = np.asarray(cache_obj.solution(0))
-                elif hasattr(cache_obj, "displacement"):
-                    solutions_np = np.asarray(cache_obj.displacement(0))
-
-        if solutions_np is None:
-            raise RuntimeError(
+        solutions_np = solver_solution_array(
+            solver,
+            ret,
+            error_message=(
                 "solve_differentiable_material: failed to retrieve solution after solve()."
-            )
+            ),
+        )
 
         sol_tensor = torch.tensor(
             solutions_np, dtype=lam.dtype, device=lam.device
@@ -280,4 +246,3 @@ class PolyFEMPerElementMaterialFunction(Function):
 
         # forward(ctx, solver, lam, mu, solve_log_level, forward_solve_cache) — grads for lam, mu only
         return None, g_lam, g_mu, None, None
-

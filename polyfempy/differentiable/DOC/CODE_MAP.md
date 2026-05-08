@@ -71,9 +71,9 @@ from polyfempy.differentiable import advanced
 
 ### `__init__.py`
 
-Defines the public export surface. `PUBLIC_API` is the recommended user-facing
-set. `ADVANCED_COMPAT_API` keeps older diagnostics available without making
-them the preferred entry point.
+User-facing facade. It imports the recommended names and compatibility names,
+while `_exports.py` owns the explicit `PUBLIC_API` and `ADVANCED_COMPAT_API`
+lists.
 
 ### `solve_diff.py`
 

@@ -16,6 +16,13 @@ import os
 import sys
 from typing import Callable
 
+from ._exports import (
+    ADVANCED_API,
+    ADVANCED_COMPAT_API,
+    COMPATIBILITY_API,
+    PUBLIC_API,
+)
+
 
 # Fix OpenMP library conflicts on Windows before importing torch.
 if sys.platform == "win32" and "KMP_DUPLICATE_LIB_OK" not in os.environ:
@@ -28,97 +35,6 @@ try:
 except ImportError:
     _TORCH_AVAILABLE = False
 
-
-PUBLIC_API = [
-    "prepare_differentiable_simulation",
-    "DifferentiableResult",
-    "DifferentiableMaterialResult",
-    "ParameterizedVertexDesign",
-    "ObjectiveLossResult",
-    "make_von_mises_loss",
-    "make_stress_norm_loss",
-    "make_optimizer",
-    "OptimizationKind",
-    "OptimizationProblem",
-    "OptimizationRunResult",
-    "prepare_optimization_problem",
-    "prepare_parameterized_shape_problem",
-    "run_optimization",
-    "body_vertex_mask",
-    "shape_gradient_for_body",
-    "save_training_sample",
-]
-
-ADVANCED_COMPAT_API = [
-    "solve_differentiable",
-    "solve_differentiable_material_from_youngs",
-    "build_solver_from_settings",
-    "solver_body_ids_for_assembly",
-    "solver_body_slot_mask",
-    "solve_differentiable_material",
-    "youngs_value_to_internal",
-    "youngs_to_lame",
-    "build_lame_from_youngs",
-    "make_bounds_projector",
-    "make_named_parameter_map",
-    "make_parameter",
-    "relative_scale",
-    "scale_selected_vertices",
-    "scale_selected_vertices_about_axis_center",
-    "scale_selected_vertices_about_x_center",
-    "selected_axis_center",
-    "selected_x_center",
-    "tan_half_angle_scale",
-    "vertices_axis_le",
-    "vertices_y_le",
-    "create_polyfem_objective",
-    "make_material_von_mises_loss",
-    "material_design_vector",
-    "SmoothTimeAggregationName",
-    "TimeAggregation",
-    "TimeAggregationName",
-    "ScalarMaterialOptimizationProblem",
-    "ScalarMaterialOptimizationStep",
-    "apply_finite_difference_gradient_fallback",
-    "collect_material_chain_diagnostics",
-    "evaluate_material_loss_value_for_E",
-    "finite_difference_material_E_gradient",
-    "format_optional",
-    "format_scalar_material_optimization_history_summary",
-    "format_scalar_material_optimization_step",
-    "make_material_optimizer",
-    "objective_solution_rhs_diagnostics",
-    "print_material_chain_diagnostics",
-    "print_objective_rhs_diagnostics",
-    "prepare_optimization_baseline_simulation",
-    "prepare_material_differentiable_simulation",
-    "prepare_material_optimization_problem",
-    "prepare_scalar_youngs_material_problem",
-    "report_optimization_baseline",
-    "run_scalar_material_optimization",
-    "usable_scalar_gradient",
-    "ParameterizedShapeOptimizationProblem",
-    "ShapeOptimizationProblem",
-    "ShapeOptimizationStep",
-    "format_shape_optimization_history_summary",
-    "format_shape_optimization_step",
-    "make_shape_optimizer",
-    "make_von_mises_shape_loss",
-    "prepare_parameterized_shape_differentiable_simulation",
-    "prepare_parameterized_shape_optimization_problem",
-    "prepare_shape_differentiable_simulation",
-    "prepare_shape_optimization_problem",
-    "print_shape_optimization_step",
-    "run_shape_optimization",
-    "get_direct_von_mises_monitor",
-    "gradient_norm",
-    "print_loss_summary",
-    "print_parameterized_shape_summary",
-    "print_scalar_material_summary",
-]
-
-ADVANCED_API = ADVANCED_COMPAT_API
-COMPATIBILITY_API = ADVANCED_COMPAT_API
 __all__ = list(PUBLIC_API)
 
 
