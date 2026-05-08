@@ -6,8 +6,8 @@ This module is the user-facing import path for the guided section workflow:
     template = g.simulation_template(...)
 
 Callers should treat this module as the stable public entry point. The larger
-``guided_sections`` module owns the implementation; this file owns the import
-surface and preserves compatibility for existing examples.
+implementation is split across focused internal modules; this file owns the
+import surface and preserves compatibility for existing examples.
 """
 
 from polyfempy.api.guided_sections import (
