@@ -36,16 +36,17 @@ from polyfempy.differentiable import ...
 | Example | Layer | Capability | Public API Used | Extra Dependency | Suggested Check |
 | --- | --- | --- | --- | --- | --- |
 | `examples/01_forward_solve.py` | core | Guided config + forward solve。 | `solve`, `g.simulation_template`, `g.build_config` | backend only | `python examples/01_forward_solve.py` |
-| `examples/02_result_fields.py` | core | Structured `Result` fields + VTK export。 | `solve`, `Result.available_fields`, `Result.require_field`, `Result.field_info`, `Result.write` | `meshio` | `python examples/02_result_fields.py` |
+| `examples/02_result_fields.py` | core | Structured `Result` fields + VTK export。 | `solve`, `Result.require_field`, `Result.sampled_field`, `Result.write` | `meshio` | `python examples/02_result_fields.py` |
 | `examples/03_shape_gradient.py` | advanced | `d loss / d vertices` shape sensitivity。 | `prepare_optimization_problem(kind="shape")`, `make_von_mises_loss`, `shape_gradient_for_body` | PyTorch | `python examples/03_shape_gradient.py` |
 | `examples/04_scalar_E_gradient.py` | advanced | scalar Young's modulus gradient `dL/dE`。 | `prepare_optimization_problem(kind="material")`, `make_von_mises_loss` | PyTorch | `python examples/04_scalar_E_gradient.py` |
-| `examples/05_parameterized_vertex_map.py` | advanced | named parameters -> vertex map -> one optimization step。 | `prepare_parameterized_shape_problem`, `make_optimizer`, `run_optimization(return_result=True)`, user `vertex_map` | PyTorch | `python examples/05_parameterized_vertex_map.py` |
+| `examples/05_parameterized_vertex_map.py` | advanced | named parameters -> vertex map -> one optimization step。 | `prepare_parameterized_shape_problem`, `make_optimizer`, `run_optimization`, user `vertex_map` | PyTorch | `python examples/05_parameterized_vertex_map.py` |
 | `examples/06_dataset_one_case.py` | advanced | one local supervised training sample export。 | `save_training_sample`, shape gradient path | PyTorch | `python examples/06_dataset_one_case.py` |
 
 ## What Each Example Should Keep Visible
 
-The examples should keep the core API steps visible instead of hiding them in
-example-only wrappers.
+`01_forward_solve.py` should keep the full guided config visible. Later examples
+may reuse the same impact setup from `_common.py` so they stay focused on the
+API feature being demonstrated.
 
 Forward solve examples should show:
 
@@ -72,8 +73,8 @@ Parameterized shape examples should show:
 torch.nn.Parameter(...)
 vertex_map(params, base_vertices, ...)
 prepare_parameterized_shape_problem(...)
-run_optimization(..., return_result=True)
-read OptimizationRunResult.summary()
+run_optimization(...)
+inspect the printed optimization step
 ```
 
 ## Relationship To Paper Experiments
