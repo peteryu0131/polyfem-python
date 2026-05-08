@@ -187,6 +187,7 @@ The shortest h/theta shape-optimization demo is:
 For reviewer-facing artifact instructions, see:
 
 - `ARTIFACT.md`
+- `docs/REVIEWER_QUICKSTART.md`
 - `docs/TOMS_REVIEW_CHECKLIST.md`
 - `docs/ARTIFACT_REPRODUCIBILITY.md`
 - `docs/TEST_MATRIX.md`

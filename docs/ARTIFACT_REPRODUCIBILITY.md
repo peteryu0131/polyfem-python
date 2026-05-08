@@ -4,6 +4,9 @@
 跑完，而是先证明 library artifact 的核心 contract 是可安装、可 import、可测试、
 可运行一个小例子的。
 
+如果 reviewer 只想先看一页式入口和推荐阅读顺序，从
+`REVIEWER_QUICKSTART.md` 开始。
+
 ## 0. 运行前提
 
 推荐在 repo root 运行：

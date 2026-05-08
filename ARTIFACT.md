@@ -11,6 +11,7 @@ experiment scripts built on top of the PolyFEM C++ backend.
 
 For the Phase 3 reviewer-facing API contract and validation plan, see:
 
+- `docs/REVIEWER_QUICKSTART.md`
 - `docs/TOMS_REVIEW_CHECKLIST.md`
 - `docs/ARTIFACT_REPRODUCIBILITY.md`
 - `docs/TEST_MATRIX.md`

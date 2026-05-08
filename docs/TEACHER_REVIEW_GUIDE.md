@@ -13,34 +13,37 @@ but they are not the recommended API entry point.
 
 1. `README.md`
    - High-level project scope and public API summary.
-2. `polyfempy/README.md`
+2. `docs/REVIEWER_QUICKSTART.md`
+   - One-page smoke-test path, expected outputs, dependency skips, and reading
+     order.
+3. `polyfempy/README.md`
    - Package-level map of the small recommended API and larger implementation
      layers.
-3. `docs/API_STABILITY.md`
+4. `docs/API_STABILITY.md`
    - Stable public API, compatibility API, and internal-only module boundaries.
-4. `docs/GUIDED_API.md`, `docs/CONFIG_CONTRACT.md`, `docs/RESULT_CONTRACT.md`
+5. `docs/GUIDED_API.md`, `docs/CONFIG_CONTRACT.md`, `docs/RESULT_CONTRACT.md`
    - Contracts for config authoring, solver-facing config, and structured
      outputs.
-5. `docs/DIFFERENTIABLE_CONTRACT.md`
+6. `docs/DIFFERENTIABLE_CONTRACT.md`
    - Differentiable solve, optimization problem, and optimization result
      contracts.
-6. `docs/EXAMPLES_MATRIX.md`
+7. `docs/EXAMPLES_MATRIX.md`
    - Examples-to-capability matrix for software evaluation.
-7. `docs/TOMS_REVIEW_CHECKLIST.md`
+8. `docs/TOMS_REVIEW_CHECKLIST.md`
    - Reviewer-style self-check for API clarity, stability, tests, and artifact
      reproducibility.
-8. `docs/ARTIFACT_REPRODUCIBILITY.md`, `docs/TEST_MATRIX.md`
+9. `docs/ARTIFACT_REPRODUCIBILITY.md`, `docs/TEST_MATRIX.md`
    - Minimal validation commands and cleanup-slice test subsets.
-9. `examples/`
+10. `examples/`
    - Small standalone tutorials that do not require Compute Canada.
-10. `experiment/paper_experiment/README.md`
+11. `experiment/paper_experiment/README.md`
    - Paper-facing Experiment 02 demos.
-11. `experiment/paper_experiment/CLEAN_API_WALKTHROUGH.md`
+12. `experiment/paper_experiment/CLEAN_API_WALKTHROUGH.md`
    - Function-by-function explanation of the clean demo scripts.
-12. `docs/API_FUNCTION_MAP.md`
+13. `docs/API_FUNCTION_MAP.md`
    - Public helper call map: what each function contains, what it calls, and
      which pieces are shared API versus demo code.
-13. `experiment/paper_experiment/08_h_theta_shape_optimization.py`
+14. `experiment/paper_experiment/08_h_theta_shape_optimization.py`
    - Clean h/theta parameterized shape optimization demo.
 
 ## Clean API Files

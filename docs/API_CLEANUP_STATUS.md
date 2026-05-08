@@ -32,6 +32,8 @@ remain under `experiment/`.
 
 Phase 3 adds TOMS-facing contract documentation:
 
+- `docs/REVIEWER_QUICKSTART.md`: first reviewer/advisor smoke-check path,
+  expected outputs, dependency skips, and reading order.
 - `docs/API_STABILITY.md`: stable public API vs compatibility vs internal.
 - `docs/GUIDED_API.md`: guided section authoring contract.
 - `docs/CONFIG_CONTRACT.md`: `SimulationConfig` and JSON semantics.
