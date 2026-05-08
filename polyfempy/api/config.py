@@ -1,3 +1,12 @@
+"""Typed configuration model for the public PolyFEM Python API.
+
+This module is intentionally broad: it preserves the stable import path
+``polyfempy.api.config`` for ``SimulationConfig`` and the typed config blocks
+used by existing scripts. Keep behavior changes narrow here; full/minimal JSON
+round-trips and ``from polyfempy.api import SimulationConfig`` are public
+contracts.
+"""
+
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
@@ -12,6 +21,12 @@ if TYPE_CHECKING:
     from typing import TYPE_CHECKING as _TYPE_CHECKING
 else:
     _TYPE_CHECKING = False
+
+
+# ============================================================================
+# Internal Normalization and Compatibility Helpers
+# ============================================================================
+
 
 def _merge_dicts_deep(base: dict, override: dict) -> dict:
     """Recursively merge override into base (override wins on conflicts)."""
@@ -192,6 +207,11 @@ def _maybe_add(result: Dict[str, Any], key: str, value: Any) -> None:
     if value is None:
         return
     result[key] = _to_plain_value(value)
+
+
+# ============================================================================
+# Units and Material Configuration Classes
+# ============================================================================
 
 
 @dataclass
@@ -986,6 +1006,11 @@ class IncompressibleLinearElasticity:
         return result
 
 
+# ============================================================================
+# Boundary and Initial Condition Classes
+# ============================================================================
+
+
 @dataclass
 class DirichletBoundary:
     """Dirichlet boundary condition (fixed displacement).
@@ -1506,6 +1531,11 @@ class InitialConditions:
         return out
 
 
+# ============================================================================
+# Body, Constraint, Space, and Input Helper Classes
+# ============================================================================
+
+
 @dataclass
 class SurfaceSelection:
     """Typed surface-selection descriptor for geometry/body operations."""
@@ -2023,6 +2053,11 @@ class Units:
 
 # Union type for all problem params
 ProblemParams = Union[GravityParams, TorsionParams, FlowParams, FlowWithObstacleParams, Dict[str, Any]]
+
+
+# ============================================================================
+# Root SimulationConfig Contract
+# ============================================================================
 
 
 @dataclass

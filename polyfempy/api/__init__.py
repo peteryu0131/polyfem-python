@@ -6,9 +6,10 @@ The recommended user-facing surface is intentionally small:
 - ``SimulationConfig`` for structured configuration
 - ``Result`` for structured solver output
 
-The additional config classes and reporting/runtime helpers remain importable
-for backward compatibility and for advanced users who need lower-level control.
-Documentation should treat them as secondary APIs, not as the main entry path.
+The additional config classes and reporting/runtime helpers remain available by
+explicit import for backward compatibility and for advanced users who need
+lower-level control. They are intentionally excluded from ``__all__`` so
+``from polyfempy.api import *`` reflects only the recommended public surface.
 """
 
 # Apply Windows-only runtime tweaks (UTF-8 console, OpenMP duplicate-lib
@@ -124,9 +125,9 @@ CORE_API = [
     "Result",
 ]
 
-# These groups are still exported so older scripts keep working. They are not
-# the recommended first path for new users; prefer CORE_API plus
-# ``polyfempy.api.guided`` for guided configuration.
+# These groups stay available as explicit attributes so older scripts keep
+# working, e.g. ``from polyfempy.api import Solver``. They are not included in
+# ``__all__``; prefer CORE_API plus ``polyfempy.api.guided`` for new scripts.
 IO_API = [
     "Selection",
     "Mesh",
@@ -239,7 +240,4 @@ ADVANCED_COMPAT_API = (
     + WINDOWS_RUNTIME_API
 )
 
-__all__ = (
-    CORE_API
-    + ADVANCED_COMPAT_API
-)
+__all__ = list(CORE_API)

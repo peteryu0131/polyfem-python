@@ -46,29 +46,27 @@ __all__ = [
 # These names intentionally stay out of ``__all__``.
 # ---------------------------------------------------------------------------
 
-COMPATIBILITY_ALIASES = (
-    "_process_json_config",
-    "_clean_json_for_cpp",
-    "_merge_user_cfg_over_full_json",
-    "_extract_runtime_output_request",
-    "_extract_additional_fields",
-    "_maybe_fill_result_from_temp_vtu",
-    "_finalize_result_output",
-    "_reconstruct_sampled_cauchy_stress",
-    "_extract_meshio_array",
-    "_field_available",
-)
+COMPATIBILITY_ALIAS_TARGETS = {
+    "_process_json_config": "process_json_config",
+    "_clean_json_for_cpp": "clean_json_for_cpp",
+    "_merge_user_cfg_over_full_json": "merge_user_cfg_over_full_json",
+    # Historical name; the staged pipeline now resolves all runtime options in
+    # one place, so the replacement function has a broader contract.
+    "_extract_runtime_output_request": "resolve_runtime_options",
+    "_extract_additional_fields": "_extract_additional_fields",
+    "_maybe_fill_result_from_temp_vtu": "apply_sampled_vtu_fallback",
+    "_finalize_result_output": "finalize_result",
+    "_reconstruct_sampled_cauchy_stress": "_reconstruct_sampled_cauchy_stress",
+    "_extract_meshio_array": "_extract_meshio_array",
+    "_field_available": "_field_available",
+}
 
-_process_json_config = _p.process_json_config
-_clean_json_for_cpp = _p.clean_json_for_cpp
-_merge_user_cfg_over_full_json = _p.merge_user_cfg_over_full_json
-_extract_runtime_output_request = _p.resolve_runtime_options  # signature slightly different
-_extract_additional_fields = _p._extract_additional_fields
-_maybe_fill_result_from_temp_vtu = _p.apply_sampled_vtu_fallback
-_finalize_result_output = _p.finalize_result
-_reconstruct_sampled_cauchy_stress = _p._reconstruct_sampled_cauchy_stress
-_extract_meshio_array = _p._extract_meshio_array
-_field_available = _p._field_available
+COMPATIBILITY_ALIASES = tuple(COMPATIBILITY_ALIAS_TARGETS)
+
+for _alias, _target in COMPATIBILITY_ALIAS_TARGETS.items():
+    globals()[_alias] = getattr(_p, _target)
+
+del _alias, _target
 
 
 def solve(

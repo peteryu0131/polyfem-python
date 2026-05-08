@@ -421,6 +421,18 @@ build_config(...)
 
 `SimulationConfig` 是 solver-facing configuration object。它可以直接构造，也可以从 JSON 读入，也可以由 guided sections 生成。
 
+`config.py` 暂时不拆文件。Phase 4 只加源码 section markers，把它分成：
+
+- internal normalization / compatibility helpers；
+- units and material config classes；
+- boundary and initial-condition classes；
+- body / constraint / space / input helpers；
+- problem parameter compatibility classes；
+- root `SimulationConfig` contract；
+- geometry / solver / time / output / contact blocks。
+
+这样 reviewer 可以看懂职责边界，但旧 import path 保持不变。
+
 ### 重要方法
 
 | 方法 | 作用 |
@@ -759,9 +771,16 @@ h, theta_deg
 ## Phase 2 前要回答的问题
 
 1. 顶层 `polyfempy.api.__all__` 到底应该保留哪些名字？
+   已决定：只保留 `solve`, `SimulationConfig`, `Result`。typed config、
+   runtime/reporting helper 仍然可以显式 import，但不进入 star-import surface。
 2. `guided_sections.py` 要不要拆成 section dataclasses 和 builder functions 两个文件，还是先不动？
 3. `solve.py` 里的 backward-compatible aliases 还有没有内部 caller 在用？
+   已审计：当前 repo 内业务代码没有 caller；tests 直接使用 `_solve_pipeline`
+   helper。Phase 3 保留这些 alias 作为 compatibility-only，并用
+   `COMPATIBILITY_ALIAS_TARGETS` 记录每个 alias 的 current pipeline target。
 4. `config.py` 能不能安全拆分，并且不破坏现有 import paths？
+   当前决定：周一前不拆。Phase 4 只加结构标记和文档，后续真拆必须保留
+   `from polyfempy.api.config import SimulationConfig, Solver, Output, Time`。
 5. 每一个 cleanup slice 后必须跑哪些 test subset？
 
 建议的下一步不是马上大改，而是先做 public surface decision：确定哪些是推荐入口，哪些只是兼容导出。之后再动 `solve.py/_solve_pipeline.py` 这种低风险结构层。

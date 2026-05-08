@@ -47,7 +47,7 @@ from polyfempy.differentiable import (
 核心判断：
 
 - `polyfempy.api` 顶层不应该继续被描述成“什么都推荐 import”。
-- `polyfempy.api.__all__` 里可以暂时保留兼容导出，但文档只主推小 API。
+- `polyfempy.api.__all__` 只保留推荐小 API；兼容/高级名字仍可显式 import。
 - `guided.py` 应该保留为 guided API 的 public facade。
 - `_solve_pipeline.py`、`_guided_array_mesh.py`、`_runtime.py` 是 internal implementation。
 - `config.py` 暂时不拆，先用文档和测试保护语义。
@@ -139,9 +139,11 @@ from polyfempy.api.runtime import make_timestamped_workspace, result_output, ter
 
 ## 兼容/高级导出
 
-`polyfempy.api.__all__` 现在导出很多 typed config blocks。Phase 2 不建议马上删除，因为这会破坏现有用户和旧脚本。
+`polyfempy.api.__all__` 现在只导出 `CORE_API`。typed config blocks 和
+runtime/reporting helpers 仍然是 `polyfempy.api` 的 module attributes，所以旧脚本
+里的显式 import 仍然可用；只是它们不再进入 star-import surface。
 
-这些名字可以继续导出，但文档上降级为高级或兼容：
+这些名字可以继续显式 import，但文档上降级为高级或兼容：
 
 ```text
 Quantity
@@ -160,6 +162,8 @@ configure_windows_runtime
 - 需要细粒度 config 时，引导用户去 `polyfempy.api.config`。
 - 需要 guided config 时，引导用户去 `polyfempy.api.guided`。
 - 需要 runtime/report 时，引导用户去 `polyfempy.api.runtime` 或 `polyfempy.api.report`。
+- 不推荐用户依赖 `from polyfempy.api import *`；如果使用 star import，它只代表
+  `solve`, `SimulationConfig`, `Result`。
 
 ## Internal-Only API
 
@@ -193,12 +197,15 @@ _field_available
 当前 repo 内没有真实内部 caller 依赖这些 alias。tests 现在直接 import
 `polyfempy.api._solve_pipeline` 里的 helper。
 
-Phase 2 决策：
+Phase 3 决策：
 
-- 暂时保留这些 alias，标记为 compatibility-only。
+- 保留这些 alias，标记为 compatibility-only。
+- 在 `solve.py` 中用 `COMPATIBILITY_ALIAS_TARGETS` 显式记录每个旧名字指向
+  `_solve_pipeline.py` 的哪个 current implementation。
 - 不在用户文档中推荐。
 - 不新增对这些 alias 的使用。
-- Phase 3 如果确认外部/旧脚本也没有依赖，再考虑删除或发 deprecation warning。
+- 当前不删除、不加 deprecation warning，避免无谓打扰旧脚本；未来如果要删除，
+  需要单独做 migration note。
 
 ## `guided_sections.py` 决策
 
@@ -230,7 +237,14 @@ guided_builders.py
 
 ## `config.py` 决策
 
-Phase 2 不直接拆 `config.py`。
+Phase 2/4 不直接拆 `config.py`。
+
+Phase 4 已经做的低风险整理：
+
+- 在 `config.py` 顶部说明这个文件为什么暂时保持为宽文件；
+- 给 helper、materials、boundary/initial conditions、body/constraint/space/input、
+  `SimulationConfig`、geometry、solver、time、output、contact 等区块加结构标记；
+- 不移动 class，不改 import path，不改 JSON 语义。
 
 必须先保护这些语义：
 

@@ -12,6 +12,7 @@ from ``__all__`` so the recommended API is easy to inspect.
 
 from __future__ import annotations
 
+from importlib import import_module
 import os
 import sys
 from typing import Callable
@@ -20,6 +21,7 @@ from ._exports import (
     ADVANCED_API,
     ADVANCED_COMPAT_API,
     COMPATIBILITY_API,
+    EXPORT_MODULES,
     PUBLIC_API,
 )
 
@@ -38,6 +40,9 @@ except ImportError:
 __all__ = list(PUBLIC_API)
 
 
+_EXPORT_MODULES = EXPORT_MODULES
+
+
 def _missing_torch_stub(name: str) -> Callable[..., None]:
     def _stub(*args, **kwargs):
         raise ImportError(
@@ -51,106 +56,30 @@ def _missing_torch_stub(name: str) -> Callable[..., None]:
     return _stub
 
 
-if _TORCH_AVAILABLE:
-    from .solve_diff import (
-        build_lame_from_youngs,
-        build_solver_from_settings,
-        prepare_differentiable_simulation,
-        solve_differentiable,
-        solve_differentiable_material,
-        solve_differentiable_material_from_youngs,
-        solver_body_ids_for_assembly,
-        solver_body_slot_mask,
-        youngs_to_lame,
-        youngs_value_to_internal,
-    )
-    from .result_diff import DifferentiableMaterialResult, DifferentiableResult
-    from .design import (
-        ParameterizedVertexDesign,
-        make_bounds_projector,
-        make_named_parameter_map,
-        make_parameter,
-    )
-    from .geometry_maps import (
-        relative_scale,
-        scale_selected_vertices,
-        scale_selected_vertices_about_axis_center,
-        scale_selected_vertices_about_x_center,
-        selected_axis_center,
-        selected_x_center,
-        tan_half_angle_scale,
-        vertices_axis_le,
-        vertices_y_le,
-    )
-    from .objective_bridge import (
-        ObjectiveLossResult,
-        SmoothTimeAggregationName,
-        TimeAggregation,
-        TimeAggregationName,
-        create_polyfem_objective,
-        get_direct_von_mises_monitor,
-        make_material_von_mises_loss,
-        make_stress_norm_loss,
-        make_von_mises_loss,
-        material_design_vector,
-    )
-    from .material_optimization import (
-        ScalarMaterialOptimizationProblem,
-        ScalarMaterialOptimizationStep,
-        format_scalar_material_optimization_history_summary,
-        format_scalar_material_optimization_step,
-        make_material_optimizer,
-        prepare_material_differentiable_simulation,
-        prepare_material_optimization_problem,
-        prepare_scalar_youngs_material_problem,
-        run_scalar_material_optimization,
-    )
-    from .material_diagnostics import (
-        apply_finite_difference_gradient_fallback,
-        collect_material_chain_diagnostics,
-        evaluate_material_loss_value_for_E,
-        finite_difference_material_E_gradient,
-        format_optional,
-        objective_solution_rhs_diagnostics,
-        print_material_chain_diagnostics,
-        print_objective_rhs_diagnostics,
-        usable_scalar_gradient,
-    )
-    from .shape_optimization import (
-        ParameterizedShapeOptimizationProblem,
-        ShapeOptimizationProblem,
-        ShapeOptimizationStep,
-        format_shape_optimization_history_summary,
-        format_shape_optimization_step,
-        make_shape_optimizer,
-        make_von_mises_shape_loss,
-        prepare_parameterized_shape_differentiable_simulation,
-        prepare_parameterized_shape_optimization_problem,
-        prepare_parameterized_shape_problem,
-        prepare_shape_differentiable_simulation,
-        prepare_shape_optimization_problem,
-        print_shape_optimization_step,
-        run_shape_optimization,
-    )
-    from .optimization_problem import (
-        OptimizationKind,
-        OptimizationProblem,
-        OptimizationRunResult,
-        make_optimizer,
-        prepare_optimization_baseline_simulation,
-        prepare_optimization_problem,
-        report_optimization_baseline,
-        run_optimization,
-    )
-    from .summary import (
-        gradient_norm,
-        print_loss_summary,
-        print_parameterized_shape_summary,
-        print_scalar_material_summary,
-    )
-    from .shape_mask import body_vertex_mask, shape_gradient_for_body
-    from .training_data import save_training_sample
-else:
-    for _name in dict.fromkeys(PUBLIC_API + ADVANCED_COMPAT_API):
-        globals()[_name] = _missing_torch_stub(_name)
-    del _name
+def _load_export(name: str):
+    module_name = _EXPORT_MODULES.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(module_name, package=__package__)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
+
+
+def __getattr__(name: str):
+    if name not in _EXPORT_MODULES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if not _TORCH_AVAILABLE:
+        value = _missing_torch_stub(name)
+        globals()[name] = value
+        return value
+    return _load_export(name)
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals(), *PUBLIC_API])
+
+
+for _name in PUBLIC_API:
+    globals()[_name] = _load_export(_name) if _TORCH_AVAILABLE else _missing_torch_stub(_name)
+del _name

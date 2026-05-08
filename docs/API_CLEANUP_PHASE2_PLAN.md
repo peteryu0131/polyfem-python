@@ -46,6 +46,8 @@
 - 没有拆 `config.py`。
 - 没有拆 `guided_sections.py`。
 - 没有删除 `solve.py` 里的 compatibility aliases。
+- 已审计并整理 `solve.py` compatibility aliases；它们现在通过
+  `COMPATIBILITY_ALIAS_TARGETS` 明确指向 `_solve_pipeline` targets。
 - 没有改变 `solve(...)`、`SimulationConfig`、`Result` 的行为语义。
 
 ## Phase 2 的核心目标
@@ -221,7 +223,7 @@ rg -n "from polyfempy\\.api|import polyfempy\\.api" examples tests experiment po
 | `SimulationConfig` | `polyfempy.api` | examples/tests/diff | 推荐 public | 保留 |
 | `Result` | `polyfempy.api` | tests/report | 推荐 public | 保留 |
 | `_solve_pipeline.normalize_cfg` | private module | pipeline tests | internal test target | 保留 internal，不写进用户文档 |
-| `_process_json_config` | `solve.py` alias | 待审计 | compatibility | 如果无人用，后续删除或移动 |
+| `_process_json_config` | `solve.py` alias | 已审计，无内部业务 caller | compatibility-only | 保留旧 import path，用 `COMPATIBILITY_ALIAS_TARGETS` 记录 target |
 
 ## 工作流 B：`solve.py` 和 `_solve_pipeline.py`
 
@@ -279,7 +281,7 @@ finalize_result
 可以做：
 
 - 把 `solve.py` 的 backward-compatible aliases 做 import audit。
-- 如果 aliases 没有人用，先在文档里标成 removable，不急着删。
+- 如果 aliases 没有人用，保留为 compatibility-only，不在新代码中使用。
 - 给 `_solve_pipeline.py` 顶部加更清楚的 stage overview。
 - 给每个 pipeline dataclass 写清楚用途。
 - 改局部变量名，但不改 behavior。
@@ -434,7 +436,8 @@ python -m py_compile \
 - output/runtime options；
 - solver/time/contact schema blocks。
 
-所以 Phase 2 不应该直接拆 `config.py`，而是先做拆分计划。
+所以 Phase 2/4 不应该直接拆 `config.py`。Phase 4 的实际动作是先加文件级说明
+和分组注释，让 reviewer 能看懂结构，同时保持所有 import path 和序列化语义不变。
 
 ### 必须保留的语义
 
@@ -501,7 +504,8 @@ main contract:
   SimulationConfig
 ```
 
-然后再决定能不能拆。
+Phase 4 已经把这些分组作为源码里的 section markers。之后如果真的要拆文件，
+必须先确认下面的测试子集全过。
 
 ### 未来可能拆分方案
 
@@ -757,7 +761,7 @@ Internal-only APIs
 
 优先顺序：
 
-1. `solve.py` aliases audit 和注释整理；
+1. `solve.py` aliases audit 和注释整理；已完成，保留 compatibility-only mapping。
 2. `_solve_pipeline.py` stage 注释和局部命名；
 3. `guided.py.__all__` 文档化；
 4. `runtime.py/report.py` 文档和命名说明；

@@ -18,8 +18,7 @@ def test_public_api_recommended_surface_is_small():
     import polyfempy.api as api
 
     assert api.CORE_API == ["solve", "SimulationConfig", "Result"]
-    for name in api.CORE_API:
-        assert name in api.__all__
+    assert api.__all__ == api.CORE_API
 
     # Internal implementation modules may be importable by tests, but they are
     # not part of the documented public star-import surface.
@@ -27,6 +26,16 @@ def test_public_api_recommended_surface_is_small():
     assert "_guided_array_mesh" not in api.__all__
     assert "batch_solve" not in api.__all__
     assert not hasattr(api, "batch_solve")
+
+
+def test_public_api_advanced_compat_names_are_explicit_only():
+    import polyfempy.api as api
+
+    assert "Solver" in api.ADVANCED_COMPAT_API
+    assert "Solver" not in api.__all__
+    assert "result_output" not in api.__all__
+    assert api.Solver is not None
+    assert api.result_output is not None
 
 
 def test_guided_api_imports():
@@ -120,6 +129,17 @@ def test_solve_compatibility_aliases_are_not_public_all():
         assert name not in solve_module.__all__
 
 
+def test_solve_compatibility_aliases_point_to_pipeline_targets():
+    import importlib
+
+    pipeline = importlib.import_module("polyfempy.api._solve_pipeline")
+    solve_module = importlib.import_module("polyfempy.api.solve")
+
+    assert tuple(solve_module.COMPATIBILITY_ALIAS_TARGETS) == solve_module.COMPATIBILITY_ALIASES
+    for alias, target in solve_module.COMPATIBILITY_ALIAS_TARGETS.items():
+        assert getattr(solve_module, alias) is getattr(pipeline, target)
+
+
 def test_predefined_problem_helpers_import():
     from polyfempy.api.problems import Problem, get_problem_class
 
@@ -145,3 +165,14 @@ def test_differentiable_compatibility_api_is_not_public_all():
     for name in diff.COMPATIBILITY_API:
         assert hasattr(diff, name)
         assert name not in diff.__all__
+
+
+def test_differentiable_export_module_map_matches_declared_surface():
+    from polyfempy.differentiable._exports import (
+        COMPATIBILITY_API,
+        EXPORT_MODULES,
+        PUBLIC_API,
+    )
+
+    declared = set(PUBLIC_API) | set(COMPATIBILITY_API)
+    assert set(EXPORT_MODULES) == declared

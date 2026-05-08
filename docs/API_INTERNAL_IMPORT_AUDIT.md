@@ -151,16 +151,15 @@ _field_available
 - tests 直接使用 `_solve_pipeline` 的 helpers。
 - `solve.py` 内这些 alias 是历史兼容层，不是当前内部依赖。
 
-处理建议：
+处理决定：
 
 ```text
-Phase 2:
+Phase 3:
   保留 alias
   标记 compatibility-only
-  不在新代码中使用
-
-Phase 3:
-  如果外部旧脚本也无依赖，再删除或 deprecate
+  用 COMPATIBILITY_ALIAS_TARGETS 显式记录 alias -> _solve_pipeline target
+  不在新代码中使用这些 alias
+  tests 继续直接 import _solve_pipeline helper
 ```
 
 ## 结论

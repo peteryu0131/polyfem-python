@@ -55,12 +55,14 @@ cfg = g.build_config(template, workspace)
 | runtime helpers | `make_timestamped_workspace`, `result_output`, `terminal_log` | 给 scripts/examples 配置 output/log/workspace。 |
 | report helpers | `summarize_result`, `format_result_summary` | 给 reporting，不是 solve contract。 |
 | compatibility names | `g.experiment_template` | 旧名字保留，新文档推荐 `g.simulation_template`。 |
+| differentiable compatibility | `solve_differentiable`, diagnostic helpers | 旧名字仍可显式 import，但从 `polyfempy.differentiable` lazy-load，不进入推荐 `__all__`。 |
 
 重要规则：
 
 - 文档首页和 examples 不应该把 advanced helpers 写成必要入口。
 - 旧脚本可以继续使用 compatibility names。
 - 新 examples 应该使用推荐 public API。
+- `polyfempy.api.__all__` 只代表推荐入口；advanced / compatibility 名字保留显式 import，不进入 star-import surface。
 
 ## Internal-Only API
 
@@ -89,7 +91,7 @@ from polyfempy.api import solve
 Phase 3 之后的 cleanup 应该遵守：
 
 1. 不删除推荐 public API，除非先有 migration path。
-2. 不把 internal helper 加进 `polyfempy.api.__all__`。
+2. `polyfempy.api.__all__` 只保留 `solve`, `SimulationConfig`, `Result`。
 3. 不把 demo-only helper 包装成 core API。
 4. 不改变 `SimulationConfig` 的 full/minimal JSON 语义。
 5. 不改变 `Result` 的 field namespace 语义。

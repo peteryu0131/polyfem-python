@@ -197,6 +197,20 @@ d = cfg.to_dict()
 - guided array-backed mesh 的 `_mesh_array_mode` bridge；
 - solver method blocks，例如 `solver.nonlinear.Newton.residual_tolerance`。
 
+## 源码组织说明
+
+`config.py` 目前仍然是单文件 contract。Phase 4 只增加 section markers，不拆
+module，原因是这些 import path 已经是用户可见契约：
+
+```python
+from polyfempy.api import SimulationConfig
+from polyfempy.api.config import SimulationConfig, Solver, Output, Time
+```
+
+源码里现在按职责分成 helper、material、boundary/initial condition、body/space、
+problem params、`SimulationConfig`、geometry、solver、time、output、contact 等区块。
+这些标记是为了降低阅读成本，不表示行为改变。
+
 ## 推荐测试
 
 改 `SimulationConfig` 或 config JSON 语义后，至少跑：

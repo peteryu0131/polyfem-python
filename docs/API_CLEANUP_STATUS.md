@@ -27,6 +27,20 @@ from polyfempy.differentiable import (
 )
 ```
 
+`polyfempy.api.__all__` is intentionally limited to `solve`,
+`SimulationConfig`, and `Result`. Advanced typed config blocks and
+runtime/reporting helpers remain available by explicit import, but they are not
+part of the recommended star-import surface.
+
+`polyfempy.api.solve` remains a thin wrapper around `_solve_pipeline.run_pipeline`.
+Older private helper names in `solve.py` are kept only as compatibility aliases,
+with `COMPATIBILITY_ALIAS_TARGETS` documenting their current pipeline targets.
+
+`polyfempy.api.config` is still a single stable import module. Phase 4 adds a
+module docstring and section markers inside `config.py` so readers can navigate
+helpers, materials, boundary conditions, `SimulationConfig`, geometry, solver,
+time, output, and contact blocks without changing behavior.
+
 The cleaned public examples live in `examples/`, while research and HPC scripts
 remain under `experiment/`.
 

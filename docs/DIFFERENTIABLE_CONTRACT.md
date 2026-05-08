@@ -34,7 +34,8 @@ from polyfempy.differentiable import (
 ```
 
 `polyfempy.differentiable.__all__` 只包含推荐 public API。旧 helper 和诊断函数仍然
-可以显式 import，但它们被归到 `COMPATIBILITY_API`，不再作为新用户第一入口。
+可以显式 import，但它们被归到 `COMPATIBILITY_API`，并通过 lazy import 加载；
+它们不再作为新用户第一入口，也不会让顶层 facade 一次性暴露所有高级名字。
 
 ## 三种核心 Workflow
 
@@ -207,8 +208,8 @@ Compatibility helpers 仍然显式可 import，例如：
 from polyfempy.differentiable import solve_differentiable
 ```
 
-但它们不在 `polyfempy.differentiable.__all__` 里。新 docs 和 examples 不应该把它们
-写成推荐入口。
+但它们不在 `polyfempy.differentiable.__all__` 里，并且只在显式请求时 lazy-load。
+新 docs 和 examples 不应该把它们写成推荐入口。
 
 ## Examples 对应关系
 
