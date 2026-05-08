@@ -18,6 +18,7 @@ import torch
 import torch.nn.functional as F
 
 from .design import make_bounds_projector, make_parameter
+from ._optimization_reports import OptimizationReportWriter
 from .material_config import (
     material_for_body,
     nu_from_material,
@@ -423,22 +424,11 @@ def run_scalar_material_optimization(
 ) -> list[ScalarMaterialOptimizationStep]:
     """Run a complete scalar material optimization loop and return completed steps."""
     completed_steps: list[ScalarMaterialOptimizationStep] = []
-    report_lines: list[str] = []
-
-    def write_reports() -> None:
-        if summary_path is not None:
-            path = Path(summary_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            text = "\n\n".join(report_lines)
-            path.write_text(text + ("\n" if text else ""), encoding="utf-8")
-
-        if history_summary_path is not None:
-            path = Path(history_summary_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                format_scalar_material_optimization_history_summary(completed_steps),
-                encoding="utf-8",
-            )
+    report_writer = OptimizationReportWriter(
+        summary_path=summary_path,
+        history_summary_path=history_summary_path,
+        history_formatter=format_scalar_material_optimization_history_summary,
+    )
 
     try:
         for step in problem.optimize(
@@ -450,7 +440,7 @@ def run_scalar_material_optimization(
             objective_info = step.objective_info if isinstance(step.objective_info, dict) else {}
             resolved_objective_name = str(objective_info.get("resolved_objective_name", "unknown"))
             step_text = format_scalar_material_optimization_step(step)
-            report_lines.append(step_text)
+            report_writer.append_step(step_text)
             if print_steps:
                 print(step_text)
                 if (
@@ -463,10 +453,10 @@ def run_scalar_material_optimization(
                         f"in the loaded extension, so using legacy {resolved_objective_name!r}"
                     )
             completed_steps.append(step)
-            write_reports()
+            report_writer.write(completed_steps)
     finally:
         if completed_steps:
-            write_reports()
+            report_writer.write(completed_steps)
         if release_solver:
             problem.release_solver()
 

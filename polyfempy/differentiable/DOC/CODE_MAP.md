@@ -212,8 +212,8 @@ compatibility.
 
 ### `optimization_problem.py` and `optimization_runner.py`
 
-Higher-level dispatch and shared optimization result objects. The unified entry
-point is:
+Higher-level dispatch and shared optimization runners. The unified entry point
+is:
 
 ```python
 prepare_optimization_problem(cfg=cfg, kind="shape" | "material", ...)
@@ -221,6 +221,10 @@ prepare_optimization_problem(cfg=cfg, kind="shape" | "material", ...)
 
 The dispatcher should keep public scripts thin while preserving different
 implementation paths for shape and material variables.
+
+`_optimization_result.py` owns `OptimizationRunResult`. `_optimization_reports.py`
+owns the shared step-summary/history file writer used by both shape and material
+optimization loops.
 
 ### `material_diagnostics.py`
 

@@ -11,6 +11,7 @@ from typing import Any, Callable, Mapping, Optional, Sequence, Union, overload
 import numpy as np
 import torch
 
+from ._optimization_reports import OptimizationReportWriter
 from .cpp_ext import get_cpp_polyfempy
 from .design import (
     ParameterizedVertexDesign,
@@ -300,25 +301,14 @@ def run_shape_optimization(
 ) -> list[ShapeOptimizationStep]:
     """Run a complete shape optimization loop and return completed steps."""
     completed_steps: list[ShapeOptimizationStep] = []
-    report_lines: list[str] = []
+    report_writer = OptimizationReportWriter(
+        summary_path=summary_path,
+        history_summary_path=history_summary_path,
+        history_formatter=format_shape_optimization_history_summary,
+    )
     grad_dir = Path(gradient_dir) if gradient_dir is not None else None
     if grad_dir is not None:
         grad_dir.mkdir(parents=True, exist_ok=True)
-
-    def write_reports() -> None:
-        if summary_path is not None:
-            path = Path(summary_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            text = "\n\n".join(report_lines)
-            path.write_text(text + ("\n" if text else ""), encoding="utf-8")
-
-        if history_summary_path is not None:
-            path = Path(history_summary_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                format_shape_optimization_history_summary(completed_steps),
-                encoding="utf-8",
-            )
 
     try:
         for step in problem.optimize(
@@ -335,13 +325,13 @@ def run_shape_optimization(
 
             completed_steps.append(step)
             step_text = format_shape_optimization_step(step)
-            report_lines.append(step_text)
+            report_writer.append_step(step_text)
             if print_steps:
                 print(step_text)
-            write_reports()
+            report_writer.write(completed_steps)
     finally:
         if completed_steps:
-            write_reports()
+            report_writer.write(completed_steps)
         if release_solver:
             problem.release_solver()
 

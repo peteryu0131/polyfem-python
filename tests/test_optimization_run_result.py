@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from polyfempy.differentiable.optimization_runner import OptimizationRunResult
+from polyfempy.differentiable._optimization_result import (
+    OptimizationRunResult as InternalOptimizationRunResult,
+)
+
+
+def test_optimization_run_result_is_reexported_from_runner():
+    assert OptimizationRunResult is InternalOptimizationRunResult
 
 
 @dataclass
