@@ -2,14 +2,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from polyfempy.differentiable.optimization_runner import OptimizationRunResult
+import pytest
+
 from polyfempy.differentiable._optimization_result import (
     OptimizationRunResult as InternalOptimizationRunResult,
 )
 
+OptimizationRunResult = InternalOptimizationRunResult
+
 
 def test_optimization_run_result_is_reexported_from_runner():
-    assert OptimizationRunResult is InternalOptimizationRunResult
+    pytest.importorskip("torch", exc_type=ImportError)
+
+    from polyfempy.differentiable.optimization_runner import (
+        OptimizationRunResult as RunnerOptimizationRunResult,
+    )
+
+    assert RunnerOptimizationRunResult is InternalOptimizationRunResult
 
 
 @dataclass

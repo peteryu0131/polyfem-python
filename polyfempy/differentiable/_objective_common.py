@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Literal, Optional, TypeAlias, Union
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, TypeAlias, Union
 
 import numpy as np
-import torch
+
+if TYPE_CHECKING:
+    import torch
+
+    TensorLike: TypeAlias = torch.Tensor
+else:
+    TensorLike: TypeAlias = Any
 
 
 TimeAggregationName: TypeAlias = Literal[
@@ -22,8 +28,8 @@ TimeAggregationName: TypeAlias = Literal[
 SmoothTimeAggregationName: TypeAlias = Literal["smooth_max", "softmax", "logsumexp"]
 TimeAggregation = TimeAggregationName
 ObjectiveLossInfo: TypeAlias = Union[int, dict[str, Any]]
-ObjectiveLossWithInfo: TypeAlias = tuple[torch.Tensor, ObjectiveLossInfo]
-ObjectiveLossResult: TypeAlias = Union[torch.Tensor, ObjectiveLossWithInfo]
+ObjectiveLossWithInfo: TypeAlias = tuple[TensorLike, ObjectiveLossInfo]
+ObjectiveLossResult: TypeAlias = Union[TensorLike, ObjectiveLossWithInfo]
 ObjectiveLossBuilder: TypeAlias = Callable[[Any], ObjectiveLossResult]
 BodySelection: TypeAlias = Union[int, str]
 
@@ -150,8 +156,20 @@ def _resolve_smooth_max_sharpness(
     return float(smooth_max_sharpness)
 
 
-def _auto_smooth_max_sharpness(stacked: torch.Tensor) -> float:
+def _require_torch():
+    try:
+        import torch
+    except ImportError as exc:
+        raise ImportError(
+            "PyTorch is required for differentiable objective tensor operations. "
+            "Please install PyTorch: pip install torch"
+        ) from exc
+    return torch
+
+
+def _auto_smooth_max_sharpness(stacked: TensorLike) -> float:
     """Choose a smooth-max sharpness from the current objective scale."""
+    torch = _require_torch()
     scale = float(torch.max(torch.abs(stacked.detach())).cpu().item())
     if not np.isfinite(scale) or scale <= 0:
         return 1.0

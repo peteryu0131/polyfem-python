@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-torch = pytest.importorskip("torch")
+torch = pytest.importorskip("torch", exc_type=ImportError)
 
 from polyfempy.differentiable._material_parameters import (  # noqa: E402
     build_lame_from_youngs,
