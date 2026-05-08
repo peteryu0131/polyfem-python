@@ -77,14 +77,13 @@ lists.
 
 ### `solve_diff.py`
 
-Converts API configs and mesh inputs into a C++ `Solver`, then calls the torch
-autograd bridge. It owns:
+Converts mesh inputs into a C++ `Solver`, then calls the torch autograd bridge.
+It owns the high-level differentiable solve entry points:
 
-- config normalization
 - disk-mesh and array-mesh setup
-- solver construction
-- body-slot helpers for material masks
-- high-level differentiable solve entry points
+- vertex-based differentiable solve
+- material differentiable solve
+- `E, nu` convenience wrapper around the material solve
 
 Key exported functions:
 
@@ -98,6 +97,18 @@ youngs_to_lame
 `solve_differentiable(...)` is still exported as the lower-level compatibility
 entry point, but new user scripts should prefer
 `prepare_differentiable_simulation(...)`.
+
+### `_solve_settings.py`
+
+Shared config/settings utilities used by differentiable solve and optimization
+helpers. It owns config normalization, root-path handling, log-level parsing,
+runtime patches, and repeated solver construction.
+
+### `_material_parameters.py`
+
+Shared material-parameter utilities. It owns Young's modulus to Lamé conversion,
+pressure-unit scaling, material assembly-slot masks, and per-slot material-vector
+expansion.
 
 ### `torch_integration.py`
 
