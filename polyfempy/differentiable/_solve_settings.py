@@ -9,10 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 from ..api._solve_contract import (
-    build_canonical_solver_settings,
-    build_full_json,
     cfg_array_mesh_payload,
-    choose_mesh_source,
     MeshSource,
     normalize_config,
     prepare_canonical_solve_input,
@@ -149,6 +146,20 @@ def _root_path_from_config_and_settings(
     return None
 
 
+def _config_obj_for_legacy_return(
+    *,
+    original_cfg: Union[str, Dict[str, Any], SimulationConfig],
+    config: SimulationConfig,
+) -> Optional[SimulationConfig]:
+    if isinstance(original_cfg, (str, SimulationConfig)):
+        return config
+    return None
+
+
+def _is_settings_only_no_mesh_error(exc: ValueError) -> bool:
+    return "Either provide vertices/cells arrays, or use JSON config with geometry" in str(exc)
+
+
 def prepare_differentiable_solve_contract(
     *,
     V: Any = None,
@@ -200,43 +211,34 @@ def _differentiable_config_and_settings(
     return_diagnostics: bool = False,
 ):
     """Normalize user configs for differentiable solve entry points."""
-    config_root = None
-    config_obj: Optional[SimulationConfig] = None
-    if isinstance(cfg, str):
-        config = normalize_config(cfg)
-        config_obj = config
-        config_root = str(Path(cfg).resolve())
-    elif isinstance(cfg, dict):
-        config = normalize_config(cfg)
-        config_root = cfg.get("root_path") or (config.extras or {}).get("_root_path")
-    elif isinstance(cfg, SimulationConfig):
-        config = normalize_config(cfg)
-        config_obj = config
-        config_root = (getattr(config, "extras", None) or {}).get("_root_path")
-        if not config_root and hasattr(config, "to_dict"):
-            config_root = config.to_dict().get("root_path")
-    else:
-        config = normalize_config(cfg)
-
-    diagnostics: Dict[str, Any] = {"runtime_patches": [], "mesh_source": None}
-    full_json = build_full_json(config)
     try:
-        mesh_source = choose_mesh_source(
-            None,
-            None,
-            full_json,
-            cfg=config,
+        contract = prepare_differentiable_solve_contract(
+            cfg=cfg,
+            root_path=root_path,
+            apply_runtime_patches=apply_runtime_patches,
         )
-    except ValueError:
-        mesh_source = None
-        settings = config.to_dict()
+    except ValueError as exc:
+        if not _is_settings_only_no_mesh_error(exc):
+            raise
     else:
-        settings = build_canonical_solver_settings(
-            config,
-            full_json=full_json,
-            mesh_source=mesh_source,
+        config_obj = _config_obj_for_legacy_return(
+            original_cfg=cfg,
+            config=contract.config,
         )
-        diagnostics["mesh_source"] = mesh_source.mode
+        if return_diagnostics:
+            return (
+                contract.config,
+                config_obj,
+                contract.settings,
+                contract.root_path,
+                contract.diagnostics,
+            )
+        return contract.config, config_obj, contract.settings, contract.root_path
+
+    config = normalize_config(cfg)
+    config_obj = _config_obj_for_legacy_return(original_cfg=cfg, config=config)
+    settings = config.to_dict()
+    diagnostics: Dict[str, Any] = {"runtime_patches": [], "mesh_source": None}
 
     if apply_runtime_patches:
         diagnostics["runtime_patches"] = _apply_internal_differentiable_runtime_patches(
@@ -244,7 +246,12 @@ def _differentiable_config_and_settings(
             settings=settings,
         )
 
-    root_path_resolved = root_path if root_path is not None else config_root
+    root_path_resolved = root_path
+    if root_path_resolved is None:
+        root_path_resolved = _root_path_from_config_and_settings(
+            config=config,
+            settings=settings,
+        )
     if not root_path_resolved:
         root_path_resolved = settings.get("root_path")
     if root_path_resolved:

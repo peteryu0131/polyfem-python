@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 
 from polyfempy.api.config import SimulationConfig, Solver, SolverContactOptions
+import polyfempy.differentiable._solve_settings as solve_settings
 from polyfempy.differentiable._solve_settings import (
     _apply_internal_differentiable_runtime_patches,
     _console_log_level_from_settings,
@@ -81,6 +84,47 @@ def test_differentiable_settings_use_canonical_json_cleanup():
     assert "result" not in settings["output"]
     assert "fallback" not in settings["output"]
     assert "save_vtu" not in settings["output"]
+    assert diagnostics["mesh_source"] == "json"
+
+
+def test_differentiable_config_wrapper_delegates_to_solve_contract(monkeypatch):
+    cfg = SimulationConfig.linear_elasticity(20.0, 0.3)
+    calls = []
+
+    def fake_prepare_contract(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            config=cfg,
+            settings={"from": "contract"},
+            root_path="/tmp/root.json",
+            diagnostics={"mesh_source": "json", "runtime_patches": []},
+            mesh_source=SimpleNamespace(mode="json"),
+        )
+
+    monkeypatch.setattr(
+        solve_settings,
+        "prepare_differentiable_solve_contract",
+        fake_prepare_contract,
+    )
+
+    config, config_obj, settings, root_path, diagnostics = _differentiable_config_and_settings(
+        cfg,
+        root_path="/tmp/root.json",
+        apply_runtime_patches=False,
+        return_diagnostics=True,
+    )
+
+    assert calls == [
+        {
+            "cfg": cfg,
+            "root_path": "/tmp/root.json",
+            "apply_runtime_patches": False,
+        }
+    ]
+    assert config is cfg
+    assert config_obj is cfg
+    assert settings == {"from": "contract"}
+    assert root_path == "/tmp/root.json"
     assert diagnostics["mesh_source"] == "json"
 
 
