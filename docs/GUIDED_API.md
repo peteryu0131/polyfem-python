@@ -195,8 +195,7 @@ terminal_log(cfg, print_terminal=False)
 
 - `polyfempy.api.guided_sections`：implementation module；
 - `polyfempy.api._guided_array_mesh`：internal payload builder；
-- `add_body_from_section(...)` / `build_material(...)` 等 builder helpers；
-- `default_impact_template(...)`：demo preset，不是 generic public path。
+- `add_body_from_section(...)` / `build_material(...)` 等 builder helpers。
 
 ## 测试保护
 

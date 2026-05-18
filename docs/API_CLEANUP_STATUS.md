@@ -241,7 +241,7 @@ Advanced or experimental differentiable paths:
 
 - raw `derivative_type="material"` use
 - initial-condition or initial-velocity gradients
-- low-level torch-bridge and finite-difference diagnostics
+- finite-difference diagnostics
 
 ## API Questions To Decide Next
 
@@ -271,7 +271,7 @@ NeurIPS artifact.
    - `prepare_parameterized_shape_problem(...)`
 
 7. Should experimental differentiable paths such as initial velocity gradients
-   be hidden under `polyfempy.differentiable.advanced` until they are stable?
+   stay outside the recommended public imports until they are stable?
 
 8. Should examples write into timestamped run folders by default, or should they
    use deterministic output directories for easier artifact checking?

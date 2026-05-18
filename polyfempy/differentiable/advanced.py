@@ -1,12 +1,9 @@
-"""Advanced and legacy helpers for differentiable PolyFEM workflows.
+"""Advanced helpers for differentiable PolyFEM workflows.
 
 Most user scripts should import from ``polyfempy.differentiable`` directly.
 This module exposes debugging probes, finite-difference checks, config parsing
-helpers, and the older torch-bridge experiment helpers without making those
-names part of the recommended API path.
-
-Exports are loaded lazily. Importing this module does not load the legacy
-torch bridge unless a torch-bridge symbol is actually requested.
+helpers, and material diagnostics without making those names part of the
+recommended API path.
 """
 
 from __future__ import annotations
@@ -36,34 +33,9 @@ _MATERIAL_DIAGNOSTIC_NAMES = {
     "usable_scalar_gradient",
 }
 
-_TORCH_BRIDGE_NAMES = {
-    "TORCH_BRIDGE_METHOD_NAME",
-    "TORCH_BRIDGE_METHOD_PATTERN",
-    "PolyFEMTorchBridgeOptimizerProbe",
-    "PolyFEMTorchBridgeOptimizerStep",
-    "PolyFEMTorchBridgeStep",
-    "apply_differentiable_runtime_patches",
-    "array_summary",
-    "console_log_level_from_settings",
-    "evaluate_polyfem_loss",
-    "gradient_summary",
-    "make_torch_optimizer",
-    "print_polyfem_bridge_optimizer_probe_summary",
-    "print_polyfem_bridge_step_summary",
-    "run_backward_if_requested",
-    "run_polyfem_bridge_optimizer_probe",
-    "run_polyfem_bridge_step",
-    "run_polyfem_differentiable_forward",
-    "solver_set_log_level_off",
-    "summarize_gradient_norm",
-    "write_polyfem_bridge_optimizer_probe_report",
-    "write_polyfem_bridge_step_report",
-}
-
 _EXPORT_MODULES = {
     **{name: ".material_config" for name in _MATERIAL_CONFIG_NAMES},
     **{name: ".material_diagnostics" for name in _MATERIAL_DIAGNOSTIC_NAMES},
-    **{name: ".torch_bridge" for name in _TORCH_BRIDGE_NAMES},
 }
 
 __all__ = sorted(_EXPORT_MODULES)

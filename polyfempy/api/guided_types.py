@@ -500,4 +500,3 @@ class ExperimentTemplate:
 
 
 SimulationTemplate = ExperimentTemplate
-ImpactTemplate = ExperimentTemplate

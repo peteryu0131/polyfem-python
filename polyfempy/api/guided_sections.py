@@ -102,7 +102,6 @@ from .guided_types import (
     GeometryAdvancedSection,
     GeometryExtractName,
     GroundObstacleSection,
-    ImpactTemplate,
     LameModelName,
     LengthUnitName,
     LinearPreconditionerName,
@@ -149,143 +148,9 @@ from .guided_types import (
 )
 
 
-HERE = Path(__file__).resolve().parent
-_PACKAGE_ROOT = HERE.parents[1]
-_LEGACY_EXPERIMENT_MESH_DIR = (
-    _PACKAGE_ROOT / "experiment" / "experiment_api_solve" / "meshes"
-)
-MESH_DIR = (
-    _LEGACY_EXPERIMENT_MESH_DIR
-    if _LEGACY_EXPERIMENT_MESH_DIR.exists()
-    else HERE / "meshes"
-)
-
-
 def mesh_file(name: str) -> str:
-    return str((MESH_DIR / name).resolve())
-
-
-def default_impact_bodies() -> list[BodySection]:
-    return [
-        body_section(
-            name="lattice",
-            mesh="triangular_lattice.msh",
-            material=material_section(
-                model="NeoHookean",
-                mode="young_poisson",
-                E=20.0,
-                E_unit="MPa",
-                nu=0.45,
-                rho=1100.0,
-                rho_unit="kg/m^3",
-            ),
-            fixed_surface=fixed_surface_section(side="y_min"),
-        ),
-        body_section(
-            name="block",
-            mesh="falling_weight_block.msh",
-            material=material_section(
-                model="NeoHookean",
-                mode="young_poisson",
-                E=200.0,
-                E_unit="GPa",
-                nu=0.45,
-                rho=7850.0,
-                rho_unit="kg/m^3",
-            ),
-            initial_velocity=(0.0, 0.0),
-        ),
-    ]
-
-
-def default_impact_template() -> ExperimentTemplate:
-    """Create a fully-filled runnable preset for the impact example."""
-    return simulation_template(
-        problem=problem_section(
-            pde="NonLinearElasticity",
-        ),
-        units=units_section(
-            length="cm",
-            mass="g",
-            time="s",
-            characteristic_length=1.0,
-        ),
-        bodies=default_impact_bodies(),
-        space=space_section(discr_order=1),
-        loads=loads_section(rhs=(0.0, 980.0)),
-        time=time_section(t0=0.0, tend=0.02, dt=0.01),
-        solver=solver_section(
-            linear=linear_solver_section(solver="Eigen::PardisoLDLT"),
-            nonlinear=nonlinear_solver_section(
-                solver="Newton",
-                max_iterations=800,
-                grad_norm=0.002,
-                residual_tolerance=100.0,
-            ),
-            contact=solver_contact_section(barrier_stiffness="adaptive"),
-        ),
-        contact=contact_section(mode="frictionless", dhat=0.012),
-        results=results_section(requested_fields=["u", "stress", "von_mises"]),
-        output=output_section(
-            directory=".",
-            files=output_files_section(
-                save_vtu=True,
-                json_name="impact_stats.json",
-            ),
-            log=output_log_section(
-                level="debug",
-                file_level="debug",
-                path="polyfem.log",
-            ),
-            paraview=paraview_section(
-                file_name="impact.pvd",
-                vismesh_rel_area=10_000_000,
-                options=paraview_fields_section(
-                    material=True,
-                    body_ids=True,
-                    velocity=True,
-                    scalar_values=True,
-                    tensor_values=True,
-                ),
-            ),
-            advanced=output_advanced_section(
-                timestep_prefix="impact_step_",
-                save_time_sequence=True,
-            ),
-        ),
-    )
-
-
-def impact_template(**kwargs) -> ExperimentTemplate:
-    """Backward-compatible preset helper for the old impact example flow."""
-    template = default_impact_template()
-
-    lattice = kwargs.pop("lattice", None)
-    block = kwargs.pop("block", None)
-    bodies = kwargs.pop("bodies", None)
-    if bodies is not None:
-        template.bodies = list(bodies)
-    else:
-        current_bodies = list(template.bodies)
-        if lattice is not None:
-            if current_bodies:
-                current_bodies[0] = lattice
-            else:
-                current_bodies.append(lattice)
-        if block is not None:
-            if len(current_bodies) >= 2:
-                current_bodies[1] = block
-            else:
-                while len(current_bodies) < 1:
-                    current_bodies.append(body_section(name="body", mesh="", material=material_section()))
-                current_bodies.append(block)
-        template.bodies = current_bodies
-
-    for key, value in kwargs.items():
-        if not hasattr(template, key):
-            raise TypeError(f"impact_template() got an unexpected keyword argument {key!r}")
-        setattr(template, key, value)
-    return template
+    path = Path(name)
+    return str(path if path.is_absolute() else path.resolve())
 
 
 def build_material(section: MaterialSection):

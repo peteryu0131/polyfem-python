@@ -1,10 +1,10 @@
 """Differentiable simulation support for PolyFEM.
 
-Recommended user scripts should stay on the small public surface below. Lower
-level diagnostics, finite-difference checks, and legacy torch-bridge probes live
-under ``polyfempy.differentiable.advanced``. Compatibility names are still
-available by explicit import when PyTorch is installed, but they are excluded
-from ``__all__`` so the recommended API is easy to inspect.
+Recommended user scripts should stay on the small public surface below.
+Lower-level diagnostics and finite-difference checks live under
+``polyfempy.differentiable.advanced``. Compatibility names are still available
+by explicit import when PyTorch is installed, but they are excluded from
+``__all__`` so the recommended API is easy to inspect.
 """
 
 # pyright: reportMissingImports=false

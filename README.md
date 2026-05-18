@@ -133,7 +133,7 @@ The recommended differentiable paths for new users are:
 - parameterized fixed-topology shape optimization through `prepare_parameterized_shape_problem(...)`
 
 Advanced or experimental paths include initial-condition/initial-velocity
-gradients, raw `derivative_type="material"` use, and lower-level torch-bridge
+gradients, raw `derivative_type="material"` use, and finite-difference
 diagnostics. Prefer the public helper functions above unless you are extending
 the differentiable backend itself.
 

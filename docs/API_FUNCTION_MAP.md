@@ -326,7 +326,6 @@ problem_section / body_section / material_section / ...
 | `results_section(...)` | `ResultsSection` | guided output 中的 result-field request。 |
 | `simulation_template(...)` | `SimulationTemplate` | 把所有 sections 组合起来；新文档推荐名。 |
 | `experiment_template(...)` | `ExperimentTemplate` | compatibility alias，旧脚本继续可用。 |
-| `impact_template(...)` | `ExperimentTemplate` | impact demo 的默认模板。 |
 
 ### `body_section(...)`
 

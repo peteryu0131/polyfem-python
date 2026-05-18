@@ -338,7 +338,7 @@ python -m pytest tests/test_backend_smoke.py
 2. 哪些 section dataclass 只是返回类型，不需要用户手动实例化？
 3. `body_section(...)` 的 mesh-file 和 array-backed 两条路径怎么走？
 4. `build_config(...)` 里面哪些 helper 是 builder 内部函数？
-5. `impact_template(...)` 是不是 paper/demo-specific 太强？
+5. `impact_template(...)` 是不是 paper/demo-specific 太强？已解决：从 package public guided API 移除，examples 直接写 `simulation_template(...)`。
 
 ### `body_section(...)` 的关键语义
 
@@ -374,7 +374,7 @@ exactly one geometry source:
 - 不马上拆 `guided_sections.py`。
 - 不改 `body_section(...)` signature。
 - 不改 `build_config(...)` 行为。
-- 不改变 `impact_template(...)` 的存在方式，先只标注它是不是 demo convenience。
+- `impact_template(...)` 已移除；demo 不再通过 package preset 隐藏配置。
 
 ### 如果后续要拆 `guided_sections.py`
 

@@ -28,7 +28,6 @@ from .guided_types import (
     GeometryAdvancedSection,
     GeometryExtractName,
     GroundObstacleSection,
-    ImpactTemplate,
     LameModelName,
     LengthUnitName,
     LinearPreconditionerName,
