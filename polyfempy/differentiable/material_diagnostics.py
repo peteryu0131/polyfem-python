@@ -8,8 +8,8 @@ import numpy as np
 import torch
 
 from .objective_bridge import create_polyfem_objective, material_design_vector
+from ._solve_settings import build_solver_from_settings
 from .solve_diff import (
-    build_solver_from_settings,
     solve_differentiable_material_from_youngs,
     solver_body_slot_mask,
     youngs_value_to_internal,

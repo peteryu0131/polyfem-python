@@ -26,9 +26,8 @@ from .material_config import (
     youngs_from_material,
 )
 from .summary import gradient_norm
+from ._solve_settings import _differentiable_config_and_settings, build_solver_from_settings
 from .solve_diff import (
-    _differentiable_config_and_settings,
-    build_solver_from_settings,
     solve_differentiable_material_from_youngs,
     solver_body_slot_mask,
     youngs_value_to_internal,

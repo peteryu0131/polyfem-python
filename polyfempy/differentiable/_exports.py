@@ -120,7 +120,7 @@ EXPORT_MODULES = {
     # small.
     "solve_differentiable": ".solve_diff",
     "solve_differentiable_material_from_youngs": ".solve_diff",
-    "build_solver_from_settings": ".solve_diff",
+    "build_solver_from_settings": "._solve_settings",
     "solver_body_ids_for_assembly": ".solve_diff",
     "solver_body_slot_mask": ".solve_diff",
     "solve_differentiable_material": ".solve_diff",

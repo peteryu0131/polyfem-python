@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import copy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -11,10 +13,23 @@ from ..api._solve_contract import (
     build_full_json,
     cfg_array_mesh_payload,
     choose_mesh_source,
+    MeshSource,
     normalize_config,
+    prepare_canonical_solve_input,
 )
 from ..api.config import SimulationConfig
 from .cpp_ext import get_cpp_polyfempy
+
+
+@dataclass
+class DifferentiableSolveContract:
+    """Resolved config, settings, and mesh source for differentiable solves."""
+
+    config: SimulationConfig
+    settings: Dict[str, Any]
+    root_path: Optional[str]
+    diagnostics: Dict[str, Any]
+    mesh_source: MeshSource
 
 
 def _console_log_level_from_settings(settings: Dict[str, Any]) -> int:
@@ -112,6 +127,69 @@ def _geometry_uses_only_absolute_mesh_paths(settings: Dict[str, Any]) -> bool:
 
 def _cfg_array_mesh_payload(config: SimulationConfig) -> Optional[Dict[str, Any]]:
     return cfg_array_mesh_payload(config)
+
+
+def _root_path_from_config_and_settings(
+    *,
+    config: SimulationConfig,
+    settings: Dict[str, Any],
+) -> Optional[str]:
+    extras = getattr(config, "extras", None)
+    if isinstance(extras, dict) and extras.get("_root_path"):
+        return extras["_root_path"]
+    if settings.get("root_path"):
+        return settings["root_path"]
+    if hasattr(config, "to_dict"):
+        try:
+            config_dict = config.to_dict()
+        except Exception:
+            return None
+        if isinstance(config_dict, dict):
+            return config_dict.get("root_path")
+    return None
+
+
+def prepare_differentiable_solve_contract(
+    *,
+    V: Any = None,
+    C: Any = None,
+    cfg: Union[str, Dict[str, Any], SimulationConfig],
+    root_path: Optional[str] = None,
+    apply_runtime_patches: bool = True,
+) -> DifferentiableSolveContract:
+    """Prepare the shared solve contract for differentiable entry points."""
+    canonical = prepare_canonical_solve_input(
+        vertices=V,
+        cells=C,
+        cfg=cfg,
+        dtype=float,
+    )
+    settings = copy.deepcopy(canonical.backend_settings)
+    diagnostics: Dict[str, Any] = dict(canonical.metadata)
+    diagnostics.setdefault("runtime_patches", [])
+
+    if apply_runtime_patches:
+        diagnostics["runtime_patches"] = _apply_internal_differentiable_runtime_patches(
+            config=None,
+            settings=settings,
+        )
+
+    root_path_resolved = root_path
+    if root_path_resolved is None:
+        root_path_resolved = _root_path_from_config_and_settings(
+            config=canonical.config,
+            settings=settings,
+        )
+    if root_path_resolved:
+        settings["root_path"] = root_path_resolved
+
+    return DifferentiableSolveContract(
+        config=canonical.config,
+        settings=settings,
+        root_path=root_path_resolved,
+        diagnostics=diagnostics,
+        mesh_source=canonical.mesh_source,
+    )
 
 
 def _differentiable_config_and_settings(

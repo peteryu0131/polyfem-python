@@ -33,11 +33,13 @@ from .shape_problem import (
     ShapeOptimizationStep,
 )
 from .result_diff import DifferentiableResult
-from .solve_diff import (
+from ._solve_settings import (
     _console_log_level_from_settings,
     _differentiable_config_and_settings,
     _geometry_uses_only_absolute_mesh_paths,
     _solver_set_log_level_off,
+)
+from .solve_diff import (
     prepare_differentiable_simulation,
 )
 from .summary import gradient_norm

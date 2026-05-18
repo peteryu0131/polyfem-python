@@ -31,12 +31,10 @@ from ._material_parameters import (
     youngs_value_to_internal,
 )
 from ._solve_settings import (
-    _cfg_array_mesh_payload,
     _console_log_level_from_settings,
-    _differentiable_config_and_settings,
     _geometry_uses_only_absolute_mesh_paths,
     _solver_set_log_level_off,
-    build_solver_from_settings,
+    prepare_differentiable_solve_contract,
 )
 
 
@@ -98,21 +96,26 @@ def solve_differentiable(
     # --- Resolve config and decide: load_mesh (file) vs set_mesh (array) ---
     if cfg is None:
         raise ValueError("cfg is required (JSON path, dict, or SimulationConfig)")
-    config, _, settings, _, diagnostics = _differentiable_config_and_settings(
-        cfg,
+    original_V = V
+    original_C = C
+    solve_contract = prepare_differentiable_solve_contract(
+        V=V,
+        C=C,
+        cfg=cfg,
         root_path=root_path,
-        return_diagnostics=True,
     )
-    array_payload = _cfg_array_mesh_payload(config)
-    if V is None and C is None and array_payload is not None:
-        V = array_payload.get("vertices")
-        C = array_payload.get("cells")
+    settings = solve_contract.settings
+    diagnostics = solve_contract.diagnostics
+    mesh_source = solve_contract.mesh_source
+    if mesh_source.mode != "json":
+        V = original_V if original_V is not None else mesh_source.vertices
+        C = original_C if original_C is not None else mesh_source.cells
         if body_ids is None:
-            body_ids = array_payload.get("body_ids")
+            body_ids = mesh_source.body_ids
         if boundary_ids is None:
-            boundary_ids = array_payload.get("boundary_ids")
+            boundary_ids = mesh_source.boundary_ids
 
-    use_load_mesh = (V is None and C is None) and settings.get("geometry")
+    use_load_mesh = mesh_source.mode == "json"
     if use_load_mesh and not settings.get("root_path") and not _geometry_uses_only_absolute_mesh_paths(settings):
         raise ValueError(
             "Config+mesh mode requires root_path so mesh paths resolve. "
@@ -162,16 +165,7 @@ def solve_differentiable(
         else:
             C_np = np.asarray(C, dtype=np.int32)
 
-        # Normalize settings for array mode
-        if "geometry" not in settings:
-            settings["geometry"] = [{"type": "ground", "height": 0.0, "enabled": True, "is_obstacle": False}]
-        if "materials" in settings:
-            materials = settings["materials"]
-            if isinstance(materials, dict) and not isinstance(materials, list):
-                if "type" not in materials:
-                    pde = settings.get("pde", "LinearElasticity")
-                    materials["type"] = "Laplacian" if pde == "Poisson" else "LinearElasticity"
-                settings["materials"] = [materials]
+        # Keep legacy shorthand boundary IDs compatible with backend JSON.
         if "boundary_conditions" in settings:
             bc = settings["boundary_conditions"]
             for key in ("dirichlet_boundary", "neumann_boundary"):
