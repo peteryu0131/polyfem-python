@@ -26,9 +26,15 @@ if str(_REPO) not in sys.path:
 from polyfempy.api._solve_pipeline import (  # noqa: E402
     NormalizedInputs,
     build_full_json,
+    configure_solver,
     merge_user_cfg_over_full_json,
     normalize_cfg,
     normalize_mesh_inputs,
+)
+from polyfempy.api._solve_contract import (  # noqa: E402
+    MeshSource,
+    build_canonical_solver_settings,
+    prepare_canonical_solve_input,
 )
 from polyfempy.api.config import SimulationConfig  # noqa: E402
 
@@ -171,6 +177,149 @@ class NormalizeMeshInputsTests(unittest.TestCase):
         # Arrays are present, so the pipeline prefers array mode.
         self.assertFalse(inputs.use_json_mode)
         self.assertIsNotNone(inputs.V_np)
+
+    def test_partial_array_input_raises_even_when_json_geometry_exists(self):
+        V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
+        full_json = {"geometry": [{"mesh": "beam.msh"}]}
+
+        with self.assertRaisesRegex(ValueError, "array mode requires both vertices and cells"):
+            normalize_mesh_inputs(V, None, full_json, dtype=None)
+
+
+class CanonicalSolverSettingsTests(unittest.TestCase):
+    def test_prepare_canonical_solve_input_for_json_mode(self):
+        cfg = SimulationConfig.from_json_dict(_MINIMAL_FULL)
+
+        canonical = prepare_canonical_solve_input(
+            vertices=None,
+            cells=None,
+            cfg=cfg,
+            dtype=None,
+        )
+
+        self.assertEqual(canonical.mesh_source.mode, "json")
+        self.assertEqual(canonical.metadata["mesh_source"], "json")
+        self.assertIn("geometry", canonical.backend_settings)
+        self.assertNotIn("common", canonical.backend_settings)
+
+    def test_prepare_canonical_solve_input_for_direct_array_mode(self):
+        cfg = SimulationConfig.linear_elasticity(20.0, 0.3)
+        V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
+        C = np.array([[0, 1, 2]], dtype=np.int64)
+
+        canonical = prepare_canonical_solve_input(
+            vertices=V,
+            cells=C,
+            cfg=cfg,
+            dtype=None,
+        )
+
+        self.assertEqual(canonical.mesh_source.mode, "array")
+        self.assertEqual(canonical.metadata["mesh_source"], "array")
+        self.assertEqual(canonical.mesh_source.cells.dtype, np.int32)
+        self.assertEqual(canonical.backend_settings["geometry"][0]["type"], "ground")
+
+    def test_prepare_canonical_solve_input_for_guided_array_mode(self):
+        cfg = SimulationConfig.linear_elasticity(20.0, 0.3)
+        cfg.extras["_mesh_array_mode"] = {
+            "vertices": np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
+            "cells": np.array([[0, 1, 2]], dtype=np.int32),
+            "body_ids": np.array([3], dtype=np.int32),
+        }
+
+        canonical = prepare_canonical_solve_input(
+            vertices=None,
+            cells=None,
+            cfg=cfg,
+            dtype=None,
+        )
+
+        self.assertEqual(canonical.mesh_source.mode, "guided_array")
+        self.assertEqual(canonical.metadata["mesh_source"], "guided_array")
+        np.testing.assert_array_equal(canonical.mesh_source.body_ids, np.array([3], dtype=np.int32))
+
+    def test_guided_array_placeholder_is_removed_from_backend_settings(self):
+        class ConfigWithArrayPlaceholder:
+            boundary_conditions = {}
+
+            def to_dict(self):
+                return {
+                    "pde": "LinearElasticity",
+                    "geometry": [{"mesh": "__array_body__:beam"}],
+                    "materials": {"E": 20.0, "nu": 0.3},
+                }
+
+        mesh_source = MeshSource(
+            mode="guided_array",
+            vertices=np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
+            cells=np.array([[0, 1, 2]], dtype=np.int32),
+            body_ids=np.array([1], dtype=np.int32),
+            boundary_ids=None,
+            v_backend="numpy",
+        )
+
+        settings = build_canonical_solver_settings(
+            ConfigWithArrayPlaceholder(),
+            full_json=None,
+            mesh_source=mesh_source,
+        )
+
+        self.assertNotIn("__array_body__", json.dumps(settings))
+        self.assertEqual(settings["geometry"], [{"type": "ground", "height": 0.0, "enabled": True, "is_obstacle": False}])
+        self.assertIsInstance(settings["materials"], list)
+
+
+class ConfigureSolverContractTests(unittest.TestCase):
+    def test_array_configure_uses_prebuilt_backend_settings(self):
+        class CfgThatMustNotSerialize:
+            boundary_conditions = {}
+
+            def to_dict(self):
+                raise AssertionError("configure_solver should use canonical backend_settings")
+
+        class FakeMesh:
+            pass
+
+        class FakeSolver:
+            def __init__(self):
+                self.settings_json = None
+                self.mesh_args = None
+
+            def set_settings(self, settings_json, strict_validation=False):
+                self.settings_json = settings_json
+
+            def set_mesh(self, vertices, cells):
+                self.mesh_args = (vertices, cells)
+
+            def mesh(self):
+                return FakeMesh()
+
+        inputs = NormalizedInputs(
+            V_np=np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
+            C_np=np.array([[0, 1, 2]], dtype=np.int32),
+            body_ids_np=None,
+            boundary_ids_np=None,
+            v_backend="numpy",
+            use_json_mode=False,
+            mesh_source="guided_array",
+        )
+        backend_settings = {
+            "pde": "LinearElasticity",
+            "geometry": [{"type": "ground", "height": 0.0, "enabled": True, "is_obstacle": False}],
+            "materials": [{"type": "LinearElasticity", "E": 20.0, "nu": 0.3}],
+        }
+        solver = FakeSolver()
+
+        configure_solver(
+            solver,
+            CfgThatMustNotSerialize(),
+            full_json=None,
+            inputs=inputs,
+            backend_settings=backend_settings,
+        )
+
+        self.assertNotIn("__array_body__", solver.settings_json)
+        self.assertEqual(solver.mesh_args[1].dtype, np.int32)
 
 
 if __name__ == "__main__":

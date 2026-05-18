@@ -115,7 +115,7 @@ class HistoryBackfillTests(unittest.TestCase):
                 solver=None,
                 native=native,
                 full_json={"output": {"directory": "/tmp"}},
-                runtime=RuntimeOptions(),
+                runtime=RuntimeOptions(fallback_mode="auto"),
             )
 
         self.assertTrue(r.history.available)
@@ -125,6 +125,31 @@ class HistoryBackfillTests(unittest.TestCase):
         self.assertTrue(r.meta.get("sampled_vtu_fallback"))
         self.assertEqual(r.meta.get("sampled_vtu_fallback_mode"), "exported_files")
         self.assertEqual(r.meta.get("stress_source"), "exported_vtu:last_frame")
+
+    def test_never_mode_does_not_use_exported_history(self):
+        result, native = _native_result_and_outputs(history=None)
+        exported_history = HistoryView(
+            frames=[_make_frame(0), _make_frame(1)],
+            times=[0.0, 0.01],
+        )
+        exported_history.source = "exported_vtu_sequence"
+
+        with unittest.mock.patch.object(
+            _p,
+            "_collect_history_from_exported_vtus",
+            return_value=exported_history,
+        ):
+            r = apply_sampled_vtu_fallback(
+                result,
+                solver=None,
+                native=native,
+                full_json={"output": {"directory": "/tmp"}},
+                runtime=RuntimeOptions(fallback_mode="never"),
+            )
+
+        self.assertFalse(r.history.available)
+        self.assertEqual(r._sampled_data, {})
+        self.assertNotIn("sampled_vtu_fallback", r.meta)
 
     def test_noop_when_neither_history_nor_exported_vtu_is_available(self):
         result, native = _native_result_and_outputs(history=None)

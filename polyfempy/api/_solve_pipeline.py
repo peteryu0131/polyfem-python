@@ -40,6 +40,18 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from . import tensor as T
+from ._solve_contract import (
+    MeshSource,
+    build_canonical_solver_settings,
+    build_full_json as _contract_build_full_json,
+    clean_json_for_cpp as _contract_clean_json_for_cpp,
+    cfg_array_mesh_payload,
+    choose_mesh_source,
+    merge_user_cfg_over_full_json as _contract_merge_user_cfg_over_full_json,
+    normalize_config,
+    process_json_config as _contract_process_json_config,
+    prepare_canonical_solve_input,
+)
 from .result import Result
 
 
@@ -69,6 +81,7 @@ class NormalizedInputs:
     boundary_ids_np: Optional[np.ndarray]
     v_backend: str
     use_json_mode: bool
+    mesh_source: str = "array"
 
 
 @dataclass
@@ -107,12 +120,7 @@ def _ensure_i32(cells):
 
 
 def _cfg_array_mesh_payload(cfg) -> Optional[Dict[str, Any]]:
-    extras = getattr(cfg, "extras", None)
-    if isinstance(extras, dict):
-        payload = extras.get("_mesh_array_mode")
-        if isinstance(payload, dict):
-            return payload
-    return None
+    return cfg_array_mesh_payload(cfg)
 
 
 def _field_available(result: Result, name: str) -> bool:
@@ -160,78 +168,17 @@ def process_json_config(full_json: dict, cfg) -> dict:
       which are not part of the C++ JSON schema.
     - Resolves relative mesh paths using ``root_path``.
     """
-    processed = copy.deepcopy(full_json)
-    processed.pop("common", None)
-
-    out = processed.get("output")
-    if isinstance(out, dict):
-        out.pop("result", None)
-        out.pop("fallback", None)
-        out.pop("save_paraview", None)
-        out.pop("save_vtu", None)
-
-    root_path = processed.get("root_path")
-    geometry = processed.get("geometry")
-    if root_path and isinstance(geometry, list):
-        root_dir = Path(root_path).resolve().parent
-        for entry in geometry:
-            if not isinstance(entry, dict):
-                continue
-            mesh_path = entry.get("mesh")
-            if not isinstance(mesh_path, str) or not mesh_path.strip():
-                continue
-            mesh_file = Path(mesh_path)
-            if mesh_file.is_absolute():
-                continue
-            direct = root_dir / mesh_file
-            if direct.exists():
-                entry["mesh"] = str(direct)
-                continue
-            sibling = root_dir.parent / "meshes" / mesh_file.name
-            if sibling.exists():
-                entry["mesh"] = str(sibling)
-    return processed
+    return _contract_process_json_config(full_json, cfg)
 
 
 def clean_json_for_cpp(obj, path: str = ""):
     """Recursively drop ``None`` values in a JSON-like object, keeping solver blocks intact."""
-    if isinstance(obj, dict):
-        cleaned = {}
-        for key, value in obj.items():
-            current_path = f"{path}.{key}" if path else key
-            cleaned_value = clean_json_for_cpp(value, current_path)
-            if cleaned_value is not None:
-                cleaned[key] = cleaned_value
-        return cleaned
-    if isinstance(obj, list):
-        return [
-            clean_json_for_cpp(item, f"{path}[{i}]")
-            for i, item in enumerate(obj)
-            if clean_json_for_cpp(item, f"{path}[{i}]") is not None
-        ]
-    return obj
+    return _contract_clean_json_for_cpp(obj)
 
 
 def merge_user_cfg_over_full_json(cfg, full_json) -> dict:
     """Overlay ``SimulationConfig`` edits on top of the original full JSON."""
-    try:
-        cfg_dict = cfg.to_dict()
-    except Exception:
-        return full_json
-
-    if not isinstance(cfg_dict, dict):
-        return full_json
-
-    merged = copy.deepcopy(full_json) if isinstance(full_json, dict) else {}
-    for key, value in cfg_dict.items():
-        merged[key] = value
-
-    if hasattr(cfg, "extras") and cfg.extras and "_root_path" in cfg.extras:
-        merged["root_path"] = cfg.extras["_root_path"]
-    elif isinstance(full_json, dict) and "root_path" in full_json:
-        merged["root_path"] = full_json["root_path"]
-
-    return merged
+    return _contract_merge_user_cfg_over_full_json(cfg, full_json)
 
 
 # ---------------------------------------------------------------------------
@@ -245,20 +192,7 @@ def normalize_cfg(cfg):
     Fails fast with a clear error for everything else. Imported lazily so that
     this module remains importable without the full config surface loaded.
     """
-    from .config import SimulationConfig
-
-    if cfg is None:
-        raise ValueError("cfg (configuration) is required")
-
-    if isinstance(cfg, dict):
-        return SimulationConfig.from_json_dict(cfg)
-    if isinstance(cfg, str):
-        return SimulationConfig.from_json_file(cfg)
-    if isinstance(cfg, SimulationConfig):
-        return cfg
-    raise TypeError(
-        f"cfg must be SimulationConfig, dict, or str (file path), got {type(cfg).__name__}"
-    )
+    return normalize_config(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -276,33 +210,7 @@ def build_full_json(cfg) -> Optional[dict]:
        is truly feasible). Materials dicts are promoted to the array form expected
        by the C++ JSON schema.
     """
-    if hasattr(cfg, "validate"):
-        cfg.validate()
-
-    if _cfg_array_mesh_payload(cfg) is not None:
-        return None
-
-    if hasattr(cfg, "extras") and cfg.extras and "_full_json_config" in cfg.extras:
-        return merge_user_cfg_over_full_json(cfg, cfg.extras["_full_json_config"])
-
-    try:
-        cfg_dict = cfg.to_dict()
-    except Exception:
-        return None
-
-    if not (isinstance(cfg_dict, dict) and "geometry" in cfg_dict):
-        return None
-
-    full_json = cfg_dict
-    _promote_materials_to_list(full_json, infer_type_from_pde=False)
-    if (
-        hasattr(cfg, "extras")
-        and cfg.extras
-        and "root_path" not in full_json
-        and "_root_path" in cfg.extras
-    ):
-        full_json["root_path"] = cfg.extras["_root_path"]
-    return full_json
+    return _contract_build_full_json(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -373,42 +281,23 @@ def normalize_mesh_inputs(
     cfg=None,
 ) -> NormalizedInputs:
     """Resolve execution mode (JSON vs array) and normalize vertices/cells to NumPy."""
-    array_payload = _cfg_array_mesh_payload(cfg)
-    used_cfg_array_payload = False
-    if vertices is None and cells is None and array_payload is not None:
-        vertices = array_payload.get("vertices")
-        cells = array_payload.get("cells")
-        used_cfg_array_payload = True
-
-    use_json_mode = (
-        full_json is not None
-        and "geometry" in full_json
-        and (vertices is None or cells is None)
+    mesh_source = choose_mesh_source(
+        vertices,
+        cells,
+        full_json,
+        dtype=dtype,
+        cfg=cfg,
     )
-
-    if vertices is not None and cells is not None:
-        V_np, v_backend = T.as_numpy(vertices, dtype=dtype)
-        C_np, _ = T.as_numpy(cells, dtype=np.int32)
-        C_np = _ensure_i32(C_np)
-        body_ids_np = None
-        boundary_ids_np = None
-        if used_cfg_array_payload and array_payload is not None:
-            if array_payload.get("body_ids") is not None:
-                body_ids_np = np.asarray(array_payload["body_ids"], dtype=np.int32).reshape(-1)
-            if array_payload.get("boundary_ids") is not None:
-                boundary_ids_np = np.asarray(array_payload["boundary_ids"], dtype=np.int32).reshape(-1)
-        return NormalizedInputs(
-            V_np=V_np,
-            C_np=C_np,
-            body_ids_np=body_ids_np,
-            boundary_ids_np=boundary_ids_np,
-            v_backend=v_backend,
-            use_json_mode=use_json_mode,
-        )
-
+    use_json_mode = mesh_source.mode == "json"
     if not use_json_mode:
-        raise ValueError(
-            "Either provide vertices/cells arrays, or use JSON config with geometry (mesh files)"
+        return NormalizedInputs(
+            V_np=mesh_source.vertices,
+            C_np=mesh_source.cells,
+            body_ids_np=mesh_source.body_ids,
+            boundary_ids_np=mesh_source.boundary_ids,
+            v_backend=mesh_source.v_backend,
+            use_json_mode=False,
+            mesh_source=mesh_source.mode,
         )
     return NormalizedInputs(
         V_np=None,
@@ -417,6 +306,20 @@ def normalize_mesh_inputs(
         boundary_ids_np=None,
         v_backend="numpy",
         use_json_mode=True,
+        mesh_source="json",
+    )
+
+
+def _inputs_from_mesh_source(mesh_source: MeshSource) -> NormalizedInputs:
+    use_json_mode = mesh_source.mode == "json"
+    return NormalizedInputs(
+        V_np=None if use_json_mode else mesh_source.vertices,
+        C_np=None if use_json_mode else mesh_source.cells,
+        body_ids_np=None if use_json_mode else mesh_source.body_ids,
+        boundary_ids_np=None if use_json_mode else mesh_source.boundary_ids,
+        v_backend=mesh_source.v_backend,
+        use_json_mode=use_json_mode,
+        mesh_source=mesh_source.mode,
     )
 
 
@@ -488,11 +391,23 @@ def _apply_settings_json(solver, settings_json: str) -> None:
     raise RuntimeError("Missing set_settings(...) on solver.")
 
 
-def _configure_json_mode(solver, full_json: dict, cfg) -> SolverConfigContext:
-    processed = process_json_config(full_json, cfg)
-    processed.pop("common", None)
-    processed = clean_json_for_cpp(processed)
-    _apply_settings_json(solver, json.dumps(processed))
+def _configure_json_mode(
+    solver,
+    full_json: dict,
+    cfg,
+    *,
+    backend_settings: Optional[Dict[str, Any]] = None,
+) -> SolverConfigContext:
+    settings_dict = (
+        copy.deepcopy(backend_settings)
+        if backend_settings is not None
+        else build_canonical_solver_settings(
+            cfg,
+            full_json=full_json,
+            mesh_source=MeshSource(mode="json"),
+        )
+    )
+    _apply_settings_json(solver, json.dumps(settings_dict))
 
     if hasattr(solver, "load_mesh_from_settings"):
         solver.load_mesh_from_settings()
@@ -501,23 +416,32 @@ def _configure_json_mode(solver, full_json: dict, cfg) -> SolverConfigContext:
     return SolverConfigContext(settings_dict=None, bc={}, use_json_mode=True)
 
 
-def _configure_array_mode(solver, cfg) -> SolverConfigContext:
-    if hasattr(cfg, "to_dict"):
-        settings_dict = cfg.to_dict()
-    elif hasattr(cfg, "to_json_dict"):
-        settings_dict = cfg.to_json_dict()
-    else:
-        raise TypeError("cfg must provide to_dict() or to_json_dict() for non-JSON mode.")
+def _configure_array_mode(
+    solver,
+    cfg,
+    inputs: NormalizedInputs,
+    *,
+    backend_settings: Optional[Dict[str, Any]] = None,
+) -> SolverConfigContext:
+    settings_dict = (
+        copy.deepcopy(backend_settings)
+        if backend_settings is not None
+        else build_canonical_solver_settings(
+            cfg,
+            full_json=None,
+            mesh_source=MeshSource(
+                mode=inputs.mesh_source or "array",
+                vertices=inputs.V_np,
+                cells=inputs.C_np,
+                body_ids=inputs.body_ids_np,
+                boundary_ids=inputs.boundary_ids_np,
+                v_backend=inputs.v_backend,
+            ),
+        )
+    )
 
     bc_raw = getattr(cfg, "boundary_conditions", {}) or {}
     bc = bc_raw.to_dict() if hasattr(bc_raw, "to_dict") else (bc_raw if isinstance(bc_raw, dict) else {})
-
-    if "geometry" not in settings_dict:
-        settings_dict["geometry"] = [
-            {"type": "ground", "height": 0.0, "enabled": True, "is_obstacle": False}
-        ]
-
-    _promote_materials_to_list(settings_dict, infer_type_from_pde=True)
 
     if bc:
         settings_dict.setdefault("boundary_conditions", {})
@@ -580,12 +504,29 @@ def _retouch_bc_after_mesh(solver, ctx: SolverConfigContext) -> None:
         pass
 
 
-def configure_solver(solver, cfg, full_json: Optional[dict], inputs: NormalizedInputs) -> SolverConfigContext:
+def configure_solver(
+    solver,
+    cfg,
+    full_json: Optional[dict],
+    inputs: NormalizedInputs,
+    *,
+    backend_settings: Optional[Dict[str, Any]] = None,
+) -> SolverConfigContext:
     """Set settings, load/attach mesh. Returns context used by later retouch stages."""
     if inputs.use_json_mode:
-        return _configure_json_mode(solver, full_json, cfg)
+        return _configure_json_mode(
+            solver,
+            full_json,
+            cfg,
+            backend_settings=backend_settings,
+        )
 
-    ctx = _configure_array_mode(solver, cfg)
+    ctx = _configure_array_mode(
+        solver,
+        cfg,
+        inputs,
+        backend_settings=backend_settings,
+    )
     _apply_mesh_array_mode(solver, inputs)
     _retouch_bc_after_mesh(solver, ctx)
     return ctx
@@ -1149,6 +1090,9 @@ def apply_sampled_vtu_fallback(
     if result.history.available:
         return result
 
+    if runtime.fallback_mode == "never":
+        return result
+
     exported_history = _collect_history_from_exported_vtus(full_json)
     if not exported_history.available:
         return result
@@ -1316,18 +1260,31 @@ def run_pipeline(
     sampled_vtu_fallback: Optional[bool] = None,
 ) -> Result:
     """Drive the full solve pipeline. External contract matches ``api.solve.solve``."""
-    cfg = normalize_cfg(cfg)
-    full_json = build_full_json(cfg)
+    canonical = prepare_canonical_solve_input(
+        vertices=vertices,
+        cells=cells,
+        cfg=cfg,
+        dtype=dtype,
+    )
+    cfg = canonical.config
+    full_json = canonical.full_json
     runtime = resolve_runtime_options(cfg, full_json, sampled_vtu_fallback)
-    inputs = normalize_mesh_inputs(vertices, cells, full_json, dtype, cfg=cfg)
+    inputs = _inputs_from_mesh_source(canonical.mesh_source)
 
     solver = build_solver()
-    ctx = configure_solver(solver, cfg, full_json, inputs)
+    ctx = configure_solver(
+        solver,
+        cfg,
+        full_json,
+        inputs,
+        backend_settings=canonical.backend_settings,
+    )
     apply_sidesets(solver, sidesets_func, ctx)
 
     ret = run_solver_stage(solver, full_json)
     native = extract_native_outputs(ret, solver, inputs)
     history = _collect_solver_history(solver, full_json)
+    native.meta.setdefault("mesh_source", inputs.mesh_source)
 
     result = Result(
         inputs.v_backend,

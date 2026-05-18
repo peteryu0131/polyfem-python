@@ -98,9 +98,10 @@ def solve_differentiable(
     # --- Resolve config and decide: load_mesh (file) vs set_mesh (array) ---
     if cfg is None:
         raise ValueError("cfg is required (JSON path, dict, or SimulationConfig)")
-    config, _, settings, _ = _differentiable_config_and_settings(
+    config, _, settings, _, diagnostics = _differentiable_config_and_settings(
         cfg,
         root_path=root_path,
+        return_diagnostics=True,
     )
     array_payload = _cfg_array_mesh_payload(config)
     if V is None and C is None and array_payload is not None:
@@ -241,7 +242,7 @@ def solve_differentiable(
         derivative_type=derivative_type,
         differentiable_params=differentiable_params,
         vertices=V_torch,
-        meta={"_solve_settings": settings},
+        meta={"_solve_settings": settings, "_solve_diagnostics": diagnostics},
     )
 
 
