@@ -96,9 +96,9 @@ COMPATIBILITY_API = ADVANCED_COMPAT_API
 
 EXPORT_MODULES = {
     # Recommended public API.
-    "prepare_differentiable_simulation": ".solve_diff",
-    "DifferentiableResult": ".result_diff",
-    "DifferentiableMaterialResult": ".result_diff",
+    "prepare_differentiable_simulation": ".runtime.solve",
+    "DifferentiableResult": ".runtime.result",
+    "DifferentiableMaterialResult": ".runtime.result",
     "ParameterizedVertexDesign": ".design",
     "ObjectiveLossResult": ".objective_bridge",
     "make_von_mises_loss": ".objective_bridge",
@@ -114,19 +114,19 @@ EXPORT_MODULES = {
     "run_optimization": ".optimization_problem",
     "body_vertex_mask": ".shape_mask",
     "shape_gradient_for_body": ".shape_mask",
-    "save_training_sample": ".training_data",
+    "save_training_sample": ".data.training",
     # Explicit compatibility / advanced imports. These stay available, but are
     # loaded lazily by ``polyfempy.differentiable`` so the top-level facade stays
     # small.
-    "solve_differentiable": ".solve_diff",
-    "solve_differentiable_material_from_youngs": ".solve_diff",
-    "build_solver_from_settings": "._solve_settings",
-    "solver_body_ids_for_assembly": ".solve_diff",
-    "solver_body_slot_mask": ".solve_diff",
-    "solve_differentiable_material": ".solve_diff",
-    "youngs_value_to_internal": ".solve_diff",
-    "youngs_to_lame": ".solve_diff",
-    "build_lame_from_youngs": ".solve_diff",
+    "solve_differentiable": ".runtime.solve",
+    "solve_differentiable_material_from_youngs": ".runtime.solve",
+    "build_solver_from_settings": ".runtime.settings",
+    "solver_body_ids_for_assembly": ".runtime.solve",
+    "solver_body_slot_mask": ".runtime.solve",
+    "solve_differentiable_material": ".runtime.solve",
+    "youngs_value_to_internal": ".runtime.solve",
+    "youngs_to_lame": ".runtime.solve",
+    "build_lame_from_youngs": ".runtime.solve",
     "make_bounds_projector": ".design",
     "make_named_parameter_map": ".design",
     "make_parameter": ".design",

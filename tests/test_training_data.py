@@ -7,7 +7,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-import polyfempy.differentiable.training_data as training_data
+import polyfempy.differentiable.data.training as training_data
 
 
 class _DummyDifferentiableResult:

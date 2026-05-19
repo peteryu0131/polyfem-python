@@ -134,11 +134,14 @@ shared contract。
 
 ## Differentiable Solve Pipeline
 
-differentiable-specific wrapper 在：
+differentiable-specific runtime contract 在：
 
 ```text
-polyfempy/differentiable/_solve_settings.py
+polyfempy/differentiable/runtime/settings.py
 ```
+
+旧路径 `polyfempy/differentiable/_solve_settings.py` 仍然存在，但只是 compatibility
+shim。
 
 核心 helper：
 

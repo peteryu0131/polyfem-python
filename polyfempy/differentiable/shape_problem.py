@@ -14,9 +14,9 @@ import numpy as np
 import torch
 
 from .design import ParameterizedVertexDesign, parameter_name
-from .result_diff import DifferentiableResult
-from .solve_diff import prepare_differentiable_simulation
-from .torch_integration import PolyFEMFunction
+from .runtime.autograd import PolyFEMFunction
+from .runtime.result import DifferentiableResult
+from .runtime.solve import prepare_differentiable_simulation
 from ..api.report import summarize_history_bundle
 
 

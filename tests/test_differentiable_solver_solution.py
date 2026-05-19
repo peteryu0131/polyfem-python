@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from polyfempy.differentiable._solver_solution import solver_solution_array
+from polyfempy.differentiable.runtime.solver_solution import solver_solution_array
 
 
 class _GetterSolver:

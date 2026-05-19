@@ -5,9 +5,9 @@ from types import SimpleNamespace
 import numpy as np
 
 from polyfempy.api.config import SimulationConfig, Solver, SolverContactOptions
-import polyfempy.differentiable._solve_settings as solve_settings
+import polyfempy.differentiable.runtime.settings as solve_settings
 from polyfempy.api._solve_contract import NoMeshSourceError
-from polyfempy.differentiable._solve_settings import (
+from polyfempy.differentiable.runtime.settings import (
     _apply_internal_differentiable_runtime_patches,
     _console_log_level_from_settings,
     _differentiable_config_and_settings,

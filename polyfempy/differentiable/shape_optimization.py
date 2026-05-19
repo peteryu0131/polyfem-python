@@ -12,7 +12,7 @@ import numpy as np
 import torch
 
 from ._optimization_reports import OptimizationReportWriter
-from .cpp_ext import get_cpp_polyfempy
+from .runtime.cpp_ext import get_cpp_polyfempy
 from .design import (
     ParameterizedVertexDesign,
     make_bounds_projector,
@@ -32,14 +32,14 @@ from .shape_problem import (
     ShapeOptimizationProblem,
     ShapeOptimizationStep,
 )
-from .result_diff import DifferentiableResult
-from ._solve_settings import (
+from .runtime.result import DifferentiableResult
+from .runtime.settings import (
     _console_log_level_from_settings,
     _differentiable_config_and_settings,
     _geometry_uses_only_absolute_mesh_paths,
     _solver_set_log_level_off,
 )
-from .solve_diff import (
+from .runtime.solve import (
     prepare_differentiable_simulation,
 )
 from .summary import gradient_norm

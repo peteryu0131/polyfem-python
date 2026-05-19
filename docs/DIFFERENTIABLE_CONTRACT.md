@@ -37,6 +37,19 @@ from polyfempy.differentiable import (
 可以显式 import，但它们被归到 `COMPATIBILITY_API`，并通过 lazy import 加载；
 它们不再作为新用户第一入口，也不会让顶层 facade 一次性暴露所有高级名字。
 
+## Internal Module Layout
+
+`polyfempy.differentiable` 的实现按职责分层：
+
+```text
+runtime/   solve, settings contract, autograd bridge, runtime result
+data/      training sample export
+```
+
+旧顶层模块，例如 `solve_diff.py`、`_solve_settings.py`、`result_diff.py` 和
+`training_data.py`，现在保留为 thin compatibility shims。新代码应该优先 import
+`polyfempy.differentiable.runtime.*` 或 `polyfempy.differentiable.data.*`。
+
 ## 三种核心 Workflow
 
 ### 1. One-Shot Differentiable Solve

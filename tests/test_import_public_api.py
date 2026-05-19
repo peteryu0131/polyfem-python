@@ -176,3 +176,40 @@ def test_differentiable_export_module_map_matches_declared_surface():
 
     declared = set(PUBLIC_API) | set(COMPATIBILITY_API)
     assert set(EXPORT_MODULES) == declared
+
+
+def test_differentiable_runtime_and_data_package_paths_preserve_old_imports():
+    import importlib
+
+    checks = [
+        ("polyfempy.differentiable.solve_diff", "polyfempy.differentiable.runtime.solve", "solve_differentiable"),
+        ("polyfempy.differentiable.solve_diff", "polyfempy.differentiable.runtime.solve", "prepare_differentiable_simulation"),
+        ("polyfempy.differentiable._solve_settings", "polyfempy.differentiable.runtime.settings", "prepare_differentiable_solve_contract"),
+        ("polyfempy.differentiable._solve_settings", "polyfempy.differentiable.runtime.settings", "prepare_settings_only_differentiable_contract"),
+        ("polyfempy.differentiable._solve_settings", "polyfempy.differentiable.runtime.settings", "build_solver_from_settings"),
+        ("polyfempy.differentiable.torch_integration", "polyfempy.differentiable.runtime.autograd", "PolyFEMFunction"),
+        ("polyfempy.differentiable.result_diff", "polyfempy.differentiable.runtime.result", "DifferentiableResult"),
+        ("polyfempy.differentiable.cpp_ext", "polyfempy.differentiable.runtime.cpp_ext", "get_cpp_polyfempy"),
+        ("polyfempy.differentiable.training_data", "polyfempy.differentiable.data.training", "save_training_sample"),
+    ]
+
+    for old_module_name, new_module_name, attr in checks:
+        old_module = importlib.import_module(old_module_name)
+        new_module = importlib.import_module(new_module_name)
+        assert getattr(old_module, attr) is getattr(new_module, attr)
+
+
+def test_differentiable_exports_prefer_runtime_and_data_modules():
+    from polyfempy.differentiable._exports import EXPORT_MODULES
+
+    expected = {
+        "prepare_differentiable_simulation": ".runtime.solve",
+        "solve_differentiable": ".runtime.solve",
+        "solve_differentiable_material": ".runtime.solve",
+        "build_solver_from_settings": ".runtime.settings",
+        "DifferentiableResult": ".runtime.result",
+        "DifferentiableMaterialResult": ".runtime.result",
+        "save_training_sample": ".data.training",
+    }
+    for name, module_path in expected.items():
+        assert EXPORT_MODULES[name] == module_path
