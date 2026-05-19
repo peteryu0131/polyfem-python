@@ -17,6 +17,10 @@ import numpy as np
 from . import tensor as T
 
 
+class NoMeshSourceError(ValueError):
+    """Raised when a solve call has no usable JSON or array mesh source."""
+
+
 @dataclass
 class MeshSource:
     """Resolved mesh source for a solve call."""
@@ -189,7 +193,7 @@ def choose_mesh_source(
     if full_json is not None and "geometry" in full_json:
         return MeshSource(mode="json", v_backend="numpy")
 
-    raise ValueError(
+    raise NoMeshSourceError(
         "Either provide vertices/cells arrays, or use JSON config with geometry (mesh files)"
     )
 

@@ -6,11 +6,14 @@ import numpy as np
 
 from polyfempy.api.config import SimulationConfig, Solver, SolverContactOptions
 import polyfempy.differentiable._solve_settings as solve_settings
+from polyfempy.api._solve_contract import NoMeshSourceError
 from polyfempy.differentiable._solve_settings import (
     _apply_internal_differentiable_runtime_patches,
     _console_log_level_from_settings,
     _differentiable_config_and_settings,
     _geometry_uses_only_absolute_mesh_paths,
+    _is_settings_only_no_mesh_error,
+    prepare_settings_only_differentiable_contract,
     prepare_differentiable_solve_contract,
 )
 
@@ -61,6 +64,50 @@ def test_differentiable_runtime_patch_does_not_mutate_user_config():
     assert settings["solver"]["contact"]["barrier_stiffness"] == 1e3
     assert cfg.solver.contact.barrier_stiffness == "adaptive"
     assert diagnostics["runtime_patches"][0]["path"] == "solver.contact.barrier_stiffness"
+
+
+def test_settings_only_fallback_is_explicit_in_diagnostics():
+    cfg = SimulationConfig.linear_elasticity(20.0, 0.3)
+
+    contract = prepare_settings_only_differentiable_contract(
+        cfg=cfg,
+        reason="Either provide vertices/cells arrays, or use JSON config with geometry",
+    )
+
+    assert contract.settings["pde"] == "LinearElasticity"
+    assert contract.mesh_source.mode == "settings_only"
+    assert contract.diagnostics["mesh_source"] == "settings_only"
+    assert contract.diagnostics["contract_path"] == "settings_only_compatibility"
+    assert "Either provide vertices/cells" in contract.diagnostics["fallback_reason"]
+
+
+def test_differentiable_config_wrapper_uses_settings_only_contract(monkeypatch):
+    cfg = SimulationConfig.linear_elasticity(20.0, 0.3)
+    calls = []
+    real_helper = solve_settings.prepare_settings_only_differentiable_contract
+
+    def spy_helper(**kwargs):
+        calls.append(kwargs)
+        return real_helper(**kwargs)
+
+    monkeypatch.setattr(solve_settings, "prepare_settings_only_differentiable_contract", spy_helper)
+
+    _, _, settings, _, diagnostics = _differentiable_config_and_settings(
+        cfg,
+        return_diagnostics=True,
+    )
+
+    assert calls
+    assert calls[0]["cfg"] is cfg
+    assert settings["pde"] == "LinearElasticity"
+    assert diagnostics["mesh_source"] == "settings_only"
+
+
+def test_settings_only_classifier_requires_contract_no_mesh_exception():
+    assert _is_settings_only_no_mesh_error(NoMeshSourceError("missing mesh"))
+    assert not _is_settings_only_no_mesh_error(
+        ValueError("Either provide vertices/cells arrays, or use JSON config with geometry")
+    )
 
 
 def test_differentiable_settings_use_canonical_json_cleanup():

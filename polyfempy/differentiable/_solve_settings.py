@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional, Union
 from ..api._solve_contract import (
     cfg_array_mesh_payload,
     MeshSource,
+    NoMeshSourceError,
     normalize_config,
     prepare_canonical_solve_input,
 )
@@ -157,7 +158,7 @@ def _config_obj_for_legacy_return(
 
 
 def _is_settings_only_no_mesh_error(exc: ValueError) -> bool:
-    return "Either provide vertices/cells arrays, or use JSON config with geometry" in str(exc)
+    return isinstance(exc, NoMeshSourceError)
 
 
 def prepare_differentiable_solve_contract(
@@ -203,42 +204,22 @@ def prepare_differentiable_solve_contract(
     )
 
 
-def _differentiable_config_and_settings(
-    cfg: Union[str, Dict[str, Any], SimulationConfig],
+def prepare_settings_only_differentiable_contract(
     *,
+    cfg: Union[str, Dict[str, Any], SimulationConfig],
+    reason: str,
     root_path: Optional[str] = None,
     apply_runtime_patches: bool = True,
-    return_diagnostics: bool = False,
-):
-    """Normalize user configs for differentiable solve entry points."""
-    try:
-        contract = prepare_differentiable_solve_contract(
-            cfg=cfg,
-            root_path=root_path,
-            apply_runtime_patches=apply_runtime_patches,
-        )
-    except ValueError as exc:
-        if not _is_settings_only_no_mesh_error(exc):
-            raise
-    else:
-        config_obj = _config_obj_for_legacy_return(
-            original_cfg=cfg,
-            config=contract.config,
-        )
-        if return_diagnostics:
-            return (
-                contract.config,
-                config_obj,
-                contract.settings,
-                contract.root_path,
-                contract.diagnostics,
-            )
-        return contract.config, config_obj, contract.settings, contract.root_path
-
+) -> DifferentiableSolveContract:
+    """Prepare the explicit legacy settings-only differentiable contract."""
     config = normalize_config(cfg)
-    config_obj = _config_obj_for_legacy_return(original_cfg=cfg, config=config)
     settings = config.to_dict()
-    diagnostics: Dict[str, Any] = {"runtime_patches": [], "mesh_source": None}
+    diagnostics: Dict[str, Any] = {
+        "runtime_patches": [],
+        "mesh_source": "settings_only",
+        "contract_path": "settings_only_compatibility",
+        "fallback_reason": reason,
+    }
 
     if apply_runtime_patches:
         diagnostics["runtime_patches"] = _apply_internal_differentiable_runtime_patches(
@@ -257,9 +238,65 @@ def _differentiable_config_and_settings(
     if root_path_resolved:
         settings["root_path"] = root_path_resolved
 
+    return DifferentiableSolveContract(
+        config=config,
+        settings=settings,
+        root_path=root_path_resolved,
+        diagnostics=diagnostics,
+        mesh_source=MeshSource(mode="settings_only"),
+    )
+
+
+def _differentiable_config_and_settings(
+    cfg: Union[str, Dict[str, Any], SimulationConfig],
+    *,
+    root_path: Optional[str] = None,
+    apply_runtime_patches: bool = True,
+    return_diagnostics: bool = False,
+):
+    """Normalize user configs for differentiable solve entry points."""
+    try:
+        contract = prepare_differentiable_solve_contract(
+            cfg=cfg,
+            root_path=root_path,
+            apply_runtime_patches=apply_runtime_patches,
+        )
+    except ValueError as exc:
+        if not _is_settings_only_no_mesh_error(exc):
+            raise
+        settings_only_reason = str(exc)
+    else:
+        config_obj = _config_obj_for_legacy_return(
+            original_cfg=cfg,
+            config=contract.config,
+        )
+        if return_diagnostics:
+            return (
+                contract.config,
+                config_obj,
+                contract.settings,
+                contract.root_path,
+                contract.diagnostics,
+            )
+        return contract.config, config_obj, contract.settings, contract.root_path
+
+    contract = prepare_settings_only_differentiable_contract(
+        cfg=cfg,
+        reason=settings_only_reason,
+        root_path=root_path,
+        apply_runtime_patches=apply_runtime_patches,
+    )
+    config_obj = _config_obj_for_legacy_return(original_cfg=cfg, config=contract.config)
+
     if return_diagnostics:
-        return config, config_obj, settings, root_path_resolved, diagnostics
-    return config, config_obj, settings, root_path_resolved
+        return (
+            contract.config,
+            config_obj,
+            contract.settings,
+            contract.root_path,
+            contract.diagnostics,
+        )
+    return contract.config, config_obj, contract.settings, contract.root_path
 
 
 def build_solver_from_settings(

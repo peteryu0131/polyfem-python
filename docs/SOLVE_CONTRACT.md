@@ -167,7 +167,18 @@ _differentiable_config_and_settings(...)
 
 仍然保留给 shape/material optimization 内部和旧 code path 使用。现在它优先委托给
 `prepare_differentiable_solve_contract(...)`，只在 settings-only、无 mesh 的旧场景下
-保留 fallback。
+保留 fallback。这个 fallback 本身由一个有名字的 helper 管：
+
+```text
+prepare_settings_only_differentiable_contract(...)
+```
+
+这个 fallback 必须是显式的：
+
+- 只有 shared contract 抛出的 no-mesh-source 错误能进入 fallback；
+- diagnostics 里记录 `mesh_source="settings_only"`；
+- diagnostics 里记录 `contract_path="settings_only_compatibility"` 和
+  `fallback_reason`。
 
 这保证旧入口不变，但主要 config/mesh/settings 语义不再分叉。
 
