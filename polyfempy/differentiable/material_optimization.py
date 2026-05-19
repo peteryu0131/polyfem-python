@@ -18,6 +18,7 @@ import torch
 import torch.nn.functional as F
 
 from .design import make_bounds_projector, make_parameter
+from .optimization.optimizers import make_torch_optimizer
 from .optimization.reports import OptimizationReportWriter
 from .material_config import (
     material_for_body,
@@ -98,15 +99,12 @@ class ScalarMaterialOptimizationProblem:
     def make_optimizer(self, *, name: str = "adam", lr: float = 1e-2) -> torch.optim.Optimizer:
         """Create a PyTorch optimizer for the scalar design variable."""
         params = self.torch_parameters()
-        if not params:
-            raise ValueError("no scalar material design parameter is initialized")
-
-        opt_name = str(name).strip().lower()
-        if opt_name == "adam":
-            return torch.optim.Adam(params, lr=float(lr))
-        if opt_name == "sgd":
-            return torch.optim.SGD(params, lr=float(lr))
-        raise ValueError(f"unsupported optimizer {name!r}")
+        return make_torch_optimizer(
+            params,
+            name=name,
+            lr=lr,
+            empty_error="no scalar material design parameter is initialized",
+        )
 
     def torch_parameters(self) -> list[torch.nn.Parameter]:
         """Return the user-optimized scalar material parameter."""

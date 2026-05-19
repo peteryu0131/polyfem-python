@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from .design import ParameterizedVertexDesign, parameter_name
+from .optimization.optimizers import make_torch_optimizer
 from .runtime.autograd import PolyFEMFunction
 from .runtime.result import DifferentiableResult
 from .runtime.solve import prepare_differentiable_simulation
@@ -86,12 +87,7 @@ class ShapeOptimizationProblem:
 
     def make_optimizer(self, *, name: str = "sgd", lr: float = 1e-6) -> torch.optim.Optimizer:
         """Create a PyTorch optimizer for the design vertices."""
-        opt_name = str(name).strip().lower()
-        if opt_name == "sgd":
-            return torch.optim.SGD([self.vertices], lr=float(lr))
-        if opt_name == "adam":
-            return torch.optim.Adam([self.vertices], lr=float(lr))
-        raise ValueError(f"unsupported optimizer {name!r}")
+        return make_torch_optimizer([self.vertices], name=name, lr=lr)
 
     def release_solver(self) -> None:
         """Drop the reusable C++ solver reference held by this problem."""
@@ -239,14 +235,12 @@ class ParameterizedShapeOptimizationProblem:
     def make_optimizer(self, *, name: str = "adam", lr: float = 1e-2) -> torch.optim.Optimizer:
         """Create a PyTorch optimizer for the user design parameters."""
         params = self.design.torch_parameters()
-        if not params:
-            raise ValueError("parameterized shape design has no optimizer parameters")
-        opt_name = str(name).strip().lower()
-        if opt_name == "sgd":
-            return torch.optim.SGD(params, lr=float(lr))
-        if opt_name == "adam":
-            return torch.optim.Adam(params, lr=float(lr))
-        raise ValueError(f"unsupported optimizer {name!r}")
+        return make_torch_optimizer(
+            params,
+            name=name,
+            lr=lr,
+            empty_error="parameterized shape design has no optimizer parameters",
+        )
 
     def release_solver(self) -> None:
         """Drop the reusable C++ solver reference held by this problem."""
