@@ -135,9 +135,9 @@ python examples/01_forward_solve.py
 预期输出位置：
 
 ```text
-examples/runs/01_forward_solve_*/impact_stats.json
+examples/runs/01_forward_solve_*/results.json
 examples/runs/01_forward_solve_*/polyfem.log
-examples/runs/01_forward_solve_*/impact_step_*.vtu
+examples/runs/01_forward_solve_*/step_*.vtu
 ```
 
 `Result` field inspection 和 VTU export：

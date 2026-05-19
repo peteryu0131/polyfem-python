@@ -1,9 +1,24 @@
+"""Reusable reporting helpers for ``Result`` and history data.
+
+This module formats and summarizes result objects. It does not run solvers and
+does not mutate simulation configuration.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 import numpy as np
+
+
+__all__ = [
+    "summarize_result",
+    "format_result_summary",
+    "summarize_history_bundle",
+    "format_history_bundle_txt",
+    "write_history_bundle_txt",
+]
 
 
 def _shape_tuple(value):

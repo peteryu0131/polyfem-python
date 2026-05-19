@@ -176,17 +176,18 @@ class ExtractAdditionalFieldsTests(unittest.TestCase):
 
 class InferHistoryTimesTests(unittest.TestCase):
     def test_extract_history_step_index_only_accepts_step_suffix(self):
+        self.assertEqual(_extract_history_step_index("step_12.vtu"), 12)
+        self.assertEqual(_extract_history_step_index("/tmp/run/step_3.vtu"), 3)
         self.assertEqual(_extract_history_step_index("impact_step_12.vtu"), 12)
-        self.assertEqual(_extract_history_step_index("/tmp/run/impact_step_3.vtu"), 3)
         self.assertIsNone(_extract_history_step_index("solve_12.vtu"))
         self.assertIsNone(_extract_history_step_index("initial"))
 
     def test_dedupes_consecutive_duplicate_steps_keeping_last_frame(self):
         frames = [
-            {"name": "impact_step_0.vtu", "marker": "first"},
-            {"name": "impact_step_0.vtu", "marker": "second"},
-            {"name": "impact_step_1.vtu", "marker": "third"},
-            {"name": "impact_step_2.vtu", "marker": "fourth"},
+            {"name": "step_0.vtu", "marker": "first"},
+            {"name": "step_0.vtu", "marker": "second"},
+            {"name": "step_1.vtu", "marker": "third"},
+            {"name": "step_2.vtu", "marker": "fourth"},
         ]
         deduped = _dedupe_history_frames(frames)
         self.assertEqual([f["marker"] for f in deduped], ["second", "third", "fourth"])
@@ -198,10 +199,10 @@ class InferHistoryTimesTests(unittest.TestCase):
 
     def test_uses_step_indices_parsed_from_frame_names(self):
         frames = [
-            {"name": "/tmp/run_177/impact_step_0.vtu"},
-            {"name": "/tmp/run_177/impact_step_0.vtu"},
-            {"name": "/tmp/run_177/impact_step_1.vtu"},
-            {"name": "/tmp/run_177/impact_step_2.vtu"},
+            {"name": "/tmp/run_177/step_0.vtu"},
+            {"name": "/tmp/run_177/step_0.vtu"},
+            {"name": "/tmp/run_177/step_1.vtu"},
+            {"name": "/tmp/run_177/step_2.vtu"},
         ]
         full_json = {"time": {"t0": 0.0, "dt": 0.01, "tend": 0.02}}
         self.assertEqual(
@@ -211,9 +212,9 @@ class InferHistoryTimesTests(unittest.TestCase):
 
     def test_respects_skipped_saved_steps(self):
         frames = [
-            {"name": "impact_step_0.vtu"},
-            {"name": "impact_step_2.vtu"},
-            {"name": "impact_step_4.vtu"},
+            {"name": "step_0.vtu"},
+            {"name": "step_2.vtu"},
+            {"name": "step_4.vtu"},
         ]
         full_json = {"time": {"t0": 1.5, "dt": 0.25}}
         self.assertEqual(
@@ -230,7 +231,7 @@ class InferHistoryTimesTests(unittest.TestCase):
         )
 
     def test_returns_none_without_positive_dt(self):
-        frames = [{"name": "impact_step_0.vtu"}]
+        frames = [{"name": "step_0.vtu"}]
         self.assertIsNone(_infer_history_times(frames, {"time": {"t0": 0.0, "dt": 0.0}}))
 
 

@@ -25,7 +25,7 @@ from polyfempy.api.result import HistoryView, Result  # noqa: E402
 
 def _make_frame(step: int, n_sampled: int = 4, dim: int = 2):
     return {
-        "name": f"impact_step_{step}.vtu",
+        "name": f"step_{step}.vtu",
         "points": np.arange(n_sampled * dim, dtype=np.float64).reshape(n_sampled, dim),
         "connectivity": np.array([[0, 1, 2], [1, 2, 3]], dtype=np.int32),
         "solution": np.full((n_sampled, dim), float(step), dtype=np.float64),

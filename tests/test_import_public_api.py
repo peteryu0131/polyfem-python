@@ -34,8 +34,36 @@ def test_public_api_advanced_compat_names_are_explicit_only():
     assert "Solver" in api.ADVANCED_COMPAT_API
     assert "Solver" not in api.__all__
     assert "result_output" not in api.__all__
+    assert "solve_with_timing" not in api.__all__
     assert api.Solver is not None
     assert api.result_output is not None
+    assert api.solve_with_timing is not None
+
+
+def test_report_module_declares_reusable_public_surface():
+    import polyfempy.api.report as report
+
+    assert report.__all__ == [
+        "summarize_result",
+        "format_result_summary",
+        "summarize_history_bundle",
+        "format_history_bundle_txt",
+        "write_history_bundle_txt",
+    ]
+    for name in report.__all__:
+        assert hasattr(report, name)
+
+
+def test_runtime_module_declares_reusable_public_surface():
+    import polyfempy.api.runtime as runtime
+
+    assert runtime.__all__ == runtime.RUNTIME_CONFIG_API + runtime.RUNTIME_REPORT_API
+    for name in runtime.__all__:
+        assert hasattr(runtime, name)
+
+    for name in runtime.RUNTIME_COMPAT_API:
+        assert hasattr(runtime, name)
+        assert name not in runtime.__all__
 
 
 def test_guided_api_imports():

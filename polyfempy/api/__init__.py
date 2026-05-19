@@ -113,6 +113,7 @@ from .runtime import (
     report_history_bundle,
     result_output,
     solve_and_report,
+    solve_with_timing,
     terminal_log,
     write_history_artifacts,
 )
@@ -149,6 +150,7 @@ RUNTIME_API = [
     "format_history_summary",
     "write_history_artifacts",
     "report_history_bundle",
+    "solve_with_timing",
     "emit_history_bundle",
     "solve_and_report",
 ]

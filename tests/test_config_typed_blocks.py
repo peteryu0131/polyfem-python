@@ -174,6 +174,18 @@ class GeometryTypedEntryTests(unittest.TestCase):
 
 
 class OutputTypedBlockTests(unittest.TestCase):
+    def test_history_output_helpers_use_generic_default_names(self):
+        paraview = ParaviewOutput.time_sequence()
+        self.assertEqual(paraview.to_dict()["file_name"], "results.pvd")
+
+        history = Output.history(directory="out")
+        self.assertEqual(history.paraview.file_name, "results.pvd")
+        self.assertEqual(history.advanced.timestep_prefix, "step_")
+
+        history_run = Output.history_run(directory="out")
+        self.assertEqual(history_run.paraview.file_name, "results.pvd")
+        self.assertEqual(history_run.advanced.timestep_prefix, "step_")
+
     def test_output_typed_blocks_round_trip(self):
         output = Output(
             directory="out",

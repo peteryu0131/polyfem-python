@@ -64,6 +64,7 @@ cfg = g.build_config(template, workspace)
 - 旧脚本可以继续使用 compatibility names。
 - 新 examples 应该使用推荐 public API。
 - `polyfempy.api.__all__` 只代表推荐入口；advanced / compatibility 名字保留显式 import，不进入 star-import surface。
+- `polyfempy.api.runtime` 和 `polyfempy.api.report` 有自己的模块级 `__all__`，表示这些模块内部可复用的 advanced surface；这不改变 `polyfempy.api.__all__` 的 core-only 规则。
 
 ## Internal-Only API
 

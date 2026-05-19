@@ -521,7 +521,7 @@ def apply_sampled_vtu_fallback(
     use two data sources:
 
     1. in-memory ``result.history`` populated by ``solver.solution_frames``
-    2. user-exported ``impact_step_*.vtu`` files, when on-disk export is enabled
+    2. user-exported ``step_*.vtu`` files, when on-disk export is enabled
     """
     result = _populate_result_from_history(result)
     if result.history.available:
@@ -613,7 +613,7 @@ def _collect_solver_history(solver, full_json: Optional[dict]):
 
 
 def _extract_history_step_index(name: str) -> Optional[int]:
-    """Parse ``impact_step_12.vtu``-style names emitted by PolyFEM."""
+    """Parse ``step_12.vtu``-style names emitted by PolyFEM."""
     if not isinstance(name, str) or not name.strip():
         return None
     stem = Path(name).stem

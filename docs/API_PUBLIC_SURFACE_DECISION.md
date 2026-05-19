@@ -129,6 +129,7 @@ cfg = g.build_config(template, workspace)
 | `make_timestamped_workspace` | `polyfempy.api.runtime` | 脚本 helper | examples/paper demos 方便建 workspace。 |
 | `terminal_log` | `polyfempy.api.runtime` | 脚本 helper | 配置日志。 |
 | `result_output` | `polyfempy.api.runtime` | 脚本 helper | 配置 JSON/VTU/history 输出。 |
+| `solve_with_timing` | `polyfempy.api.runtime` | reusable helper | 返回 `(result, elapsed_seconds)`，比 demo wrapper 更适合复用。 |
 | `solve_and_report` | `polyfempy.api.runtime` | 脚本 helper | 方便 demo，不是核心求解契约。 |
 | `summarize_result` | `polyfempy.api.report` | report helper | 对 `Result` 做 summary。 |
 | `format_result_summary` | `polyfempy.api.report` | report helper | 文本 summary。 |
@@ -139,6 +140,10 @@ cfg = g.build_config(template, workspace)
 ```python
 from polyfempy.api.runtime import make_timestamped_workspace, result_output, terminal_log
 ```
+
+`polyfempy.api.runtime.__all__` 和 `polyfempy.api.report.__all__` 表示模块自己的
+advanced reusable surface；`emit_history_bundle` / `solve_and_report` 继续支持显式
+import，但不作为 `runtime` star-import 推荐入口。
 
 不要把这些写成“必须 import 的核心 API”。
 
@@ -238,14 +243,19 @@ Phase 2 先不拆 `guided_sections.py`；Phase 3 已经把真实职责拆出来�
 
 ## `config.py` 决策
 
-Phase 2/4 不直接拆 `config.py`。
+`config.py` 继续作为稳定 facade，旧 import path 不变。第一步只把 solver /
+time / output typed blocks 拆到 `config_solver.py` / `config_time.py` /
+`config_output.py`，并由 `config.py` re-export。
 
 Phase 4 已经做的低风险整理：
 
 - 在 `config.py` 顶部说明这个文件为什么暂时保持为宽文件；
+- `Solver` / `LinearSolver` / `NonlinearSolver` typed blocks 移到 `config_solver.py`；
+- `Time` / integrator typed blocks 移到 `config_time.py`；
+- `Output*` typed blocks 移到 `config_output.py`；
 - 给 helper、materials、boundary/initial conditions、body/constraint/space/input、
-  `SimulationConfig`、geometry、solver、time、output、contact 等区块加结构标记；
-- 不移动 class，不改 import path，不改 JSON 语义。
+  `SimulationConfig`、geometry、solver、time、contact 等区块加结构标记；
+- 不改 import path，不改 JSON 语义。
 
 必须先保护这些语义：
 

@@ -70,7 +70,10 @@ SimulationConfig
 | `polyfempy/api/_solve_contract.py` | forward solve contract | 内部 | 统一 cfg 输入、mesh source selection、canonical backend settings。 |
 | `polyfempy/api/_solve_backend.py` | backend adapter | 内部 | 创建 C++ solver、应用 settings、attach mesh、assemble/solve。 |
 | `polyfempy/api/_solve_outputs.py` | output adapter | 内部 | native output extraction、history、sampled fallback、result finalize。 |
-| `polyfempy/api/config.py` | config data model | 是 | typed config blocks；`SimulationConfig`；full/minimal JSON 语义。 |
+| `polyfempy/api/config.py` | config facade / data model | 是 | `SimulationConfig` 和稳定旧 import path；full/minimal JSON 语义。 |
+| `polyfempy/api/config_solver.py` | solver config blocks | 是 | `Solver`、`LinearSolver`、`NonlinearSolver`、line-search/contact-inner-loop solver options；由 `config.py` re-export 保持兼容。 |
+| `polyfempy/api/config_time.py` | time config blocks | 是 | `Time`、`BDFIntegrator`、`ImplicitNewmarkIntegrator`；由 `config.py` re-export 保持兼容。 |
+| `polyfempy/api/config_output.py` | output config blocks | 是 | `Output*` typed blocks；由 `config.py` re-export 保持兼容。 |
 | `polyfempy/api/guided.py` | guided API facade | 是 | guided section 的稳定 import path；`__all__` 只推荐 factory/builder functions。 |
 | `polyfempy/api/guided_sections.py` | guided compatibility facade | 内部 | re-export guided factories/types/config helpers for older internal imports。 |
 | `polyfempy/api/guided_builders.py` | guided section factories | 内部 | 创建 user-authored section objects，不创建 `SimulationConfig`。 |
@@ -95,7 +98,7 @@ SimulationConfig
 | Core | `solve`, `SimulationConfig`, `Result` | 推荐的最小 public surface。 |
 | I/O | `Selection`, `Mesh`, `read_mesh` | mesh、selection helper。 |
 | Reporting | `summarize_result`, `format_result_summary`, `summarize_history_bundle`, `format_history_bundle_txt`, `write_history_bundle_txt` | 给 `Result` 做人读/脚本读的 summary。 |
-| Runtime | `make_timestamped_workspace`, `terminal_log`, `result_output`, `format_history_summary`, `write_history_artifacts`, `report_history_bundle`, `emit_history_bundle`, `solve_and_report` | 实验脚本常用 convenience utilities。 |
+| Runtime | `make_timestamped_workspace`, `terminal_log`, `result_output`, `format_history_summary`, `write_history_artifacts`, `report_history_bundle`, `solve_with_timing`, `emit_history_bundle`, `solve_and_report` | 实验脚本常用 convenience utilities；`runtime.__all__` 只包含 reusable helpers，旧 wrapper 显式可导入。 |
 | Config | `Quantity`、material classes、geometry classes、solver/time/output/contact blocks、problem param blocks | 较底层的 typed config surface 和兼容导出。 |
 | Runtime shim | `configure_windows_runtime` | 显式 Windows runtime 配置。 |
 
@@ -287,7 +290,7 @@ stats:    get_stats / stats / get_log
 当前 fallback 数据源只有两个：
 
 1. `solver.solution_frames` 生成的 in-memory `result.history`；
-2. 用户已经导出的 `impact_step_*.vtu` 文件。
+2. 用户已经导出的 `step_*.vtu` 文件。
 
 旧的临时 `export_vtu()` 路径已经不在当前 flow 里。
 
@@ -431,7 +434,15 @@ build_config(...)
 
 `SimulationConfig` 是 solver-facing configuration object。它可以直接构造，也可以从 JSON 读入，也可以由 guided sections 生成。
 
-`config.py` 暂时不拆文件。Phase 4 只加源码 section markers，把它分成：
+`config.py` 现在保留为稳定 facade，但 solver / time / output 相关 typed blocks
+已经拆到 `config_solver.py` / `config_time.py` / `config_output.py`，并由
+`config.py` re-export。旧 import path 继续可用：
+
+```python
+from polyfempy.api.config import Solver, Time, Output, ParaviewOutput
+```
+
+剩余内容按源码 section markers 组织成：
 
 - internal normalization / compatibility helpers；
 - units and material config classes；
@@ -439,7 +450,10 @@ build_config(...)
 - body / constraint / space / input helpers；
 - problem parameter compatibility classes；
 - root `SimulationConfig` contract；
-- geometry / solver / time / output / contact blocks。
+- geometry / contact blocks；
+- solver blocks 在 `config_solver.py`；
+- time blocks 在 `config_time.py`；
+- output blocks 在 `config_output.py`。
 
 这样 reviewer 可以看懂职责边界，但旧 import path 保持不变。
 

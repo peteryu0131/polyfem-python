@@ -1,3 +1,10 @@
+"""Reusable runtime helpers for examples, scripts, and advanced users.
+
+This module provides workspace creation, output/log configuration, solve
+timing, and history/report artifact helpers. The core solve contract remains in
+``polyfempy.api.solve`` and ``polyfempy.api._solve_contract``.
+"""
+
 from __future__ import annotations
 
 import csv
@@ -13,6 +20,26 @@ from .solve import solve
 
 
 LogLevelName = Literal["trace", "debug", "info", "warn", "warning", "error", "critical", "off"]
+
+RUNTIME_CONFIG_API = [
+    "make_timestamped_workspace",
+    "terminal_log",
+    "result_output",
+]
+
+RUNTIME_REPORT_API = [
+    "format_history_summary",
+    "write_history_artifacts",
+    "report_history_bundle",
+    "solve_with_timing",
+]
+
+RUNTIME_COMPAT_API = [
+    "emit_history_bundle",
+    "solve_and_report",
+]
+
+__all__ = RUNTIME_CONFIG_API + RUNTIME_REPORT_API
 
 
 def make_timestamped_workspace(base_dir: Path | str, tag: str) -> Path:
@@ -101,11 +128,11 @@ def result_output(
     cfg: Any,
     *,
     directory: str = ".",
-    json_name: str = "impact_stats.json",
-    pvd_name: str = "impact.pvd",
+    json_name: str = "results.json",
+    pvd_name: str = "results.pvd",
     save_vtu: bool = True,
     save_time_sequence: bool = True,
-    timestep_prefix: str = "impact_step_",
+    timestep_prefix: str = "step_",
     vismesh_rel_area: float | None = 10_000_000,
     surface: bool = False,
     wireframe: bool = False,
@@ -124,11 +151,11 @@ def result_output(
 
     This means:
     - write outputs into the workspace directory (``directory="."``)
-    - write JSON stats to ``impact_stats.json``
-    - write ParaView sequence root file ``impact.pvd``
+    - write JSON stats to ``results.json``
+    - write ParaView sequence root file ``results.pvd``
     - export step VTU files
     - save the time sequence
-    - use ``impact_step_`` as the step filename prefix
+    - use ``step_`` as the step filename prefix
     - enable common ParaView fields such as ``material``, ``body_ids``,
       ``velocity``, ``scalar_values`` and ``tensor_values``
 
@@ -139,17 +166,17 @@ def result_output(
             Output directory, relative to the run workspace unless absolute.
             Default: ``"."``.
         json_name:
-            JSON output filename. Default: ``"impact_stats.json"``.
+            JSON output filename. Default: ``"results.json"``.
         pvd_name:
-            ParaView ``.pvd`` filename. Default: ``"impact.pvd"``.
+            ParaView ``.pvd`` filename. Default: ``"results.pvd"``.
         save_vtu:
             Whether to export step ``.vtu`` files. Default: ``True``.
         save_time_sequence:
             Whether to save a time sequence for transient runs. Default:
             ``True``.
         timestep_prefix:
-            Prefix for step outputs such as ``impact_step_0.vtu``.
-            Default: ``"impact_step_"``.
+            Prefix for step outputs such as ``step_0.vtu``.
+            Default: ``"step_"``.
         vismesh_rel_area:
             ParaView visualization-mesh relative area control. Default:
             ``10_000_000``.
