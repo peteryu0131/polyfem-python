@@ -22,7 +22,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-import polyfempy.api._solve_pipeline as _p  # noqa: E402
+import polyfempy.api._solve_outputs as _outputs  # noqa: E402
 from polyfempy.api._solve_pipeline import (  # noqa: E402
     NativeOutputs,
     RuntimeOptions,
@@ -106,7 +106,7 @@ class HistoryBackfillTests(unittest.TestCase):
         exported_history.source = "exported_vtu_sequence"
 
         with unittest.mock.patch.object(
-            _p,
+            _outputs,
             "_collect_history_from_exported_vtus",
             return_value=exported_history,
         ):
@@ -135,7 +135,7 @@ class HistoryBackfillTests(unittest.TestCase):
         exported_history.source = "exported_vtu_sequence"
 
         with unittest.mock.patch.object(
-            _p,
+            _outputs,
             "_collect_history_from_exported_vtus",
             return_value=exported_history,
         ):
@@ -155,7 +155,7 @@ class HistoryBackfillTests(unittest.TestCase):
         result, native = _native_result_and_outputs(history=None)
 
         with unittest.mock.patch.object(
-            _p,
+            _outputs,
             "_collect_history_from_exported_vtus",
             return_value=HistoryView(),
         ):
