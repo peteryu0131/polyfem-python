@@ -98,14 +98,15 @@ class BuildFullJsonTests(unittest.TestCase):
         fj = build_full_json(cfg)
         self.assertIsNone(fj)
 
-    def test_returns_none_when_cfg_to_dict_raises(self):
+    def test_raises_when_cfg_to_dict_raises(self):
         class BrokenCfg:
             extras: dict = {}
 
             def to_dict(self):
                 raise RuntimeError("boom")
 
-        self.assertIsNone(build_full_json(BrokenCfg()))
+        with self.assertRaisesRegex(RuntimeError, r"cfg\.to_dict\(\) failed"):
+            build_full_json(BrokenCfg())
 
 
 class MergeUserCfgOverFullJsonTests(unittest.TestCase):
@@ -133,16 +134,14 @@ class MergeUserCfgOverFullJsonTests(unittest.TestCase):
         merged = merge_user_cfg_over_full_json(cfg, full_json)
         self.assertEqual(merged["root_path"], "/tmp/legacy")
 
-    def test_returns_full_json_when_cfg_to_dict_fails(self):
+    def test_raises_when_cfg_to_dict_fails(self):
         class BrokenCfg:
             def to_dict(self):
                 raise RuntimeError("boom")
 
         full_json = {"a": 1}
-        self.assertEqual(
-            merge_user_cfg_over_full_json(BrokenCfg(), full_json),
-            full_json,
-        )
+        with self.assertRaisesRegex(RuntimeError, r"cfg\.to_dict\(\) failed"):
+            merge_user_cfg_over_full_json(BrokenCfg(), full_json)
 
 
 class NormalizeMeshInputsTests(unittest.TestCase):

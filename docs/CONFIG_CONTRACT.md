@@ -174,6 +174,8 @@ g.body_section(vertices=..., cells=...)
 3. private extras，例如以下划线开头的 key，不作为 public extras 输出；
 4. public extras 会写进 `"extras"`；
 5. 一些 backend 兼容参数会按规则提升到 top level。
+6. 如果 `to_dict()` 在 solve contract 里失败，错误必须向上传播；不能 fallback
+   到旧 full JSON，因为那会让用户以为 Python-side edit 已经生效。
 
 这意味着：
 

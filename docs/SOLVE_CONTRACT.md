@@ -69,6 +69,8 @@ if cfg is SimulationConfig
 
 - JSON-only fields 不应该因为 Python wrapper 丢失；
 - Python-side edits 应该明确 overlay 到 backend settings。
+- 如果 `cfg.to_dict()` 序列化失败，contract 层应该立即报错，不能继续使用旧
+  full JSON 或 `None` 掩盖 Python-side edit 没有生效的问题。
 
 ## Mesh Source Selection
 
@@ -208,4 +210,3 @@ python -m pytest \
 ```bash
 python -m pytest tests
 ```
-

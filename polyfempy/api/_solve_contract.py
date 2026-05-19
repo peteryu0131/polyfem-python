@@ -85,11 +85,18 @@ def _promote_materials_to_list(payload: Dict[str, Any], *, infer_type_from_pde: 
     payload["materials"] = [materials]
 
 
-def merge_user_cfg_over_full_json(cfg: Any, full_json: Dict[str, Any]) -> Dict[str, Any]:
+def _cfg_to_dict_or_raise(cfg: Any, *, context: str) -> Any:
     try:
-        cfg_dict = cfg.to_dict()
-    except Exception:
-        return full_json
+        return cfg.to_dict()
+    except Exception as exc:
+        raise RuntimeError(f"cfg.to_dict() failed while {context}") from exc
+
+
+def merge_user_cfg_over_full_json(cfg: Any, full_json: Dict[str, Any]) -> Dict[str, Any]:
+    cfg_dict = _cfg_to_dict_or_raise(
+        cfg,
+        context="merging Python-side config over full JSON",
+    )
 
     if not isinstance(cfg_dict, dict):
         return full_json
@@ -115,10 +122,10 @@ def build_full_json(cfg: Any) -> Optional[Dict[str, Any]]:
     if hasattr(cfg, "extras") and cfg.extras and "_full_json_config" in cfg.extras:
         return merge_user_cfg_over_full_json(cfg, cfg.extras["_full_json_config"])
 
-    try:
-        cfg_dict = cfg.to_dict()
-    except Exception:
-        return None
+    cfg_dict = _cfg_to_dict_or_raise(
+        cfg,
+        context="building full JSON settings",
+    )
 
     if not (isinstance(cfg_dict, dict) and "geometry" in cfg_dict):
         return None
