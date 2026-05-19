@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from polyfempy.differentiable._objective_common import (
+from polyfempy.differentiable.objectives.common import (
     _resolve_smooth_max_sharpness,
     _resolve_time_aggregation,
     _resolve_volume_selection,

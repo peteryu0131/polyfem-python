@@ -42,13 +42,17 @@ from polyfempy.differentiable import (
 `polyfempy.differentiable` 的实现按职责分层：
 
 ```text
-runtime/   solve, settings contract, autograd bridge, runtime result
-data/      training sample export
+runtime/       solve, settings contract, autograd bridge, runtime result
+objectives/    objective and loss builders
+optimization/  generic optimization entry points, results, reports, summaries
+data/          training sample export
 ```
 
 旧顶层模块，例如 `solve_diff.py`、`_solve_settings.py`、`result_diff.py` 和
-`training_data.py`，现在保留为 thin compatibility shims。新代码应该优先 import
-`polyfempy.differentiable.runtime.*` 或 `polyfempy.differentiable.data.*`。
+`training_data.py`，以及 `objective_bridge.py`、`optimization_problem.py` 等，现在
+保留为 thin compatibility shims。新代码应该优先 import
+`polyfempy.differentiable.runtime.*`、`polyfempy.differentiable.objectives.*`、
+`polyfempy.differentiable.optimization.*` 或 `polyfempy.differentiable.data.*`。
 
 ## 三种核心 Workflow
 

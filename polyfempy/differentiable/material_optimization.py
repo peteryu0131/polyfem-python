@@ -18,14 +18,14 @@ import torch
 import torch.nn.functional as F
 
 from .design import make_bounds_projector, make_parameter
-from ._optimization_reports import OptimizationReportWriter
+from .optimization.reports import OptimizationReportWriter
 from .material_config import (
     material_for_body,
     nu_from_material,
     other_material_for_body,
     youngs_from_material,
 )
-from .summary import gradient_norm
+from .optimization.summary import gradient_norm
 from .runtime.settings import _differentiable_config_and_settings, build_solver_from_settings
 from .runtime.solve import (
     solve_differentiable_material_from_youngs,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from polyfempy.differentiable._optimization_reports import OptimizationReportWriter
+from polyfempy.differentiable.optimization.reports import OptimizationReportWriter
 
 
 def test_optimization_report_writer_writes_summary_and_history(tmp_path):

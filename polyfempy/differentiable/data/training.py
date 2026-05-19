@@ -12,7 +12,7 @@ import numpy as np
 import torch
 
 from ...api.report import summarize_history_bundle
-from ..summary import gradient_norm
+from ..optimization.summary import gradient_norm
 
 
 def _tensor_to_numpy(value: torch.Tensor) -> np.ndarray:

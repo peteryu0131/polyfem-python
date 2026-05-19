@@ -213,3 +213,43 @@ def test_differentiable_exports_prefer_runtime_and_data_modules():
     }
     for name, module_path in expected.items():
         assert EXPORT_MODULES[name] == module_path
+
+
+def test_differentiable_objective_and_optimization_paths_preserve_old_imports():
+    import importlib
+
+    checks = [
+        ("polyfempy.differentiable.objective_bridge", "polyfempy.differentiable.objectives.bridge", "make_von_mises_loss"),
+        ("polyfempy.differentiable.objective_bridge", "polyfempy.differentiable.objectives.bridge", "ObjectiveLossResult"),
+        ("polyfempy.differentiable._objective_common", "polyfempy.differentiable.objectives.common", "resolve_objective_state_column"),
+        ("polyfempy.differentiable.optimization_problem", "polyfempy.differentiable.optimization.problem", "prepare_optimization_problem"),
+        ("polyfempy.differentiable.optimization_problem", "polyfempy.differentiable.optimization.problem", "OptimizationRunResult"),
+        ("polyfempy.differentiable.optimization_runner", "polyfempy.differentiable.optimization.runner", "run_optimization"),
+        ("polyfempy.differentiable._optimization_result", "polyfempy.differentiable.optimization.result", "OptimizationRunResult"),
+        ("polyfempy.differentiable._optimization_reports", "polyfempy.differentiable.optimization.reports", "OptimizationReportWriter"),
+        ("polyfempy.differentiable.summary", "polyfempy.differentiable.optimization.summary", "gradient_norm"),
+    ]
+
+    for old_module_name, new_module_name, attr in checks:
+        old_module = importlib.import_module(old_module_name)
+        new_module = importlib.import_module(new_module_name)
+        assert getattr(old_module, attr) is getattr(new_module, attr)
+
+
+def test_differentiable_exports_prefer_objectives_and_optimization_modules():
+    from polyfempy.differentiable._exports import EXPORT_MODULES
+
+    expected = {
+        "ObjectiveLossResult": ".objectives.bridge",
+        "make_von_mises_loss": ".objectives.bridge",
+        "make_stress_norm_loss": ".objectives.bridge",
+        "create_polyfem_objective": ".objectives.bridge",
+        "OptimizationKind": ".optimization.problem",
+        "OptimizationProblem": ".optimization.problem",
+        "OptimizationRunResult": ".optimization.problem",
+        "make_optimizer": ".optimization.problem",
+        "run_optimization": ".optimization.problem",
+        "gradient_norm": ".optimization.summary",
+    }
+    for name, module_path in expected.items():
+        assert EXPORT_MODULES[name] == module_path

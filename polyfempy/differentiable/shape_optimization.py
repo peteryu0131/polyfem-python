@@ -11,7 +11,7 @@ from typing import Any, Callable, Mapping, Optional, Sequence, Union, overload
 import numpy as np
 import torch
 
-from ._optimization_reports import OptimizationReportWriter
+from .optimization.reports import OptimizationReportWriter
 from .runtime.cpp_ext import get_cpp_polyfempy
 from .design import (
     ParameterizedVertexDesign,
@@ -19,7 +19,7 @@ from .design import (
     make_named_parameter_map,
     normalize_design_parameters,
 )
-from .objective_bridge import (
+from .objectives.bridge import (
     SmoothTimeAggregationName,
     TimeAggregation,
     TimeAggregationName,
@@ -42,7 +42,7 @@ from .runtime.settings import (
 from .runtime.solve import (
     prepare_differentiable_simulation,
 )
-from .summary import gradient_norm
+from .optimization.summary import gradient_norm
 from ..api.runtime import format_history_summary
 
 

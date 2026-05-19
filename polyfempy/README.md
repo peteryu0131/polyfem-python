@@ -52,9 +52,10 @@ theta_deg = torch.nn.Parameter(torch.tensor(90.0))
 | `api/_solve_pipeline.py` | Internal staged solver pipeline used by `solve(...)`. |
 | `api/config.py` | Typed Python wrappers for PolyFEM JSON/config fields. |
 | `api/guided_sections.py` | Convenience builders that create `SimulationConfig` objects. |
-| `differentiable/optimization_problem.py` | Public optimization dispatcher. |
-| `differentiable/optimization_runner.py` | Shared PyTorch-style optimization loop. |
-| `differentiable/objective_bridge.py` | Differentiable von Mises/stress objective builders. |
+| `differentiable/runtime/` | Differentiable solve runtime, settings contract, autograd bridge, result objects. |
+| `differentiable/objectives/` | Differentiable von Mises/stress objective builders. |
+| `differentiable/optimization/` | Public optimization dispatcher, runner, result, reports, summaries. |
+| `differentiable/data/` | Training-sample export helpers. |
 | `differentiable/design.py` | Adapter for `parameters -> vertex_map -> vertices`. |
 | `differentiable/shape_problem.py` | Shape and parameterized-shape problem objects. |
 | `differentiable/material_optimization.py` | Scalar material optimization plumbing. |

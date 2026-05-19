@@ -7,7 +7,7 @@ from typing import Any, Optional
 import numpy as np
 import torch
 
-from .objective_bridge import create_polyfem_objective, material_design_vector
+from .objectives.bridge import create_polyfem_objective, material_design_vector
 from .runtime.settings import build_solver_from_settings
 from .runtime.solve import (
     solve_differentiable_material_from_youngs,

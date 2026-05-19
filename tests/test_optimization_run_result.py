@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from polyfempy.differentiable._optimization_result import (
+from polyfempy.differentiable.optimization.result import (
     OptimizationRunResult as InternalOptimizationRunResult,
 )
 
@@ -14,7 +14,7 @@ OptimizationRunResult = InternalOptimizationRunResult
 def test_optimization_run_result_is_reexported_from_runner():
     pytest.importorskip("torch", exc_type=ImportError)
 
-    from polyfempy.differentiable.optimization_runner import (
+    from polyfempy.differentiable.optimization.runner import (
         OptimizationRunResult as RunnerOptimizationRunResult,
     )
 
