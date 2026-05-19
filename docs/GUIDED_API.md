@@ -58,6 +58,11 @@ result = solve(cfg=cfg)
 
 ## 推荐 Section Factories
 
+`g.__all__` 只包含推荐的 section factory / builder functions。Section
+dataclasses、Literal type aliases 和旧名字仍然可以显式访问，例如
+`g.BodySection`、`g.MaterialModelName`、`g.experiment_template`，但它们不属于
+推荐 star-import surface。
+
 | Factory | 返回 | 用途 |
 | --- | --- | --- |
 | `g.problem_section(...)` | `ProblemSection` | PDE 和 problem-level 设置。 |

@@ -71,8 +71,8 @@ SimulationConfig
 | `polyfempy/api/_solve_backend.py` | backend adapter | 内部 | 创建 C++ solver、应用 settings、attach mesh、assemble/solve。 |
 | `polyfempy/api/_solve_outputs.py` | output adapter | 内部 | native output extraction、history、sampled fallback、result finalize。 |
 | `polyfempy/api/config.py` | config data model | 是 | typed config blocks；`SimulationConfig`；full/minimal JSON 语义。 |
-| `polyfempy/api/guided.py` | guided API facade | 是 | guided section 的稳定 import path。 |
-| `polyfempy/api/guided_sections.py` | guided config builder | 是 | section dataclass/factory；`build_config(...)`。 |
+| `polyfempy/api/guided.py` | guided API facade | 是 | guided section 的稳定 import path；`__all__` 只推荐 factory/builder functions。 |
+| `polyfempy/api/guided_sections.py` | guided config implementation | 内部 | section dataclass/factory 汇总和 `build_config(...)` implementation。 |
 | `polyfempy/api/_guided_array_mesh.py` | guided array mesh internals | 内部 | 检查并合并 `vertices/cells` body，生成 array mesh payload。 |
 | `polyfempy/api/result.py` | result data model | 是 | `Result`、`HistoryView`、field namespace、meshio conversion、report hooks。 |
 | `polyfempy/api/runtime.py` | runtime/report convenience | 是 | workspace、logging/output setup、solve-and-report helper。 |
@@ -96,7 +96,9 @@ SimulationConfig
 | Config | `Quantity`、material classes、geometry classes、solver/time/output/contact blocks、problem param blocks | 较底层的 typed config surface 和兼容导出。 |
 | Runtime shim | `configure_windows_runtime` | 显式 Windows runtime 配置。 |
 
-`polyfempy.api.guided` 是另一套 public facade。它只是从 `guided_sections.py` 重新导出 section factories 和 dataclasses，本身不拥有实现逻辑。
+`polyfempy.api.guided` 是另一套 public facade。它从 `guided_sections.py`
+重新导出 section factories、dataclasses 和 type aliases，但 `g.__all__` 只包含
+推荐 factory/builder functions；types 和 compatibility names 仍可显式访问。
 
 ## 主流程 1：`solve(cfg=...)`
 
@@ -331,7 +333,7 @@ problem_section / body_section / material_section / ...
 | `output_section(...)` | `OutputSection` | output files、ParaView、fallback、requested result fields。 |
 | `results_section(...)` | `ResultsSection` | guided output 中的 result-field request。 |
 | `simulation_template(...)` | `SimulationTemplate` | 把所有 sections 组合起来；新文档推荐名。 |
-| `experiment_template(...)` | `ExperimentTemplate` | compatibility alias，旧脚本继续可用。 |
+| `experiment_template(...)` | `ExperimentTemplate` | compatibility alias，旧脚本继续可用，但不在 `g.__all__`。 |
 
 ### `body_section(...)`
 

@@ -105,6 +105,11 @@ from polyfempy.api import SimulationConfig, Result, solve
 | `build_config` | 推荐 public | template -> `SimulationConfig`。 |
 | `experiment_template` | 兼容 alias | 旧 examples 名字，继续可用但新文档不推荐。 |
 
+`polyfempy.api.guided.__all__` 只包含推荐的 section factory / builder
+functions。Section dataclasses、Literal type aliases 和 `experiment_template`
+仍然是显式可访问的 compatibility/advanced attributes，但不进入推荐
+star-import surface。
+
 推荐写法：
 
 ```python
@@ -224,7 +229,7 @@ Phase 2 不拆 `guided_sections.py`。
 Phase 2 只做：
 
 - 文档上明确推荐哪些 section factory；
-- 审计 `guided.py.__all__`；
+- 继续保持 `guided.py.__all__` 为 factory-only 推荐 surface；
 - `guided_sections.py` 内部使用相对 import，不反向依赖 `polyfempy.api`
   顶层 facade；
 - 如果需要，在文件内部加分组注释。

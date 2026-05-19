@@ -54,7 +54,8 @@ cfg = g.build_config(template, workspace)
 | typed config blocks | `Material`, `Solver`, `Output`, `Time`, `Contact` | 给 advanced users 或 typed config construction 使用。 |
 | runtime helpers | `make_timestamped_workspace`, `result_output`, `terminal_log` | 给 scripts/examples 配置 output/log/workspace。 |
 | report helpers | `summarize_result`, `format_result_summary` | 给 reporting，不是 solve contract。 |
-| compatibility names | `g.experiment_template` | 旧名字保留，新文档推荐 `g.simulation_template`。 |
+| guided compatibility names | `g.experiment_template` | 旧名字保留，新文档推荐 `g.simulation_template`；不进入 `g.__all__`。 |
+| guided type names | `g.BodySection`, `g.MaterialModelName` | 显式访问可用，用于 typing/diagnostics；不进入 `g.__all__`。 |
 | differentiable compatibility | `solve_differentiable`, diagnostic helpers | 旧名字仍可显式 import，但从 `polyfempy.differentiable` lazy-load，不进入推荐 `__all__`。 |
 
 重要规则：

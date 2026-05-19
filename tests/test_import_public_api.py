@@ -59,7 +59,6 @@ def test_guided_recommended_factories_import():
         bodies_section,
         body_section,
         build_config,
-        experiment_template,
         fixed_surface_section,
         loads_section,
         material_section,
@@ -77,7 +76,6 @@ def test_guided_recommended_factories_import():
         bodies_section,
         body_section,
         build_config,
-        experiment_template,
         fixed_surface_section,
         loads_section,
         material_section,
@@ -93,12 +91,39 @@ def test_guided_recommended_factories_import():
         assert obj is not None
 
 
+def test_guided_all_is_factory_surface_only():
+    import polyfempy.api.guided as g
+
+    assert g.__all__ == g.GUIDED_CORE_API
+    for name in (
+        "simulation_template",
+        "body_section",
+        "material_section",
+        "solver_section",
+        "time_section",
+        "results_section",
+        "build_config",
+    ):
+        assert name in g.__all__
+
+    for name in (
+        "SimulationTemplate",
+        "ExperimentTemplate",
+        "BodySection",
+        "MaterialSection",
+        "MaterialModelName",
+        "experiment_template",
+    ):
+        assert hasattr(g, name)
+        assert name not in g.__all__
+
+
 def test_guided_simulation_template_is_generic_public_name():
     import polyfempy.api.guided as g
 
     assert g.SimulationTemplate is g.ExperimentTemplate
     assert "simulation_template" in g.__all__
-    assert "experiment_template" in g.__all__
+    assert "experiment_template" not in g.__all__
 
     body = g.body_section(
         name="body",
