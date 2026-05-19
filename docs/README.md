@@ -12,6 +12,8 @@ Start here when reviewing the repository:
   software contract, examples, tests, and reproducibility.
 - `ARTIFACT_REPRODUCIBILITY.md`: shortest validation path for the software
   artifact.
+- `SOLVE_CONTRACT.md`: shared config/mesh/backend-settings contract used by
+  forward and differentiable solve paths.
 - `TEST_MATRIX.md`: cleanup-slice to test-subset matrix for future changes.
 
 ## Full Index
@@ -27,6 +29,8 @@ Start here when reviewing the repository:
 - `GUIDED_API.md`: guided configuration contract for `polyfempy.api.guided`.
 - `CONFIG_CONTRACT.md`: `SimulationConfig` contract, including full/minimal
   JSON semantics and `solve(cfg=...)` input forms.
+- `SOLVE_CONTRACT.md`: internal shared solve contract for config normalization,
+  mesh source selection, and canonical backend settings.
 - `RESULT_CONTRACT.md`: `Result` field namespaces, strict field lookup,
   history, sampled-data, and mesh I/O semantics.
 - `DIFFERENTIABLE_CONTRACT.md`: Phase 4 differentiable / optimization API

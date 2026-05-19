@@ -71,6 +71,7 @@ cfg = g.build_config(template, workspace)
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | `polyfempy.api._solve_pipeline` | internal | `solve(...)` 的分阶段实现。 |
+| `polyfempy.api._solve_contract` | internal | forward / differentiable 共享的 config、mesh source、backend settings contract。 |
 | `polyfempy.api._guided_array_mesh` | internal | guided array-backed mesh payload builder。 |
 | `polyfempy.api._runtime` | internal | Windows runtime shim implementation。 |
 

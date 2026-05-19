@@ -11,7 +11,9 @@
 - public examples 和 paper reproduction scripts 有明确边界。
 
 更完整的测试矩阵见 `TEST_MATRIX.md`，更完整的 artifact 说明见
-`ARTIFACT_REPRODUCIBILITY.md`。
+`ARTIFACT_REPRODUCIBILITY.md`。如果 reviewer 想看 forward solve 和
+differentiable solve 为什么能共享同一套 config/mesh/settings 语义，见
+`SOLVE_CONTRACT.md`。
 
 ## 0. 从 Repo Root 开始
 
@@ -61,7 +63,8 @@ python -m pytest \
   tests/test_import_public_api.py \
   tests/test_config_json_io.py \
   tests/test_result_sampled_data.py \
-  tests/test_pipeline_normalize.py
+  tests/test_pipeline_normalize.py \
+  tests/test_differentiable_solve_settings.py
 ```
 
 通过后可以说明：
@@ -69,7 +72,8 @@ python -m pytest \
 - 推荐 public imports 没坏；
 - `SimulationConfig` JSON semantics 没坏；
 - `Result` field namespace / sampled-data contract 没坏；
-- `solve(...)` 的输入 normalization 没坏。
+- `solve(...)` 的输入 normalization 没坏；
+- differentiable solve 复用 shared config/mesh/settings contract。
 
 ## 3. 更完整的 API Contract Check
 
@@ -91,6 +95,7 @@ python -m pytest \
   tests/test_pipeline_runtime_options.py \
   tests/test_pipeline_extract_outputs.py \
   tests/test_pipeline_sampled_fallback.py \
+  tests/test_differentiable_solve_settings.py \
   tests/test_optimization_run_result.py \
   tests/test_parameterized_shape_problem.py
 ```
@@ -101,6 +106,7 @@ python -m pytest \
 | --- | --- |
 | Public surface | `from polyfempy.api import solve, SimulationConfig, Result` |
 | Config | full/minimal JSON、typed blocks、solver sections |
+| Shared solve contract | config normalization、mesh source selection、canonical settings |
 | Result | `point_data` / `cell_data` / `sampled_data`、history、meshio |
 | Differentiable optimization | `OptimizationRunResult.summary()`、parameterized vertex map |
 

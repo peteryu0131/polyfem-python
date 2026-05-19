@@ -36,6 +36,7 @@ git diff --check
 | public facade / `__all__` | `polyfempy/api/__init__.py`, `polyfempy/api/guided.py` | `tests/test_import_public_api.py` |
 | guided sections | `guided.py`, `guided_sections.py`, `_guided_array_mesh.py` | `tests/test_import_public_api.py`, `tests/test_geometry_transformations.py`, `tests/test_config_typed_blocks.py` |
 | config JSON semantics | `config.py` | `tests/test_config_json_io.py`, `tests/test_config_typed_blocks.py`, `tests/test_config_validate.py`, `tests/test_solver_method_blocks.py` |
+| shared solve contract | `_solve_contract.py`, `_solve_settings.py` | `tests/test_pipeline_normalize.py`, `tests/test_pipeline_clean_json.py`, `tests/test_pipeline_sampled_fallback.py`, `tests/test_differentiable_solve_settings.py` |
 | solve input normalization | `solve.py`, `_solve_pipeline.py` | `tests/test_pipeline_normalize.py`, `tests/test_pipeline_clean_json.py`, `tests/test_pipeline_runtime_options.py` |
 | output extraction / fallback | `_solve_pipeline.py`, `result.py` | `tests/test_pipeline_extract_outputs.py`, `tests/test_pipeline_sampled_fallback.py`, `tests/test_result_sampled_data.py` |
 | `Result` field contract | `result.py`, `report.py` | `tests/test_result_history.py`, `tests/test_result_meshio_roundtrip.py`, `tests/test_result_report.py`, `tests/test_result_sampled_data.py` |
@@ -102,6 +103,20 @@ python -m pytest \
 
 Use after changing `solve.py` or `_solve_pipeline.py`.
 
+### Shared Solve Contract Bundle
+
+```bash
+python -m pytest \
+  tests/test_pipeline_normalize.py \
+  tests/test_pipeline_clean_json.py \
+  tests/test_pipeline_runtime_options.py \
+  tests/test_pipeline_sampled_fallback.py \
+  tests/test_differentiable_solve_settings.py
+```
+
+Use after changing `polyfempy/api/_solve_contract.py`,
+`polyfempy/differentiable/_solve_settings.py`, or `docs/SOLVE_CONTRACT.md`.
+
 ### TOMS Reviewer Smoke
 
 ```bash
@@ -109,7 +124,8 @@ python -m pytest \
   tests/test_import_public_api.py \
   tests/test_config_json_io.py \
   tests/test_result_sampled_data.py \
-  tests/test_pipeline_normalize.py
+  tests/test_pipeline_normalize.py \
+  tests/test_differentiable_solve_settings.py
 ```
 
 This is the short API-contract smoke check. It is not a substitute for full

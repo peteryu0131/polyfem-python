@@ -67,6 +67,27 @@ Reviewer 需要看懂 `SimulationConfig` 是 solver-facing config，不是一个
 | guided API 是否只是 authoring layer？ | `g.build_config(...) -> SimulationConfig`。 |
 | array-backed mesh 是否有明确限制？ | 用户用 `g.body_section(...)`，不手写 `_mesh_array_mode`。 |
 
+## 2.5 Shared Solve Contract
+
+Reviewer 还需要确认 forward solve 和 differentiable solve 没有两套互相漂移的
+config / mesh / settings 逻辑。
+
+检查项：
+
+| 问题 | 应该满足 |
+| --- | --- |
+| config 输入是否统一？ | `SimulationConfig` / `dict` / JSON path 先进入 shared normalization。 |
+| mesh 来源是否明确？ | JSON mesh、direct array、guided array payload 由 `MeshSource` 表达。 |
+| partial array 是否 early error？ | 只传 `vertices` 或只传 `cells` 不会 fallback 到 JSON mesh。 |
+| backend settings 是否 canonical？ | Python-only fields 清理后再交给 C++ backend。 |
+| differentiable 是否复用同一层？ | `_differentiable_config_and_settings(...)` 优先委托 shared solve contract。 |
+
+对应文档：
+
+```text
+docs/SOLVE_CONTRACT.md
+```
+
 Phase 3 不建议现在拆 `config.py`。先让 contract 清楚，再用测试保护以后拆分。
 
 ## 3. Result Contract

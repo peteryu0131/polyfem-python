@@ -191,6 +191,7 @@ For reviewer-facing artifact instructions, see:
 - `docs/TOMS_REVIEW_CHECKLIST.md`
 - `docs/ARTIFACT_REPRODUCIBILITY.md`
 - `docs/TEST_MATRIX.md`
+- `docs/SOLVE_CONTRACT.md`
 - `docs/DIFFERENTIABLE_CONTRACT.md`
 
 For current paper optimization and Compute Canada reproduction scripts, see:

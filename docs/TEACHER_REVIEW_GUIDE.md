@@ -21,9 +21,10 @@ but they are not the recommended API entry point.
      layers.
 4. `docs/API_STABILITY.md`
    - Stable public API, compatibility API, and internal-only module boundaries.
-5. `docs/GUIDED_API.md`, `docs/CONFIG_CONTRACT.md`, `docs/RESULT_CONTRACT.md`
-   - Contracts for config authoring, solver-facing config, and structured
-     outputs.
+5. `docs/GUIDED_API.md`, `docs/CONFIG_CONTRACT.md`, `docs/SOLVE_CONTRACT.md`,
+   `docs/RESULT_CONTRACT.md`
+   - Contracts for config authoring, shared solve data binding, solver-facing
+     config, and structured outputs.
 6. `docs/DIFFERENTIABLE_CONTRACT.md`
    - Differentiable solve, optimization problem, and optimization result
      contracts.
