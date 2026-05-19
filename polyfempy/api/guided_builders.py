@@ -2,7 +2,7 @@
 
 These helpers create the typed section objects used by ``polyfempy.api.guided``.
 They intentionally do not build ``SimulationConfig`` objects;
-``guided_sections.build_config`` owns that lower-level translation.
+``_guided_config.build_config`` owns that lower-level translation.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
 """Section dataclasses and type aliases for the guided config API.
 
-This module is intentionally data-only.  User-facing factory functions and
-``build_config(...)`` live in ``guided_sections.py`` so existing imports keep
-working while the section schema is easier to inspect.
+This module is intentionally data-only. User-facing factory functions live in
+``guided_builders.py`` and ``build_config(...)`` lives in ``_guided_config.py``;
+``guided_sections.py`` re-exports both for compatibility.
 """
 
 from __future__ import annotations

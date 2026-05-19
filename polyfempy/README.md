@@ -51,7 +51,9 @@ theta_deg = torch.nn.Parameter(torch.tensor(90.0))
 | `api/solve.py` | Thin public forward-solve entry point. |
 | `api/_solve_pipeline.py` | Internal staged solver pipeline used by `solve(...)`. |
 | `api/config.py` | Typed Python wrappers for PolyFEM JSON/config fields. |
-| `api/guided_sections.py` | Convenience builders that create `SimulationConfig` objects. |
+| `api/guided.py` | Public guided section facade. |
+| `api/guided_builders.py` | Guided section factory functions. |
+| `api/_guided_config.py` | Guided template to `SimulationConfig` translation. |
 | `differentiable/runtime/` | Differentiable solve runtime, settings contract, autograd bridge, result objects. |
 | `differentiable/objectives/` | Differentiable von Mises/stress objective builders. |
 | `differentiable/optimization/` | Public optimization dispatcher, runner, result, reports, summaries. |
@@ -63,9 +65,10 @@ theta_deg = torch.nn.Parameter(torch.tensor(90.0))
 
 ## What Is Implementation Detail
 
-Large files such as `api/config.py`, `api/guided_sections.py`, and
-`api/_solve_pipeline.py` are not hidden optimization logic. They handle JSON
-schema coverage, guided config construction, and backend solve orchestration.
+Large files such as `api/config.py` are not hidden optimization logic. They
+handle JSON schema coverage. Guided config construction and backend solve
+orchestration live behind focused internal modules such as `_guided_config.py`
+and `_solve_pipeline.py`.
 
 The paper-facing optimization demos should not call those internals directly.
 They should stay on:

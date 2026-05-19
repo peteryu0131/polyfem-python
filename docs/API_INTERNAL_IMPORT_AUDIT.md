@@ -103,12 +103,14 @@ tests 分成两类。
 
 | 文件 | Import | 分类 | 处理 |
 | --- | --- | --- | --- |
-| `polyfempy/api/guided_sections.py` | `from .config import ...` | package internal | 保留 |
-| `polyfempy/api/guided_sections.py` | `from ._guided_array_mesh import ...` | internal implementation | 保留 |
+| `polyfempy/api/_guided_config.py` | `from .config import ...` | package internal | 保留 |
+| `polyfempy/api/_guided_config.py` | `from ._guided_array_mesh import ...` | internal implementation | 保留 |
+| `polyfempy/api/guided_sections.py` | `from ._guided_config import ...` | compatibility facade | 保留 |
 | `polyfempy/api/guided.py` | `from polyfempy.api.guided_sections import ...` | public facade implementation | 保留 |
 | `polyfempy/api/config.py` | `from polyfempy.api.problems import get_problem_class` | compatibility path | 保留 |
 
-`guided_sections.py` 已经改成相对 import，避免内部 implementation 反向依赖
+`guided_sections.py` 现在是 compatibility facade；真实 guided template translation
+在 `_guided_config.py`，并且内部实现继续使用相对 import，避免反向依赖
 `polyfempy.api` 顶层 facade。
 
 ## Documentation Imports

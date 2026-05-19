@@ -218,31 +218,23 @@ Phase 3 决策：
 
 ## `guided_sections.py` 决策
 
-Phase 2 不拆 `guided_sections.py`。
+Phase 2 先不拆 `guided_sections.py`；Phase 3 已经把真实职责拆出来，
+但保留旧 import path。
 
 理由：
 
 - `guided.py` 已经提供清楚 public facade。
-- `guided_sections.py` 文件大，但当前风险主要是 import path 和 section 语义，不是文件长度本身。
-- 直接拆可能影响 examples、paper demos、type aliases 和 `guided.py.__all__`。
+- `guided_sections.py` 现在是 compatibility facade，继续 re-export factories/types/config helpers。
+- `guided_builders.py` 只负责创建 section objects。
+- `guided_types.py` 只负责 dataclasses 和 type aliases。
+- `_guided_config.py` 负责 `build_config(...)` 和 template -> `SimulationConfig` translation。
 
-Phase 2 只做：
+当前规则：
 
 - 文档上明确推荐哪些 section factory；
 - 继续保持 `guided.py.__all__` 为 factory-only 推荐 surface；
-- `guided_sections.py` 内部使用相对 import，不反向依赖 `polyfempy.api`
-  顶层 facade；
-- 如果需要，在文件内部加分组注释。
-
-Phase 3 后再考虑拆成：
-
-```text
-guided_types.py
-guided_factories.py
-guided_builders.py
-```
-
-前提是所有旧 import path 都能保持。
+- 不让 public facade 反向依赖 `polyfempy.api` 顶层 facade；
+- 所有旧 `polyfempy.api.guided_sections` import path 继续可用。
 
 ## `config.py` 决策
 

@@ -198,7 +198,8 @@ terminal_log(cfg, print_terminal=False)
 
 这些可以存在，但不应该作为新用户的第一入口：
 
-- `polyfempy.api.guided_sections`：implementation module；
+- `polyfempy.api.guided_sections`：compatibility facade for guided internals；
+- `polyfempy.api._guided_config`：guided template -> `SimulationConfig` translation；
 - `polyfempy.api._guided_array_mesh`：internal payload builder；
 - `add_body_from_section(...)` / `build_material(...)` 等 builder helpers。
 
@@ -208,6 +209,7 @@ terminal_log(cfg, print_terminal=False)
 
 ```bash
 python -m pytest tests/test_import_public_api.py
+python -m pytest tests/test_guided_config_builder.py
 python -m pytest tests/test_config_typed_blocks.py tests/test_geometry_transformations.py
 ```
 

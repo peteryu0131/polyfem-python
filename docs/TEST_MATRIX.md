@@ -34,7 +34,7 @@ git diff --check
 | Slice | 常见文件 | 必跑测试 |
 | --- | --- | --- |
 | public facade / `__all__` | `polyfempy/api/__init__.py`, `polyfempy/api/guided.py` | `tests/test_import_public_api.py` |
-| guided sections | `guided.py`, `guided_sections.py`, `_guided_array_mesh.py` | `tests/test_import_public_api.py`, `tests/test_geometry_transformations.py`, `tests/test_config_typed_blocks.py` |
+| guided sections | `guided.py`, `guided_builders.py`, `guided_types.py`, `_guided_config.py`, `_guided_array_mesh.py` | `tests/test_import_public_api.py`, `tests/test_guided_config_builder.py`, `tests/test_geometry_transformations.py`, `tests/test_config_typed_blocks.py` |
 | config JSON semantics | `config.py` | `tests/test_config_json_io.py`, `tests/test_config_typed_blocks.py`, `tests/test_config_validate.py`, `tests/test_solver_method_blocks.py` |
 | shared solve contract | `_solve_contract.py`, `_solve_settings.py` | `tests/test_pipeline_normalize.py`, `tests/test_pipeline_clean_json.py`, `tests/test_pipeline_sampled_fallback.py`, `tests/test_differentiable_solve_settings.py` |
 | solve input normalization | `solve.py`, `_solve_pipeline.py` | `tests/test_pipeline_normalize.py`, `tests/test_pipeline_clean_json.py`, `tests/test_pipeline_runtime_options.py` |

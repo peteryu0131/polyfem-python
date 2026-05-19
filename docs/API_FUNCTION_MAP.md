@@ -72,7 +72,10 @@ SimulationConfig
 | `polyfempy/api/_solve_outputs.py` | output adapter | 内部 | native output extraction、history、sampled fallback、result finalize。 |
 | `polyfempy/api/config.py` | config data model | 是 | typed config blocks；`SimulationConfig`；full/minimal JSON 语义。 |
 | `polyfempy/api/guided.py` | guided API facade | 是 | guided section 的稳定 import path；`__all__` 只推荐 factory/builder functions。 |
-| `polyfempy/api/guided_sections.py` | guided config implementation | 内部 | section dataclass/factory 汇总和 `build_config(...)` implementation。 |
+| `polyfempy/api/guided_sections.py` | guided compatibility facade | 内部 | re-export guided factories/types/config helpers for older internal imports。 |
+| `polyfempy/api/guided_builders.py` | guided section factories | 内部 | 创建 user-authored section objects，不创建 `SimulationConfig`。 |
+| `polyfempy/api/guided_types.py` | guided section schema | 内部 | dataclasses 和 Literal type aliases。 |
+| `polyfempy/api/_guided_config.py` | guided config translation | 内部 | `build_config(...)` 和 template -> `SimulationConfig` helpers。 |
 | `polyfempy/api/_guided_array_mesh.py` | guided array mesh internals | 内部 | 检查并合并 `vertices/cells` body，生成 array mesh payload。 |
 | `polyfempy/api/result.py` | result data model | 是 | `Result`、`HistoryView`、field namespace、meshio conversion、report hooks。 |
 | `polyfempy/api/runtime.py` | runtime/report convenience | 是 | workspace、logging/output setup、solve-and-report helper。 |
@@ -96,9 +99,9 @@ SimulationConfig
 | Config | `Quantity`、material classes、geometry classes、solver/time/output/contact blocks、problem param blocks | 较底层的 typed config surface 和兼容导出。 |
 | Runtime shim | `configure_windows_runtime` | 显式 Windows runtime 配置。 |
 
-`polyfempy.api.guided` 是另一套 public facade。它从 `guided_sections.py`
-重新导出 section factories、dataclasses 和 type aliases，但 `g.__all__` 只包含
-推荐 factory/builder functions；types 和 compatibility names 仍可显式访问。
+`polyfempy.api.guided` 是另一套 public facade。它通过 `guided_sections.py`
+兼容 facade 暴露 section factories、dataclasses 和 type aliases，但 `g.__all__`
+只包含推荐 factory/builder functions；types 和 compatibility names 仍可显式访问。
 
 ## 主流程 1：`solve(cfg=...)`
 
@@ -337,7 +340,7 @@ problem_section / body_section / material_section / ...
 
 ### `body_section(...)`
 
-位置：`guided_sections.py`
+位置：`guided_builders.py`
 
 geometry contract：必须且只能给一种 geometry source。
 
@@ -366,7 +369,7 @@ vertices=..., faces=...   # faces 是 cells 的 alias
 
 ### `build_config(template, workspace)`
 
-位置：`guided_sections.py`
+位置：`_guided_config.py`
 
 调用链：
 
@@ -768,8 +771,8 @@ h, theta_deg
 
 1. `solve.py` 应该保持薄。它现在已经只是 `_solve_pipeline.run_pipeline(...)` 的 public wrapper。
 2. `_solve_pipeline.py` 应该保持 internal。它已经有清楚 stage 和测试；cleanup 应该主要改命名/结构，不要把 public 语义搬进去。
-3. `guided.py` 应该保留为 guided API 的 public facade。真实实现可以继续在 `guided_sections.py`，之后再考虑拆分。
-4. 不要把 `guided_sections.py` 和 `config.py` 合并。guided sections 是 authoring layer，`SimulationConfig` 是 solver-facing contract。
+3. `guided.py` 应该保留为 guided API 的 public facade。`guided_sections.py` 现在是 compatibility facade；factory functions 在 `guided_builders.py`，template translation 在 `_guided_config.py`。
+4. 不要把 guided authoring layer 和 `config.py` 合并。guided sections 是 authoring layer，`SimulationConfig` 是 solver-facing contract。
 5. `config.py` 是最高风险 cleanup 对象，因为它同时承载 full JSON、minimal JSON、typed blocks、旧 problem factories、backend settings conversion。
 6. `Result` 是稳定 contract。`point_data/cell_data/sampled_data` 的区别不能随便拍平。
 7. `runtime.py` / `report.py` 可以等核心 map 稳定以后再清，因为它们主要是实验 ergonomics。
@@ -780,7 +783,9 @@ h, theta_deg
 1. 顶层 `polyfempy.api.__all__` 到底应该保留哪些名字？
    已决定：只保留 `solve`, `SimulationConfig`, `Result`。typed config、
    runtime/reporting helper 仍然可以显式 import，但不进入 star-import surface。
-2. `guided_sections.py` 要不要拆成 section dataclasses 和 builder functions 两个文件，还是先不动？
+2. guided implementation 是否还要继续拆？
+   已决定：先保留当前清晰边界；`guided_types.py` 放 dataclasses/types，
+   `guided_builders.py` 放 factories，`_guided_config.py` 放 template translation。
 3. `solve.py` 里的 backward-compatible aliases 还有没有内部 caller 在用？
    已审计：当前 repo 内业务代码没有 caller；tests 直接使用 `_solve_pipeline`
    helper。Phase 3 保留这些 alias 作为 compatibility-only，并用

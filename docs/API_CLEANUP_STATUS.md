@@ -97,6 +97,11 @@ reporting, early stopping, and mesh snapshots.
   - `polyfempy/api/guided_sections.py`
 - Updated:
   - `polyfempy/api/guided.py`
+- Later cleanup split guided internals by responsibility:
+  - `polyfempy/api/guided_builders.py`: section factories
+  - `polyfempy/api/guided_types.py`: section dataclasses/type aliases
+  - `polyfempy/api/_guided_config.py`: template -> `SimulationConfig`
+  - `polyfempy/api/guided_sections.py`: compatibility facade
 - The guided API no longer imports from `experiment.*`.
 - The old experiment helper path is no longer required for package imports.
 
