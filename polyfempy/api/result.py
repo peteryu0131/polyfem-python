@@ -719,17 +719,27 @@ class Result:
         mesh = self.to_meshio()
         meshio_mod.write(str(path), mesh, file_format=file_format)
 
-    def to_vtk(self, path: str):
+    def to_vtk(self, path: str, *, fallback_npz: bool = False) -> str:
+        """Write VTK/VTU output and return the actual written path.
+
+        By default export failures propagate. Pass ``fallback_npz=True`` to
+        explicitly request the legacy NumPy archive fallback.
+        """
         try:
             self.write(path)
+            return str(path)
         except Exception:
+            if not fallback_npz:
+                raise
+            fallback_path = path if path.endswith(".npz") else (path + ".npz")
             np.savez(
-                path if path.endswith(".npz") else (path + ".npz"),
+                fallback_path,
                 vertices=self.vertices,
                 **{f"point_{k}": v for k, v in self._point_data.items()},
                 **{f"cell_{k}": v for k, v in self._cell_data.items()},
                 **{f"sampled_{k}": v for k, v in self._sampled_data.items()},
             )
+            return fallback_path
 
     @classmethod
     def from_meshio(cls, mesh, backend: str = "numpy", meta: Optional[dict] = None):

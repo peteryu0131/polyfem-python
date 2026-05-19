@@ -27,6 +27,14 @@ def _finite_float(value: Any, default: float = float("-inf")) -> float:
     return out if np.isfinite(out) else default
 
 
+def _json_float_or_none(value: Any) -> Optional[float]:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if np.isfinite(out) else None
+
+
 def _array_record(path: Path, arr: np.ndarray) -> dict[str, Any]:
     return {
         "path": path.name,
@@ -96,17 +104,17 @@ def save_training_sample(
     bundle = summarize_history_bundle(result, cfg=cfg)
     body_row = _select_body_history_row(bundle, body_id=int(body_id), select_by="vm_max")
     if body_row is None:
-        body_vm_mean = float("nan")
-        body_vm_max = float("nan")
-        body_vm_p95 = float("nan")
+        body_vm_mean = np.nan
+        body_vm_max = np.nan
+        body_vm_p95 = np.nan
         selected_step = None
         selected_time = None
     else:
-        body_vm_mean = float(body_row.get("vm_mean", float("nan")))
-        body_vm_max = float(body_row.get("vm_max", float("nan")))
-        body_vm_p95 = float(body_row.get("vm_p95", float("nan")))
+        body_vm_mean = _finite_float(body_row.get("vm_mean"), default=np.nan)
+        body_vm_max = _finite_float(body_row.get("vm_max"), default=np.nan)
+        body_vm_p95 = _finite_float(body_row.get("vm_p95"), default=np.nan)
         selected_step = int(body_row["step"]) if body_row.get("step") is not None else None
-        selected_time = float(body_row["time"]) if body_row.get("time") is not None else None
+        selected_time = _json_float_or_none(body_row.get("time"))
 
     scalar_labels = np.asarray(
         [
@@ -122,8 +130,8 @@ def save_training_sample(
     np.save(scalar_path, scalar_labels)
 
     metadata: dict[str, Any] = {
-        "loss": loss_value,
-        "grad_norm": grad_norm_value,
+        "loss": _json_float_or_none(loss_value),
+        "grad_norm": _json_float_or_none(grad_norm_value),
         "shape_gradient": _array_record(gradient_path, gradient_np),
         "shape_gradient_source": "result.shape_gradient" if gradient is None else "provided_gradient",
         "scalars": {
@@ -140,9 +148,9 @@ def save_training_sample(
         f"{body_name}_history_selection": "row with largest vm_max over time",
         f"{body_name}_selected_step": selected_step,
         f"{body_name}_selected_time": selected_time,
-        f"{body_name}_vm_max": body_vm_max,
-        f"{body_name}_vm_p95": body_vm_p95,
-        f"{body_name}_vm_mean": body_vm_mean,
+        f"{body_name}_vm_max": _json_float_or_none(body_vm_max),
+        f"{body_name}_vm_p95": _json_float_or_none(body_vm_p95),
+        f"{body_name}_vm_mean": _json_float_or_none(body_vm_mean),
         "objective_body_id": int(body_id),
         "objective_body_name": body_name,
         "gradient_body_id": None if gradient_body_id is None else int(gradient_body_id),
@@ -157,7 +165,10 @@ def save_training_sample(
         metadata["vertices"] = _array_record(vertices_path, vertices_np)
 
     metadata_path = out_dir / "metadata.json"
-    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True, allow_nan=False),
+        encoding="utf-8",
+    )
 
     paths = {
         "metadata_json": metadata_path.resolve(),

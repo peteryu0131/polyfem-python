@@ -19,3 +19,16 @@ def test_examples_do_not_reintroduce_removed_impact_template_name():
             offenders.append(path.relative_to(ROOT).as_posix())
 
     assert offenders == []
+
+
+def test_differentiable_examples_print_reviewer_summaries():
+    expected_terms = {
+        "examples/03_shape_gradient.py": ("loss", "gradient", "workspace"),
+        "examples/04_scalar_E_gradient.py": ("loss", "dL/dE", "workspace"),
+        "examples/06_dataset_one_case.py": ("metadata", "workspace"),
+    }
+    for relative_path, terms in expected_terms.items():
+        text = (ROOT / relative_path).read_text(encoding="utf-8")
+        assert "print(" in text, relative_path
+        for term in terms:
+            assert term in text, f"{relative_path} missing {term!r}"
