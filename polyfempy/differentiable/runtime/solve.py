@@ -21,7 +21,7 @@ from ...api.config import SimulationConfig
 from .cpp_ext import get_cpp_polyfempy
 from .autograd import PolyFEMFunction, PolyFEMPerElementMaterialFunction
 from .result import DifferentiableResult, DifferentiableMaterialResult
-from .._material_parameters import (
+from ..material.parameters import (
     _expand_material_parameter_to_slots,
     _solver_n_element_assembly_slots,
     build_lame_from_youngs,

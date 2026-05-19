@@ -6,7 +6,7 @@ torch = pytest.importorskip("torch", exc_type=ImportError)
 
 from polyfempy.differentiable.design import ParameterizedVertexDesign  # noqa: E402
 from polyfempy.differentiable.optimization.runner import run_optimization  # noqa: E402
-from polyfempy.differentiable.shape_problem import (  # noqa: E402
+from polyfempy.differentiable.shape.problem import (  # noqa: E402
     ParameterizedShapeOptimizationProblem,
 )
 

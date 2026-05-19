@@ -45,6 +45,8 @@ from polyfempy.differentiable import (
 runtime/       solve, settings contract, autograd bridge, runtime result
 objectives/    objective and loss builders
 optimization/  generic optimization entry points, results, reports, summaries
+shape/         shape problems, masks, and parameterized geometry maps
+material/      material problems, config parsing, diagnostics, parameters
 data/          training sample export
 ```
 
@@ -52,7 +54,8 @@ data/          training sample export
 `training_data.py`，以及 `objective_bridge.py`、`optimization_problem.py` 等，现在
 保留为 thin compatibility shims。新代码应该优先 import
 `polyfempy.differentiable.runtime.*`、`polyfempy.differentiable.objectives.*`、
-`polyfempy.differentiable.optimization.*` 或 `polyfempy.differentiable.data.*`。
+`polyfempy.differentiable.optimization.*`、`polyfempy.differentiable.shape.*`、
+`polyfempy.differentiable.material.*` 或 `polyfempy.differentiable.data.*`。
 
 ## 三种核心 Workflow
 

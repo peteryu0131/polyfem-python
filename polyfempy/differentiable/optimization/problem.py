@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Union, overload
 
-from ..material_optimization import (
+from ..material.optimization import (
     ScalarMaterialOptimizationProblem,
     prepare_material_optimization_problem,
     prepare_scalar_youngs_material_problem,
@@ -16,7 +16,7 @@ from .runner import (
     report_optimization_baseline,
     run_optimization,
 )
-from ..shape_optimization import (
+from ..shape.optimization import (
     ParameterizedShapeOptimizationProblem,
     ShapeOptimizationProblem,
     prepare_parameterized_shape_problem,

@@ -55,10 +55,10 @@ theta_deg = torch.nn.Parameter(torch.tensor(90.0))
 | `differentiable/runtime/` | Differentiable solve runtime, settings contract, autograd bridge, result objects. |
 | `differentiable/objectives/` | Differentiable von Mises/stress objective builders. |
 | `differentiable/optimization/` | Public optimization dispatcher, runner, result, reports, summaries. |
+| `differentiable/shape/` | Shape and parameterized-shape problems, masks, and geometry maps. |
+| `differentiable/material/` | Scalar material optimization, config parsing, diagnostics, and material parameters. |
 | `differentiable/data/` | Training-sample export helpers. |
 | `differentiable/design.py` | Adapter for `parameters -> vertex_map -> vertices`. |
-| `differentiable/shape_problem.py` | Shape and parameterized-shape problem objects. |
-| `differentiable/material_optimization.py` | Scalar material optimization plumbing. |
 | `differentiable/advanced.py` | Diagnostics and legacy compatibility helpers. |
 
 ## What Is Implementation Detail

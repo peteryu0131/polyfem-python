@@ -11,13 +11,13 @@ from .result import (
     _completion_status,
     _path_or_none,
 )
-from ..material_optimization import (
+from ..material.optimization import (
     ScalarMaterialOptimizationProblem,
     make_material_optimizer,
     prepare_material_differentiable_simulation,
     run_scalar_material_optimization,
 )
-from ..shape_optimization import (
+from ..shape.optimization import (
     ParameterizedShapeOptimizationProblem,
     ShapeOptimizationProblem,
     make_shape_optimizer,

@@ -4,7 +4,7 @@ import pytest
 
 torch = pytest.importorskip("torch", exc_type=ImportError)
 
-from polyfempy.differentiable._material_parameters import (  # noqa: E402
+from polyfempy.differentiable.material.parameters import (  # noqa: E402
     build_lame_from_youngs,
     solver_body_ids_for_assembly,
     solver_body_slot_mask,

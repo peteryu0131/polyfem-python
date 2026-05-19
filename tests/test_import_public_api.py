@@ -253,3 +253,44 @@ def test_differentiable_exports_prefer_objectives_and_optimization_modules():
     }
     for name, module_path in expected.items():
         assert EXPORT_MODULES[name] == module_path
+
+
+def test_differentiable_shape_and_material_paths_preserve_old_imports():
+    import importlib
+
+    checks = [
+        ("polyfempy.differentiable.shape_optimization", "polyfempy.differentiable.shape.optimization", "prepare_shape_optimization_problem"),
+        ("polyfempy.differentiable.shape_optimization", "polyfempy.differentiable.shape.optimization", "prepare_parameterized_shape_problem"),
+        ("polyfempy.differentiable.shape_optimization", "polyfempy.differentiable.shape.optimization", "run_shape_optimization"),
+        ("polyfempy.differentiable.shape_problem", "polyfempy.differentiable.shape.problem", "ShapeOptimizationProblem"),
+        ("polyfempy.differentiable.shape_mask", "polyfempy.differentiable.shape.mask", "body_vertex_mask"),
+        ("polyfempy.differentiable.geometry_maps", "polyfempy.differentiable.shape.geometry_maps", "vertices_y_le"),
+        ("polyfempy.differentiable.material_optimization", "polyfempy.differentiable.material.optimization", "prepare_material_optimization_problem"),
+        ("polyfempy.differentiable.material_config", "polyfempy.differentiable.material.config", "material_for_body"),
+        ("polyfempy.differentiable.material_diagnostics", "polyfempy.differentiable.material.diagnostics", "usable_scalar_gradient"),
+        ("polyfempy.differentiable._material_parameters", "polyfempy.differentiable.material.parameters", "youngs_to_lame"),
+    ]
+
+    for old_module_name, new_module_name, attr in checks:
+        old_module = importlib.import_module(old_module_name)
+        new_module = importlib.import_module(new_module_name)
+        assert getattr(old_module, attr) is getattr(new_module, attr)
+
+
+def test_differentiable_exports_prefer_shape_and_material_modules():
+    from polyfempy.differentiable._exports import EXPORT_MODULES
+
+    expected = {
+        "prepare_parameterized_shape_problem": ".shape.optimization",
+        "body_vertex_mask": ".shape.mask",
+        "shape_gradient_for_body": ".shape.mask",
+        "relative_scale": ".shape.geometry_maps",
+        "ShapeOptimizationProblem": ".shape.optimization",
+        "run_shape_optimization": ".shape.optimization",
+        "prepare_material_optimization_problem": ".material.optimization",
+        "run_scalar_material_optimization": ".material.optimization",
+        "youngs_to_lame": ".material.parameters",
+        "usable_scalar_gradient": ".material.diagnostics",
+    }
+    for name, module_path in expected.items():
+        assert EXPORT_MODULES[name] == module_path

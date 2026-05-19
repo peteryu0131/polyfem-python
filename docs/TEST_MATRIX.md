@@ -44,7 +44,7 @@ git diff --check
 | runtime helpers | `runtime.py`, `_runtime.py` | `tests/test_runtime_windows_shim.py`, `tests/test_pipeline_runtime_options.py` |
 | predefined problems | `problems.py`, `config.py` | `tests/test_api_problems.py` |
 | differentiable public imports | `polyfempy/differentiable/__init__.py` | import smoke plus focused differentiable tests if available |
-| optimization result contract | `optimization_runner.py`, `shape_problem.py` | `tests/test_optimization_run_result.py`, `tests/test_parameterized_shape_problem.py`, `tests/test_import_public_api.py` |
+| optimization result contract | `differentiable/optimization/`, `differentiable/shape/`, `differentiable/material/` | `tests/test_optimization_run_result.py`, `tests/test_parameterized_shape_problem.py`, `tests/test_import_public_api.py` |
 | examples only | `examples/*.py`, `examples/README.md` | `tests/test_import_public_api.py`; run touched example if backend/deps are available |
 | docs only | `docs/*.md`, `README.md` | `git diff --check`; no pytest required unless code examples/imports changed |
 

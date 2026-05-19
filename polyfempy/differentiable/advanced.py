@@ -34,8 +34,8 @@ _MATERIAL_DIAGNOSTIC_NAMES = {
 }
 
 _EXPORT_MODULES = {
-    **{name: ".material_config" for name in _MATERIAL_CONFIG_NAMES},
-    **{name: ".material_diagnostics" for name in _MATERIAL_DIAGNOSTIC_NAMES},
+    **{name: ".material.config" for name in _MATERIAL_CONFIG_NAMES},
+    **{name: ".material.diagnostics" for name in _MATERIAL_DIAGNOSTIC_NAMES},
 }
 
 __all__ = sorted(_EXPORT_MODULES)
