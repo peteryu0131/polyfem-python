@@ -32,9 +32,13 @@ from polyfempy.differentiable import (
 runtime/reporting helpers remain available by explicit import, but they are not
 part of the recommended star-import surface.
 
-`polyfempy.api.solve` remains a thin wrapper around `_solve_pipeline.run_pipeline`.
-Older private helper names in `solve.py` are kept only as compatibility aliases,
-with `COMPATIBILITY_ALIAS_TARGETS` documenting their current pipeline targets.
+`polyfempy.api.solve` remains a thin public wrapper around
+`_solve_pipeline.run_pipeline`. The forward solve internals are split into
+`_solve_contract.py` for config/mesh/backend-settings semantics,
+`_solve_backend.py` for C++ backend interaction, and `_solve_outputs.py` for
+native output extraction, history, fallback, and result finalization. Older
+private helper names for `solve.py` live in `_solve_compat.py` as
+compatibility-only explicit imports and stay out of `solve.py.__all__`.
 
 `polyfempy.api.config` is still a single stable import module. Phase 4 adds a
 module docstring and section markers inside `config.py` so readers can navigate

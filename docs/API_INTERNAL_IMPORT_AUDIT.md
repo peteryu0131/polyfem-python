@@ -148,7 +148,7 @@ _field_available
 
 - repo 内没有业务代码从 `polyfempy.api.solve` import 这些 alias。
 - tests 直接使用 `_solve_pipeline` 的 helpers。
-- `solve.py` 内这些 alias 是历史兼容层，不是当前内部依赖。
+- `_solve_compat.py` 内这些 alias 是历史兼容层，不是当前内部依赖。
 
 处理决定：
 
@@ -156,9 +156,10 @@ _field_available
 Phase 3:
   保留 alias
   标记 compatibility-only
-  用 COMPATIBILITY_ALIAS_TARGETS 显式记录 alias -> _solve_pipeline target
+  用 _solve_compat.COMPATIBILITY_ALIAS_TARGETS 显式记录 alias -> staged solve target
+  solve.py.__all__ 只推荐 solve
   不在新代码中使用这些 alias
-  tests 继续直接 import _solve_pipeline helper
+  tests 继续直接 import owning internal helper
 ```
 
 ## 结论

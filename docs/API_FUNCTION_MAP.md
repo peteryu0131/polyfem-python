@@ -64,8 +64,12 @@ SimulationConfig
 | 文件 | 层级 | 是否 public | 主要职责 |
 | --- | --- | --- | --- |
 | `polyfempy/api/__init__.py` | package facade | 是 | 暴露 top-level API；import 时处理 Windows runtime shim。 |
-| `polyfempy/api/solve.py` | forward solve facade | 是 | 提供薄的 `solve(...)` 入口；保留一些 backward-compatible internal aliases。 |
-| `polyfempy/api/_solve_pipeline.py` | forward solve internals | 内部 | cfg/mesh normalization、C++ solver 配置、输出提取、`Result` finalize。 |
+| `polyfempy/api/solve.py` | forward solve facade | 是 | 提供薄的 `solve(...)` 入口；`__all__` 只推荐 `solve`。 |
+| `polyfempy/api/_solve_compat.py` | solve compatibility | 内部 | 给旧的 `polyfempy.api.solve` helper imports 安装 compatibility-only aliases。 |
+| `polyfempy/api/_solve_pipeline.py` | forward solve orchestration | 内部 | 按顺序调用 contract、backend、outputs，并构造最终 `Result`。 |
+| `polyfempy/api/_solve_contract.py` | forward solve contract | 内部 | 统一 cfg 输入、mesh source selection、canonical backend settings。 |
+| `polyfempy/api/_solve_backend.py` | backend adapter | 内部 | 创建 C++ solver、应用 settings、attach mesh、assemble/solve。 |
+| `polyfempy/api/_solve_outputs.py` | output adapter | 内部 | native output extraction、history、sampled fallback、result finalize。 |
 | `polyfempy/api/config.py` | config data model | 是 | typed config blocks；`SimulationConfig`；full/minimal JSON 语义。 |
 | `polyfempy/api/guided.py` | guided API facade | 是 | guided section 的稳定 import path。 |
 | `polyfempy/api/guided_sections.py` | guided config builder | 是 | section dataclass/factory；`build_config(...)`。 |
@@ -109,10 +113,12 @@ solve(...)
 
 ```text
 run_pipeline(...)
-  -> normalize_cfg(cfg)
-  -> build_full_json(cfg)
+  -> prepare_canonical_solve_input(...)
+       -> normalize_config(...)
+       -> choose_mesh_source(...)
+       -> build_canonical_solver_settings(...)
   -> resolve_runtime_options(cfg, full_json, sampled_vtu_fallback)
-  -> normalize_mesh_inputs(vertices, cells, full_json, dtype, cfg=cfg)
+  -> _inputs_from_mesh_source(canonical.mesh_source)
   -> build_solver()
   -> configure_solver(solver, cfg, full_json, inputs)
   -> apply_sidesets(solver, sidesets_func, ctx)

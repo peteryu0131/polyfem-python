@@ -179,7 +179,11 @@ tests 可以直接 import internal helper，这是为了保护 pipeline 语义�
 
 ## `solve.py` 兼容 alias 决策
 
-`solve.py` 现在有这些 backward-compatible aliases：
+`solve.py` 现在只把 `solve` 放进 `__all__`。旧 helper imports 仍然显式可用，
+但 compatibility map 已移到 `_solve_compat.py`，避免 public facade 继续显得像
+内部工具集合。
+
+`_solve_compat.py` 维护这些 backward-compatible aliases：
 
 ```text
 _process_json_config
@@ -200,8 +204,8 @@ _field_available
 Phase 3 决策：
 
 - 保留这些 alias，标记为 compatibility-only。
-- 在 `solve.py` 中用 `COMPATIBILITY_ALIAS_TARGETS` 显式记录每个旧名字指向
-  `_solve_pipeline.py` 的哪个 current implementation。
+- 在 `_solve_compat.py` 中用 `COMPATIBILITY_ALIAS_TARGETS` 显式记录每个旧名字指向
+  staged solve internals 的哪个 current implementation。
 - 不在用户文档中推荐。
 - 不新增对这些 alias 的使用。
 - 当前不删除、不加 deprecation warning，避免无谓打扰旧脚本；未来如果要删除，

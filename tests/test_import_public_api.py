@@ -129,6 +129,32 @@ def test_solve_compatibility_aliases_are_not_public_all():
         assert name not in solve_module.__all__
 
 
+def test_solve_module_all_only_recommends_solve():
+    import importlib
+
+    solve_module = importlib.import_module("polyfempy.api.solve")
+
+    assert solve_module.__all__ == ["solve"]
+
+
+def test_solve_staged_helpers_remain_explicit_import_compat_only():
+    import importlib
+
+    solve_module = importlib.import_module("polyfempy.api.solve")
+    helper_names = [
+        "RuntimeOptions",
+        "NormalizedInputs",
+        "NativeOutputs",
+        "SolverConfigContext",
+        "configure_solver",
+        "extract_native_outputs",
+    ]
+
+    for name in helper_names:
+        assert hasattr(solve_module, name)
+        assert name not in solve_module.__all__
+
+
 def test_solve_compatibility_aliases_point_to_pipeline_targets():
     import importlib
 
