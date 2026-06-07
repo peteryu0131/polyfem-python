@@ -88,6 +88,7 @@ class CMakeBuild(build_ext):
                       # (DLL/PYD), so also set the runtime output directory.
                       '-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=' + extdir,
                       '-DPYTHON_EXECUTABLE=' + python_executable,
+                      '-DPython_EXECUTABLE=' + python_executable,
                       '-DPYTHON_INCLUDE_DIR=' + python_include_directory,
                       '-DPOLYSOLVE_WITH_SPECTRA=OFF',
                       '-DPOLYSOLVE_WITH_AMGCL=OFF',

@@ -20,6 +20,9 @@ if (NOT DEFINED Python_FIND_FRAMEWORK)
 endif ()
 
 # Find Python for nanobind
+if(DEFINED PYTHON_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
+    set(Python_EXECUTABLE "${PYTHON_EXECUTABLE}" CACHE FILEPATH "Python executable for FindPython" FORCE)
+endif()
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
 
@@ -145,4 +148,3 @@ if(COMMAND nanobind_add_module)
 else()
     message(WARNING "nanobind_add_module() function not found, may need manual setup")
 endif()
-
