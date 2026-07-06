@@ -14,6 +14,11 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
+from ..new_api.generated_payload import (
+    generated_payload_from_config,
+    is_generated_config,
+    prepare_generated_backend_payload,
+)
 from . import tensor as T
 
 
@@ -54,7 +59,7 @@ def cfg_array_mesh_payload(cfg: Any) -> Optional[Dict[str, Any]]:
 
 
 def normalize_config(cfg: Any):
-    """Accept dict / JSON path / SimulationConfig and return SimulationConfig."""
+    """Accept dict / JSON path / SimulationConfig / as_dict object."""
     from .config import SimulationConfig
 
     if cfg is None:
@@ -65,8 +70,17 @@ def normalize_config(cfg: Any):
         return SimulationConfig.from_json_file(cfg)
     if isinstance(cfg, SimulationConfig):
         return cfg
+    as_dict = getattr(cfg, "as_dict", None)
+    if callable(as_dict):
+        payload = as_dict()
+        if not isinstance(payload, dict):
+            raise TypeError(
+                f"cfg.as_dict() must return dict, got {type(payload).__name__}"
+            )
+        return SimulationConfig.from_json_dict(payload)
     raise TypeError(
-        f"cfg must be SimulationConfig, dict, or str (file path), got {type(cfg).__name__}"
+        "cfg must be SimulationConfig, dict, str (file path), or expose as_dict(), "
+        f"got {type(cfg).__name__}"
     )
 
 
@@ -291,6 +305,34 @@ def build_canonical_solver_settings(
     return clean_json_for_cpp(settings)
 
 
+def _prepare_generated_canonical_solve_input(
+    *,
+    vertices: Any,
+    cells: Any,
+    cfg: Any,
+    dtype: Any = None,
+) -> CanonicalSolveInput:
+    payload = generated_payload_from_config(cfg)
+    mesh_source = choose_mesh_source(
+        vertices,
+        cells,
+        payload,
+        dtype=dtype,
+        cfg=cfg,
+    )
+    backend_settings = prepare_generated_backend_payload(payload)
+    return CanonicalSolveInput(
+        config=cfg,
+        full_json=payload,
+        mesh_source=mesh_source,
+        backend_settings=backend_settings,
+        metadata={
+            "mesh_source": mesh_source.mode,
+            "config_source": "generated",
+        },
+    )
+
+
 def prepare_canonical_solve_input(
     *,
     vertices: Any,
@@ -299,6 +341,14 @@ def prepare_canonical_solve_input(
     dtype: Any = None,
 ) -> CanonicalSolveInput:
     """Normalize config, resolve mesh source, and build backend settings once."""
+    if is_generated_config(cfg):
+        return _prepare_generated_canonical_solve_input(
+            vertices=vertices,
+            cells=cells,
+            cfg=cfg,
+            dtype=dtype,
+        )
+
     config = normalize_config(cfg)
     full_json = build_full_json(config)
     mesh_source = choose_mesh_source(

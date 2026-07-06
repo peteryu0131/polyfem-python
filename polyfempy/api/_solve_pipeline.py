@@ -161,7 +161,7 @@ def merge_user_cfg_over_full_json(cfg, full_json) -> dict:
 
 
 def normalize_cfg(cfg):
-    """Accept dict / path / SimulationConfig, always return a SimulationConfig.
+    """Accept dict / path / SimulationConfig / as_dict object.
 
     Fails fast with a clear error for everything else. Imported lazily so that
     this module remains importable without the full config surface loaded.

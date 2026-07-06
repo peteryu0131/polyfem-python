@@ -16,6 +16,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -65,6 +66,16 @@ class NormalizeCfgTests(unittest.TestCase):
             path.write_text(json.dumps(_MINIMAL_FULL), encoding="utf-8")
             cfg = normalize_cfg(str(path))
         self.assertIsInstance(cfg, SimulationConfig)
+
+    def test_accepts_generated_config_object_with_as_dict(self):
+        class GeneratedConfig:
+            def as_dict(self):
+                return dict(_MINIMAL_FULL)
+
+        cfg = normalize_cfg(GeneratedConfig())
+
+        self.assertIsInstance(cfg, SimulationConfig)
+        self.assertEqual(cfg.to_dict()["geometry"], [{"mesh": "beam.msh"}])
 
     def test_none_raises_value_error(self):
         with self.assertRaises(ValueError):
@@ -200,6 +211,34 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
         self.assertEqual(canonical.metadata["mesh_source"], "json")
         self.assertIn("geometry", canonical.backend_settings)
         self.assertNotIn("common", canonical.backend_settings)
+
+    def test_prepare_canonical_solve_input_for_generated_object_does_not_bridge_to_simulationconfig(self):
+        class GeneratedConfig:
+            def as_dict(self):
+                return {
+                    "geometry": [{"mesh": "beam.msh"}],
+                    "materials": [{"type": "LinearElasticity", "E": 20.0, "nu": 0.3}],
+                    "solver": {"new_backend_option": False},
+                }
+
+        generated = GeneratedConfig()
+
+        with patch.object(
+            SimulationConfig,
+            "from_json_dict",
+            side_effect=AssertionError("generated path must not construct SimulationConfig"),
+        ):
+            canonical = prepare_canonical_solve_input(
+                vertices=None,
+                cells=None,
+                cfg=generated,
+                dtype=None,
+            )
+
+        self.assertIs(canonical.config, generated)
+        self.assertEqual(canonical.metadata["config_source"], "generated")
+        self.assertEqual(canonical.mesh_source.mode, "json")
+        self.assertFalse(canonical.backend_settings["solver"]["new_backend_option"])
 
     def test_prepare_canonical_solve_input_for_direct_array_mode(self):
         cfg = SimulationConfig.linear_elasticity(20.0, 0.3)
