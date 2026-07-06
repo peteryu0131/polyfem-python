@@ -449,6 +449,28 @@ class GeneratedApiExampleTests(unittest.TestCase):
 
                 assert_subset(self, expected, payload)
 
+    def test_classic_2d_examples_do_not_emit_unrequested_inversion_checks(self):
+        for example_name, source_rel in sorted(CLASSIC_2D_SOURCE_BY_EXAMPLE.items()):
+            with self.subTest(example=example_name):
+                expected = source_config_for(source_rel)
+                expected_advanced = expected.get("solver", {}).get("advanced", {})
+                if "check_inversion" in expected_advanced:
+                    continue
+
+                example_path = CLASSIC_EXAMPLE_ROOT / "2D" / example_name
+                module_name = "classic_2d_inversion_check_" + example_path.stem
+                example = import_example(module_name, example_path)
+                cfg = example.config_for_workspace(Path("runs") / example_path.stem)
+                canonical = prepare_canonical_solve_input(
+                    vertices=None,
+                    cells=None,
+                    cfg=cfg,
+                    dtype=None,
+                )
+                advanced = canonical.backend_settings.get("solver", {}).get("advanced", {})
+
+                self.assertNotIn("check_inversion", advanced)
+
 
 if __name__ == "__main__":
     unittest.main()
