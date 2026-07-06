@@ -10,6 +10,7 @@ import importlib.util
 import json
 import py_compile
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -154,7 +155,12 @@ def deep_merge(base, override):
     return merged
 
 
-def source_config_for(source_rel):
+def source_config_for(
+    source_rel,
+    *,
+    vectorize_transform_scalars=True,
+    generated_solver_names=True,
+):
     source_path = CONTACT_EXAMPLE_ROOT / source_rel
     data = load_json(source_path)
     common_rel = data.get("common")
@@ -168,20 +174,44 @@ def source_config_for(source_rel):
         if key not in {"common", "tests", "patch", "default_params"}
     }
     expected = deep_merge(expected, data)
-    expected = normalize_expected_source(expected, source_path.parent)
+    expected = normalize_expected_source(
+        expected,
+        source_path.parent,
+        vectorize_transform_scalars=vectorize_transform_scalars,
+        generated_solver_names=generated_solver_names,
+    )
     if isinstance(expected.get("materials"), dict):
         expected["materials"] = [expected["materials"]]
     return expected
 
 
-def normalize_expected_source(value, source_dir):
+def normalize_expected_source(
+    value,
+    source_dir,
+    *,
+    vectorize_transform_scalars=True,
+    generated_solver_names=True,
+):
     if isinstance(value, list):
-        return [normalize_expected_source(item, source_dir) for item in value]
+        return [
+            normalize_expected_source(
+                item,
+                source_dir,
+                vectorize_transform_scalars=vectorize_transform_scalars,
+                generated_solver_names=generated_solver_names,
+            )
+            for item in value
+        ]
     if not isinstance(value, dict):
         return value
 
     normalized = {
-        key: normalize_expected_source(child, source_dir)
+        key: normalize_expected_source(
+            child,
+            source_dir,
+            vectorize_transform_scalars=vectorize_transform_scalars,
+            generated_solver_names=generated_solver_names,
+        )
         for key, child in value.items()
     }
     for key in ("mesh", "mesh_sequence"):
@@ -191,16 +221,17 @@ def normalize_expected_source(value, source_dir):
                 mesh_path = source_dir / mesh_path
             normalized[key] = str(mesh_path.resolve())
 
-    for vectorized_scalar in ("scale", "rotation"):
-        if vectorized_scalar in normalized and isinstance(normalized[vectorized_scalar], (int, float)):
-            normalized[vectorized_scalar] = [normalized[vectorized_scalar]]
+    if vectorize_transform_scalars:
+        for vectorized_scalar in ("scale", "rotation"):
+            if vectorized_scalar in normalized and isinstance(normalized[vectorized_scalar], (int, float)):
+                normalized[vectorized_scalar] = [normalized[vectorized_scalar]]
     if "solver" in normalized and isinstance(normalized["solver"], list):
         normalized["solver"] = normalized["solver"][0]
-    if "x_delta" in normalized:
+    if generated_solver_names and "x_delta" in normalized:
         normalized["x_delta_tol"] = normalized.pop("x_delta")
-    if "grad_norm" in normalized:
+    if generated_solver_names and "grad_norm" in normalized:
         normalized["grad_norm_tol"] = normalized.pop("grad_norm")
-    if "f_delta" in normalized:
+    if generated_solver_names and "f_delta" in normalized:
         advanced = normalized.setdefault("advanced", {})
         advanced["f_delta_tol"] = normalized.pop("f_delta")
     return normalized
@@ -470,6 +501,92 @@ class GeneratedApiExampleTests(unittest.TestCase):
                 advanced = canonical.backend_settings.get("solver", {}).get("advanced", {})
 
                 self.assertNotIn("check_inversion", advanced)
+
+    def test_classic_golf_ball_backend_payload_preserves_source_semantics(self):
+        example = import_example(
+            "classic_contact_2d_golf_ball_backend_payload",
+            CLASSIC_CONTACT_GOLF_BALL_PATH,
+        )
+        workspace = Path("runs/classic_contact_golf_ball_backend_payload")
+        cfg = example.config_for_workspace(workspace)
+        canonical = prepare_canonical_solve_input(
+            vertices=None,
+            cells=None,
+            cfg=cfg,
+            dtype=None,
+        )
+
+        expected = source_config_for(
+            "2D/golf-ball.json",
+            vectorize_transform_scalars=False,
+            generated_solver_names=False,
+        )
+        backend = canonical.backend_settings
+
+        self.assertEqual(
+            expected["geometry"][0]["transformation"]["scale"],
+            backend["geometry"][0]["transformation"]["scale"],
+        )
+        self.assertIsInstance(backend["geometry"][0]["transformation"]["scale"], float)
+        self.assertEqual(
+            expected["solver"]["advanced"],
+            backend["solver"]["advanced"],
+        )
+        self.assertEqual(
+            expected["solver"]["nonlinear"]["x_delta"],
+            backend["solver"]["nonlinear"]["x_delta"],
+        )
+        self.assertEqual(
+            expected["solver"]["nonlinear"]["grad_norm"],
+            backend["solver"]["nonlinear"]["grad_norm"],
+        )
+        self.assertNotIn("x_delta_tol", backend["solver"]["nonlinear"])
+        self.assertNotIn("grad_norm_tol", backend["solver"]["nonlinear"])
+        self.assertNotIn("rel_grad_norm_tol", backend["solver"]["nonlinear"])
+        self.assertNotIn("newton_decrement_tol", backend["solver"]["nonlinear"])
+        self.assertNotIn("rel_x_delta_tol", backend["solver"]["nonlinear"])
+        self.assertNotIn("norm_type", backend["solver"]["nonlinear"])
+        for unrequested_default in (
+            "cache_size",
+            "lagged_regularization_weight",
+            "lagged_regularization_iterations",
+            "check_inversion",
+            "jacobian_threshold",
+            "characteristic_length",
+            "characteristic_force_density",
+        ):
+            self.assertNotIn(unrequested_default, backend["solver"]["advanced"])
+
+    def test_classic_golf_ball_backend_build_basis_smoke(self):
+        try:
+            import polyfempy as pf
+        except Exception as exc:  # pragma: no cover - defensive import guard
+            self.skipTest(f"polyfempy import failed: {exc}")
+
+        if not getattr(pf, "cpp_backend_available", lambda: False)():
+            self.skipTest(f"C++ backend unavailable: {pf.cpp_backend_error()}")
+
+        from polyfempy.polyfempy import Solver
+
+        example = import_example(
+            "classic_contact_2d_golf_ball_backend_smoke",
+            CLASSIC_CONTACT_GOLF_BALL_PATH,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "classic_contact_golf_ball_backend_smoke"
+            cfg = example.config_for_workspace(workspace)
+            canonical = prepare_canonical_solve_input(
+                vertices=None,
+                cells=None,
+                cfg=cfg,
+                dtype=None,
+            )
+
+            solver = Solver()
+            solver.set_settings(json.dumps(canonical.backend_settings), strict_validation=False)
+            solver.set_log_level(5)
+            solver.load_mesh_from_settings()
+            solver.build_basis()
 
 
 if __name__ == "__main__":

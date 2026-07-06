@@ -66,6 +66,100 @@ class GeneratedPayloadTests(unittest.TestCase):
 
         self.assertEqual(prepared["geometry"][0]["mesh"], str(mesh_file))
 
+    def test_prepare_payload_restores_uniform_scale_scalar_for_backend(self):
+        payload = {
+            "geometry": [
+                {
+                    "mesh": "ball.obj",
+                    "transformation": {
+                        "translation": [],
+                        "rotation": [],
+                        "rotation_mode": "xyz",
+                        "scale": [0.04],
+                    },
+                }
+            ],
+        }
+
+        prepared = prepare_generated_backend_payload(payload)
+
+        self.assertEqual(0.04, prepared["geometry"][0]["transformation"]["scale"])
+        self.assertNotIn("translation", prepared["geometry"][0]["transformation"])
+        self.assertNotIn("rotation", prepared["geometry"][0]["transformation"])
+        self.assertNotIn("rotation_mode", prepared["geometry"][0]["transformation"])
+
+    def test_prepare_payload_drops_generated_solver_advanced_defaults(self):
+        payload = {
+            "solver": {
+                "advanced": {
+                    "cache_size": 900000,
+                    "lump_mass_matrix": True,
+                    "lagged_regularization_weight": 0.0,
+                    "lagged_regularization_iterations": 1,
+                    "check_inversion": "Discrete",
+                    "jacobian_threshold": 0.0,
+                    "characteristic_length": -1.0,
+                    "characteristic_force_density": 10000.0,
+                }
+            }
+        }
+
+        prepared = prepare_generated_backend_payload(payload)
+
+        self.assertEqual({"lump_mass_matrix": True}, prepared["solver"]["advanced"])
+
+    def test_prepare_payload_restores_backend_nonlinear_solver_names(self):
+        payload = {
+            "solver": {
+                "nonlinear": {
+                    "solver": "Newton",
+                    "x_delta_tol": 1e-12,
+                    "grad_norm_tol": 1e-5,
+                    "rel_grad_norm_tol": 1e-10,
+                    "newton_decrement_tol": 0.0,
+                    "rel_x_delta_tol": 0.0,
+                    "first_grad_norm_tol": 1e-12,
+                    "norm_type": "L2",
+                    "max_iterations": 500,
+                    "allow_out_of_iterations": False,
+                    "iterations_per_strategy": 1,
+                    "line_search": {
+                        "method": "RobustArmijo",
+                        "use_grad_norm_tol": 1e-6,
+                        "min_step_size": 1e-10,
+                        "max_step_size_iter": 30,
+                        "min_step_size_final": 1e-20,
+                        "max_step_size_iter_final": 100,
+                        "default_init_step_size": 1.0,
+                        "step_ratio": 0.5,
+                    },
+                    "advanced": {
+                        "f_delta_tol": 1e-5,
+                        "f_delta_step_tol": 100,
+                        "derivative_along_delta_x_tol": 0,
+                        "apply_gradient_fd": "None",
+                        "gradient_fd_eps": 1e-7,
+                    },
+                }
+            }
+        }
+
+        prepared = prepare_generated_backend_payload(payload)
+        nonlinear = prepared["solver"]["nonlinear"]
+
+        self.assertEqual(1e-12, nonlinear["x_delta"])
+        self.assertEqual(1e-5, nonlinear["grad_norm"])
+        self.assertNotIn("x_delta_tol", nonlinear)
+        self.assertNotIn("grad_norm_tol", nonlinear)
+        self.assertNotIn("rel_grad_norm_tol", nonlinear)
+        self.assertNotIn("newton_decrement_tol", nonlinear)
+        self.assertNotIn("rel_x_delta_tol", nonlinear)
+        self.assertNotIn("first_grad_norm_tol", nonlinear)
+        self.assertNotIn("norm_type", nonlinear)
+        self.assertNotIn("max_iterations", nonlinear)
+        self.assertEqual({"method": "RobustArmijo"}, nonlinear["line_search"])
+        self.assertEqual({"f_delta": 1e-5}, nonlinear["advanced"])
+
 
 if __name__ == "__main__":
     unittest.main()
