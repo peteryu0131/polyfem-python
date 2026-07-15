@@ -34,8 +34,34 @@ EXAMPLE_03_PATH = (
 CLASSIC_CONTACT_GOLF_BALL_PATH = (
     _REPO / "examples" / "classic_example" / "2D" / "contact_2d_golf_ball_generated_api.py"
 )
+NEW_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH = (
+    _REPO
+    / "examples"
+    / "classic_example"
+    / "2D"
+    / "new_contact_2d_golf_ball_deformable_wall_generated_api.py"
+)
+BETTER_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH = (
+    _REPO
+    / "examples"
+    / "classic_example"
+    / "2D"
+    / "better_contact_2d_golf_ball_deformable_wall_generated_api.py"
+)
+NEW_BETTER_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH = (
+    _REPO
+    / "examples"
+    / "classic_example"
+    / "2D"
+    / "new_better_contact_2d_golf_ball_deformable_wall_generated_api.py"
+)
 CLASSIC_EXAMPLE_ROOT = _REPO / "examples" / "classic_example"
 CONTACT_EXAMPLE_ROOT = _REPO / "data" / "contact" / "examples"
+BUILDER_STYLE_CLASSIC_EXAMPLES = {
+    "better_contact_2d_golf_ball_deformable_wall_generated_api.py",
+    "new_better_contact_2d_golf_ball_deformable_wall_generated_api.py",
+    "new_contact_2d_golf_ball_deformable_wall_generated_api.py",
+}
 CLASSIC_2D_SOURCE_BY_EXAMPLE = {
     "contact_2d_5_squares_generated_api.py": "2D/unit-tests/5-squares.json",
     "contact_2d_arch_generated_api.py": "2D/friction/arch.json",
@@ -75,8 +101,15 @@ CLASSIC_2D_SOURCE_BY_EXAMPLE = {
     "contact_2d_triangle_corner_generated_api.py": "2D/unit-tests/triangle-corner.json",
     "contact_2d_vertex_edge_generated_api.py": "2D/unit-tests/vertex-edge.json",
     "contact_2d_vertex_vertex_generated_api.py": "2D/unit-tests/vertex-vertex.json",
+    "new_contact_2d_golf_ball_deformable_wall_generated_api.py": (
+        "2D/golf-ball-doformable-wall.json"
+    ),
+    "new_better_contact_2d_golf_ball_deformable_wall_generated_api.py": (
+        "2D/golf-ball-doformable-wall.json"
+    ),
 }
 EXPECTED_CLASSIC_2D_EXAMPLES = {
+    "better_contact_2d_golf_ball_deformable_wall_generated_api.py",
     "contact_2d_5_squares_generated_api.py",
     "contact_2d_arch_generated_api.py",
     "contact_2d_card_house_generated_api.py",
@@ -105,7 +138,40 @@ EXPECTED_CLASSIC_2D_EXAMPLES = {
     "contact_2d_triangle_corner_generated_api.py",
     "contact_2d_vertex_edge_generated_api.py",
     "contact_2d_vertex_vertex_generated_api.py",
+    "new_better_contact_2d_golf_ball_deformable_wall_generated_api.py",
+    "new_contact_2d_golf_ball_deformable_wall_generated_api.py",
 }
+
+
+def slug_example_part(value):
+    chars = [ch.lower() if ch.isalnum() else "_" for ch in value]
+    slug = "".join(chars).strip("_")
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug
+
+
+def classic_3d_example_name_for_source(source_rel):
+    rel_path = Path(source_rel)
+    stem_parts = rel_path.with_suffix("").parts[1:]
+    slug = "_".join(slug_example_part(part) for part in stem_parts)
+    return f"contact_3d_{slug}_generated_api.py"
+
+
+def classic_3d_source_paths():
+    source_root = CONTACT_EXAMPLE_ROOT / "3D"
+    return [
+        path.relative_to(CONTACT_EXAMPLE_ROOT).as_posix()
+        for path in sorted(source_root.rglob("*.json"))
+        if path.name != "common.json"
+    ]
+
+
+CLASSIC_3D_SOURCE_BY_EXAMPLE = {
+    classic_3d_example_name_for_source(source_rel): source_rel
+    for source_rel in classic_3d_source_paths()
+}
+EXPECTED_CLASSIC_3D_EXAMPLES = set(CLASSIC_3D_SOURCE_BY_EXAMPLE)
 
 
 def import_example(module_name, path):
@@ -162,18 +228,7 @@ def source_config_for(
     generated_solver_names=True,
 ):
     source_path = CONTACT_EXAMPLE_ROOT / source_rel
-    data = load_json(source_path)
-    common_rel = data.get("common")
-    expected = {}
-    if common_rel:
-        expected = load_json((source_path.parent / common_rel).resolve())
-
-    data = {
-        key: value
-        for key, value in data.items()
-        if key not in {"common", "tests", "patch", "default_params"}
-    }
-    expected = deep_merge(expected, data)
+    expected = resolved_source_config(source_path)
     expected = normalize_expected_source(
         expected,
         source_path.parent,
@@ -182,7 +237,60 @@ def source_config_for(
     )
     if isinstance(expected.get("materials"), dict):
         expected["materials"] = [expected["materials"]]
+    normalize_generated_list_fields(expected)
     return expected
+
+
+def normalize_generated_list_fields(expected):
+    boundary_conditions = expected.get("boundary_conditions")
+    if isinstance(boundary_conditions, dict):
+        for key in (
+            "dirichlet_boundary",
+            "neumann_boundary",
+            "pressure_boundary",
+        ):
+            if isinstance(boundary_conditions.get(key), dict):
+                boundary_conditions[key] = [boundary_conditions[key]]
+
+
+def resolved_source_config(source_path):
+    data = load_json(source_path)
+    common_rel = data.get("common")
+    expected = {}
+    if common_rel:
+        expected = resolved_source_config((source_path.parent / common_rel).resolve())
+
+    data_without_meta = {
+        key: value
+        for key, value in data.items()
+        if key not in {"common", "tests", "patch", "default_params"}
+    }
+    expected = deep_merge(expected, data_without_meta)
+    for patch in data.get("patch", []):
+        apply_json_patch(expected, patch)
+    return expected
+
+
+def apply_json_patch(document, patch):
+    if patch.get("op") != "replace":
+        raise ValueError("unsupported JSON patch operation: %r" % patch)
+
+    parts = [part for part in patch["path"].split("/") if part]
+    if not parts:
+        raise ValueError("unsupported empty JSON patch path")
+
+    target = document
+    for part in parts[:-1]:
+        if isinstance(target, list):
+            target = target[int(part)]
+        else:
+            target = target[part]
+
+    last = parts[-1]
+    if isinstance(target, list):
+        target[int(last)] = patch["value"]
+    else:
+        target[last] = patch["value"]
 
 
 def normalize_expected_source(
@@ -234,6 +342,9 @@ def normalize_expected_source(
     if generated_solver_names and "f_delta" in normalized:
         advanced = normalized.setdefault("advanced", {})
         advanced["f_delta_tol"] = normalized.pop("f_delta")
+    if generated_solver_names and "use_grad_norm" in normalized:
+        line_search = normalized.setdefault("line_search", {})
+        line_search["use_grad_norm_tol"] = normalized.pop("use_grad_norm")
     return normalized
 
 
@@ -254,6 +365,22 @@ def assert_subset(testcase, expected, actual, path="payload"):
 
 
 class GeneratedApiExampleTests(unittest.TestCase):
+    def test_source_config_for_resolves_recursive_common_and_patch(self):
+        expected = source_config_for("3D/higher-order/ball-bounce/P2.json")
+
+        self.assertTrue(expected["geometry"][0]["mesh"].endswith("P2.msh"))
+        self.assertEqual(2, expected["space"]["discr_order"])
+        self.assertEqual([0, 9.81, 0], expected["boundary_conditions"]["rhs"])
+
+    def test_source_config_for_maps_legacy_use_grad_norm(self):
+        expected = source_config_for("3D/static/two-cubes.json")
+
+        self.assertEqual(
+            1e-5,
+            expected["solver"]["nonlinear"]["line_search"]["use_grad_norm_tol"],
+        )
+        self.assertNotIn("use_grad_norm", expected["solver"]["nonlinear"])
+
     def test_example_builds_generated_config_for_generated_solve_path(self):
         example = import_example("forward_solve_generated_api", EXAMPLE_02_PATH)
 
@@ -405,6 +532,149 @@ class GeneratedApiExampleTests(unittest.TestCase):
         self.assertIn("G.neo_hookean(", source)
         self.assertIn("G.dirichlet(", source)
 
+    def test_new_deformable_wall_example_uses_model_builder_and_matches_manual_payload(self):
+        manual = import_example(
+            "classic_contact_2d_golf_ball_deformable_wall_generated_api",
+            CLASSIC_EXAMPLE_ROOT
+            / "2D"
+            / "contact_2d_golf_ball_deformable_wall_generated_api.py",
+        )
+        builder = import_example(
+            "new_contact_2d_golf_ball_deformable_wall_generated_api",
+            NEW_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH,
+        )
+
+        workspace = Path("runs/new_contact_2d_golf_ball_deformable_wall")
+        manual_payload = manual.config_for_workspace(workspace).as_dict()
+        builder_payload = builder.config_for_workspace(workspace).as_dict()
+
+        self.assertEqual(manual_payload["geometry"], builder_payload["geometry"])
+        self.assertEqual(manual_payload["materials"], builder_payload["materials"])
+        self.assertEqual(
+            manual_payload["initial_conditions"],
+            builder_payload["initial_conditions"],
+        )
+        self.assertEqual(
+            manual_payload["boundary_conditions"],
+            builder_payload["boundary_conditions"],
+        )
+
+        source = NEW_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH.read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("model = G.model()", source)
+        self.assertIn(".material(", source)
+        self.assertIn(".velocity(", source)
+        self.assertIn("geometry=model.geometry()", source)
+        self.assertIn("materials=model.materials()", source)
+        self.assertIn("initial_conditions=model.initial_conditions()", source)
+
+    def test_better_deformable_wall_example_uses_boundary_selection_handles(self):
+        better = import_example(
+            "better_contact_2d_golf_ball_deformable_wall_generated_api",
+            BETTER_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH,
+        )
+
+        workspace = Path("runs/better_contact_2d_golf_ball_deformable_wall")
+        payload = better.config_for_workspace(workspace).as_dict()
+
+        self.assertEqual(
+            [{"id": 1, "axis": 1, "position": 0.1025}],
+            payload["geometry"][0]["surface_selection"],
+        )
+        self.assertEqual(
+            [{"id": 2, "axis": 1, "position": 0.1025}],
+            payload["geometry"][1]["surface_selection"],
+        )
+        dirichlet_boundary = payload["boundary_conditions"]["dirichlet_boundary"]
+        self.assertEqual([1, 2], [item["id"] for item in dirichlet_boundary])
+        self.assertEqual(
+            [[0.0, 0.0], [0.0, 0.0]],
+            [item["value"] for item in dirichlet_boundary],
+        )
+        self.assertEqual(1, payload["materials"][0]["id"])
+        self.assertEqual(2, payload["materials"][1]["id"])
+        self.assertEqual(1, payload["initial_conditions"]["velocity"][0]["id"])
+
+        source = BETTER_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH.read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(".surface_axis(", source)
+        self.assertIn(".dirichlet(", source)
+        self.assertIn("boundary_conditions=model.boundary_conditions(", source)
+        self.assertNotIn("surface_selection=[", source)
+        self.assertNotIn("G.dirichlet(", source)
+        self.assertNotIn("attach_surface", source)
+
+    def test_new_better_deformable_wall_example_uses_flat_config_shortcuts(self):
+        better = import_example(
+            "new_better_contact_2d_golf_ball_deformable_wall_generated_api",
+            NEW_BETTER_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH,
+        )
+
+        workspace = Path("runs/new_better_contact_2d_golf_ball_deformable_wall")
+        payload = better.config_for_workspace(workspace).as_dict()
+
+        self.assertEqual(0.004, payload["time"]["tend"])
+        self.assertEqual(2e-05, payload["time"]["dt"])
+        self.assertTrue(payload["contact"]["enabled"])
+        self.assertEqual(6.92820323e-05, payload["contact"]["dhat"])
+        self.assertEqual("sim.pvd", payload["output"]["paraview"]["file_name"])
+        self.assertEqual("sim.json", payload["output"]["json"])
+        self.assertNotIn("solver", payload)
+        self.assertEqual(
+            [1, 1],
+            [
+                item["id"]
+                for item in (
+                    payload["geometry"][0]["surface_selection"]
+                    + payload["geometry"][1]["surface_selection"]
+                )
+            ],
+        )
+        self.assertEqual([1], [
+            item["id"]
+            for item in payload["boundary_conditions"]["dirichlet_boundary"]
+        ])
+        self.assertEqual(1, payload["materials"][0]["id"])
+        self.assertEqual(2, payload["materials"][1]["id"])
+        self.assertEqual(1, payload["initial_conditions"]["velocity"][0]["id"])
+
+        source = NEW_BETTER_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH.read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("time_tend=0.004", source)
+        self.assertIn("time_dt=2e-05", source)
+        self.assertIn("contact_enabled=True", source)
+        self.assertIn("contact_dhat=6.92820323e-05", source)
+        self.assertIn("polyfem_config = model.config(", source)
+        self.assertIn("rhs=[0, 0]", source)
+        self.assertNotIn("geometry=model.geometry()", source)
+        self.assertNotIn("materials=model.materials()", source)
+        self.assertNotIn("boundary_conditions=model.boundary_conditions(", source)
+        self.assertNotIn("initial_conditions=model.initial_conditions()", source)
+        self.assertNotIn("solver = G.solver(", source)
+        self.assertNotIn("solver=solver", source)
+        self.assertNotIn("output = G.output(", source)
+        self.assertNotIn("output=output", source)
+        self.assertNotIn("time_cfg = G.tend_dt(", source)
+        self.assertNotIn("contact = G.contact(", source)
+        self.assertNotIn("solve=solver", source)
+
+    def test_new_better_deformable_wall_matches_source_authored_settings(self):
+        better = import_example(
+            "new_better_contact_2d_golf_ball_deformable_wall_source_parity",
+            NEW_BETTER_CLASSIC_CONTACT_GOLF_BALL_DEFORMABLE_WALL_PATH,
+        )
+
+        workspace = Path("runs/new_better_contact_2d_golf_ball_source_parity")
+        payload = better.config_for_workspace(workspace).as_dict()
+        expected = source_config_for("2D/golf-ball-doformable-wall.json")
+        # This example intentionally leaves solver configuration to defaults.
+        expected.pop("solver", None)
+
+        assert_subset(self, expected, payload)
+
     def test_classic_examples_are_grouped_and_smoke_without_backend(self):
         root_python_files = sorted(CLASSIC_EXAMPLE_ROOT.glob("*.py"))
         self.assertEqual([], root_python_files)
@@ -416,8 +686,19 @@ class GeneratedApiExampleTests(unittest.TestCase):
         }
         self.assertEqual(EXPECTED_CLASSIC_2D_EXAMPLES, classic_2d_files)
 
+        classic_3d_files = {
+            path.name
+            for path in (CLASSIC_EXAMPLE_ROOT / "3D").glob("*.py")
+            if not path.name.startswith("_")
+        }
+        self.assertEqual(EXPECTED_CLASSIC_3D_EXAMPLES, classic_3d_files)
+
         paths = classic_example_paths()
         self.assertGreaterEqual(len(paths), 1)
+        source_by_example = {
+            **CLASSIC_2D_SOURCE_BY_EXAMPLE,
+            **CLASSIC_3D_SOURCE_BY_EXAMPLE,
+        }
 
         helper_source = (CLASSIC_EXAMPLE_ROOT / "2D" / "_contact_2d_common.py").read_text(
             encoding="utf-8"
@@ -460,18 +741,47 @@ class GeneratedApiExampleTests(unittest.TestCase):
                 self.assertNotIn("CONFIG_PATH", source)
                 self.assertNotIn("EXAMPLE_SPEC", source)
                 self.assertNotIn("build_config", source)
-                self.assertIn("geometry = [", source)
-                self.assertIn("materials = ", source)
-                self.assertIn("contact = G.contact(", source)
-                self.assertIn("solver = G.solver(", source)
-                self.assertIn("output = G.output(", source)
-                self.assertIn("polyfem_config = G.config(", source)
+                source_rel = source_by_example.get(path.name)
+                expected = source_config_for(source_rel) if source_rel else {}
+                if path.name in BUILDER_STYLE_CLASSIC_EXAMPLES:
+                    self.assertIn("model = G.model()", source)
+                    if "polyfem_config = model.config(" not in source:
+                        self.assertIn("model.geometry()", source)
+                        self.assertIn("model.materials()", source)
+                else:
+                    if "geometry" in expected:
+                        self.assertIn("geometry = [", source)
+                    if "materials" in expected:
+                        self.assertIn("materials = ", source)
+                if "polyfem_config = model.config(" in source:
+                    self.assertNotIn("polyfem_config = G.config(", source)
+                else:
+                    if "contact" in expected:
+                        self.assertIn("contact = G.contact(", source)
+                    if "solver" in expected:
+                        self.assertIn("solver = G.solver(", source)
+                    if "output" in expected:
+                        self.assertIn("output = G.output(", source)
+                    self.assertIn("polyfem_config = G.config(", source)
 
     def test_classic_2d_examples_preserve_source_json_settings(self):
         for example_name, source_rel in sorted(CLASSIC_2D_SOURCE_BY_EXAMPLE.items()):
             with self.subTest(example=example_name):
                 example_path = CLASSIC_EXAMPLE_ROOT / "2D" / example_name
                 module_name = "classic_2d_source_match_" + example_path.stem
+                example = import_example(module_name, example_path)
+
+                cfg = example.config_for_workspace(Path("runs") / example_path.stem)
+                payload = cfg.as_dict()
+                expected = source_config_for(source_rel)
+
+                assert_subset(self, expected, payload)
+
+    def test_classic_3d_examples_preserve_source_json_settings(self):
+        for example_name, source_rel in sorted(CLASSIC_3D_SOURCE_BY_EXAMPLE.items()):
+            with self.subTest(example=example_name):
+                example_path = CLASSIC_EXAMPLE_ROOT / "3D" / example_name
+                module_name = "classic_3d_source_match_" + example_path.stem
                 example = import_example(module_name, example_path)
 
                 cfg = example.config_for_workspace(Path("runs") / example_path.stem)
