@@ -621,7 +621,12 @@ class GeneratedApiExampleTests(unittest.TestCase):
         self.assertEqual(6.92820323e-05, payload["contact"]["dhat"])
         self.assertEqual("sim.pvd", payload["output"]["paraview"]["file_name"])
         self.assertEqual("sim.json", payload["output"]["json"])
-        self.assertNotIn("solver", payload)
+        self.assertEqual("Eigen::PardisoLDLT", payload["solver"]["linear"]["solver"])
+        self.assertEqual("Newton", payload["solver"]["nonlinear"]["solver"])
+        self.assertEqual(1e-12, payload["solver"]["nonlinear"]["x_delta_tol"])
+        self.assertEqual(1e-05, payload["solver"]["nonlinear"]["grad_norm_tol"])
+        self.assertEqual("RobustArmijo", payload["solver"]["nonlinear"]["line_search"]["method"])
+        self.assertTrue(payload["solver"]["advanced"]["lump_mass_matrix"])
         self.assertEqual(
             [1, 1],
             [
@@ -670,8 +675,6 @@ class GeneratedApiExampleTests(unittest.TestCase):
         workspace = Path("runs/new_better_contact_2d_golf_ball_source_parity")
         payload = better.config_for_workspace(workspace).as_dict()
         expected = source_config_for("2D/golf-ball-doformable-wall.json")
-        # This example intentionally leaves solver configuration to defaults.
-        expected.pop("solver", None)
 
         assert_subset(self, expected, payload)
 
@@ -744,7 +747,10 @@ class GeneratedApiExampleTests(unittest.TestCase):
                 source_rel = source_by_example.get(path.name)
                 expected = source_config_for(source_rel) if source_rel else {}
                 if path.name in BUILDER_STYLE_CLASSIC_EXAMPLES:
-                    self.assertIn("model = G.model()", source)
+                    if path.name == "new_better_contact_2d_golf_ball_deformable_wall_generated_api.py":
+                        self.assertIn("model = polyfem.model()", source)
+                    else:
+                        self.assertIn("model = G.model()", source)
                     if "polyfem_config = model.config(" not in source:
                         self.assertIn("model.geometry()", source)
                         self.assertIn("model.materials()", source)
