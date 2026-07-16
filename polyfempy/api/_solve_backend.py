@@ -144,7 +144,10 @@ def _configure_array_mode(
         )
     )
 
-    bc_raw = getattr(cfg, "boundary_conditions", {}) or {}
+    if isinstance(cfg, dict):
+        bc_raw = cfg.get("boundary_conditions", {}) or {}
+    else:
+        bc_raw = getattr(cfg, "boundary_conditions", {}) or {}
     bc = bc_raw.to_dict() if hasattr(bc_raw, "to_dict") else (bc_raw if isinstance(bc_raw, dict) else {})
 
     if bc:

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import numpy as np
 import pytest
@@ -6,7 +7,7 @@ import pytest
 
 def test_backend_forward_solve_smoke(tmp_path):
     import polyfempy as pf
-    from polyfempy.api import SimulationConfig, solve
+    from polyfempy.api import solve
 
     if not pf.cpp_backend_available():
         pytest.skip(f"C++ backend is unavailable: {pf.cpp_backend_error()}")
@@ -18,17 +19,21 @@ def test_backend_forward_solve_smoke(tmp_path):
     if not config_path.exists():
         pytest.skip(f"backend smoke config is missing: {config_path}")
 
-    cfg = SimulationConfig.from_json_file(str(config_path))
-    cfg.time.tend = 0.01
-    cfg.time.dt = 0.01
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    cfg["root_path"] = str(config_path)
+    cfg.setdefault("time", {})
+    cfg["time"]["tend"] = 0.01
+    cfg["time"]["dt"] = 0.01
 
     output_dir = tmp_path / "backend_smoke"
-    cfg.output.directory = str(output_dir)
-    cfg.output.json = "smoke_stats.json"
-    cfg.output.save_paraview = False
-    cfg.output.save_vtu = False
-    cfg.output.request_results(["u"], strict=True)
-    cfg.output.configure_fallback(sampled_vtu="never")
+    cfg["output"] = {
+        "directory": str(output_dir),
+        "json": "smoke_stats.json",
+        "paraview": {"file_name": ""},
+        "advanced": {"save_time_sequence": False},
+        "result": {"fields": ["u"], "strict": True},
+        "fallback": {"sampled_vtu": "never"},
+    }
 
     result = solve(cfg=cfg)
     try:

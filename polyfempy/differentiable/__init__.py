@@ -80,6 +80,7 @@ def __dir__() -> list[str]:
     return sorted([*globals(), *PUBLIC_API])
 
 
-for _name in PUBLIC_API:
-    globals()[_name] = _load_export(_name) if _TORCH_AVAILABLE else _missing_torch_stub(_name)
-del _name
+# Keep the facade lazy. Some retained differentiable modules are reference code
+# while the generated API replaces the old SimulationConfig solve path. Eager
+# loading would import those legacy runtime modules just because a user imports
+# ``polyfempy.differentiable``.

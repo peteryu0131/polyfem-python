@@ -10,7 +10,7 @@ Tests import the stages to protect behavior.
 
 Pipeline (linear):
 
-    normalize_cfg          -> SimulationConfig
+    normalize_cfg          -> backend-shaped dict
     build_full_json        -> Optional[dict]
     resolve_runtime        -> RuntimeOptions
     normalize_inputs       -> NormalizedInputs
@@ -75,7 +75,7 @@ from .result import Result
 
 @dataclass
 class RuntimeOptions:
-    """Runtime output/fallback knobs extracted from cfg.output / full_json.output."""
+    """Runtime output/fallback knobs extracted from payload output settings."""
 
     requested_fields: Optional[List[str]] = None
     strict: bool = False
@@ -151,21 +151,17 @@ def clean_json_for_cpp(obj, path: str = ""):
 
 
 def merge_user_cfg_over_full_json(cfg, full_json) -> dict:
-    """Overlay ``SimulationConfig`` edits on top of the original full JSON."""
+    """Overlay Python-side payload edits on top of the original full JSON."""
     return _contract_merge_user_cfg_over_full_json(cfg, full_json)
 
 
 # ---------------------------------------------------------------------------
-# Stage 1: normalize cfg into a SimulationConfig
+# Stage 1: normalize cfg into a backend-shaped dict
 # ---------------------------------------------------------------------------
 
 
 def normalize_cfg(cfg):
-    """Accept dict / path / SimulationConfig / as_dict object.
-
-    Fails fast with a clear error for everything else. Imported lazily so that
-    this module remains importable without the full config surface loaded.
-    """
+    """Accept dict / path / generated object and return a backend-shaped dict."""
     return normalize_config(cfg)
 
 
@@ -197,27 +193,35 @@ def resolve_runtime_options(
     full_json: Optional[dict],
     sampled_vtu_fallback: Optional[bool],
 ) -> RuntimeOptions:
-    """Collect runtime flags from ``cfg.output`` (preferred) or ``full_json.output``.
+    """Collect runtime flags from dict output blocks or ``full_json.output``.
 
     ``sampled_vtu_fallback`` (the ``solve()`` parameter) forces the mode when set:
     ``True`` → ``always``, ``False`` → ``never``.
     """
     runtime: Dict[str, Any] = {}
 
-    output_obj = getattr(cfg, "output", None)
+    output_obj = None if isinstance(cfg, dict) else getattr(cfg, "output", None)
     if output_obj is not None and hasattr(output_obj, "runtime_options"):
         try:
             runtime = dict(output_obj.runtime_options())
         except Exception:
             runtime = {}
 
-    if not runtime and isinstance(full_json, dict):
-        out = full_json.get("output")
+    def _read_runtime_from_output(out: Any) -> Dict[str, Any]:
+        values: Dict[str, Any] = {}
         if isinstance(out, dict):
             if isinstance(out.get("result"), dict):
-                runtime["result"] = dict(out["result"])
+                values["result"] = dict(out["result"])
             if isinstance(out.get("fallback"), dict):
-                runtime["fallback"] = dict(out["fallback"])
+                values["fallback"] = dict(out["fallback"])
+        return values
+
+    if not runtime:
+        out = cfg.get("output") if isinstance(cfg, dict) else None
+        runtime = _read_runtime_from_output(out)
+
+    if not runtime and isinstance(full_json, dict):
+        runtime = _read_runtime_from_output(full_json.get("output"))
 
     result_cfg = runtime.get("result") if isinstance(runtime.get("result"), dict) else {}
     fallback_cfg = runtime.get("fallback") if isinstance(runtime.get("fallback"), dict) else {}

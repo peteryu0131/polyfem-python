@@ -8,13 +8,14 @@ selection, and backend settings construction.
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
 
-from ..new_api.generated_payload import (
+from ._generated_payload import (
     generated_payload_from_config,
     is_generated_config,
     prepare_generated_backend_payload,
@@ -50,6 +51,17 @@ class CanonicalSolveInput:
 
 
 def cfg_array_mesh_payload(cfg: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(cfg, dict):
+        payload = cfg.get("_mesh_array_mode")
+        if isinstance(payload, dict):
+            return payload
+        extras = cfg.get("extras")
+        if isinstance(extras, dict):
+            payload = extras.get("_mesh_array_mode")
+            if isinstance(payload, dict):
+                return payload
+        return None
+
     extras = getattr(cfg, "extras", None)
     if isinstance(extras, dict):
         payload = extras.get("_mesh_array_mode")
@@ -58,18 +70,49 @@ def cfg_array_mesh_payload(cfg: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
-def normalize_config(cfg: Any):
-    """Accept dict / JSON path / SimulationConfig / as_dict object."""
-    from .config import SimulationConfig
+def _load_json_payload(path: str | Path) -> Dict[str, Any]:
+    json_path = Path(path).resolve()
+    with json_path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, dict):
+        raise TypeError(f"JSON config must contain an object, got {type(payload).__name__}")
+    payload.setdefault("root_path", str(json_path))
+    return payload
 
+
+def _payload_dict_or_raise(cfg: Any, *, context: str) -> Dict[str, Any]:
+    if isinstance(cfg, dict):
+        return copy.deepcopy(cfg)
+
+    for method_name in ("to_json_dict", "to_dict"):
+        method = getattr(cfg, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            payload = method()
+        except Exception as exc:
+            raise RuntimeError(f"cfg.{method_name}() failed while {context}") from exc
+        if not isinstance(payload, dict):
+            raise TypeError(
+                f"cfg.{method_name}() must return dict while {context}, "
+                f"got {type(payload).__name__}"
+            )
+        return copy.deepcopy(payload)
+
+    raise TypeError(
+        "cfg must be dict, str/Path JSON file path, generated object with as_dict(), "
+        f"or expose to_dict()/to_json_dict(); got {type(cfg).__name__}"
+    )
+
+
+def normalize_config(cfg: Any) -> Dict[str, Any]:
+    """Accept a backend-shaped dict, JSON path, or generated-style config object."""
     if cfg is None:
         raise ValueError("cfg (configuration) is required")
     if isinstance(cfg, dict):
-        return SimulationConfig.from_json_dict(cfg)
-    if isinstance(cfg, str):
-        return SimulationConfig.from_json_file(cfg)
-    if isinstance(cfg, SimulationConfig):
-        return cfg
+        return copy.deepcopy(cfg)
+    if isinstance(cfg, (str, Path)):
+        return _load_json_payload(cfg)
     as_dict = getattr(cfg, "as_dict", None)
     if callable(as_dict):
         payload = as_dict()
@@ -77,11 +120,8 @@ def normalize_config(cfg: Any):
             raise TypeError(
                 f"cfg.as_dict() must return dict, got {type(payload).__name__}"
             )
-        return SimulationConfig.from_json_dict(payload)
-    raise TypeError(
-        "cfg must be SimulationConfig, dict, str (file path), or expose as_dict(), "
-        f"got {type(cfg).__name__}"
-    )
+        return copy.deepcopy(payload)
+    return _payload_dict_or_raise(cfg, context="normalizing config")
 
 
 def validate_config(cfg: Any) -> None:
@@ -103,28 +143,19 @@ def _promote_materials_to_list(payload: Dict[str, Any], *, infer_type_from_pde: 
     payload["materials"] = [materials]
 
 
-def _cfg_to_dict_or_raise(cfg: Any, *, context: str) -> Any:
-    try:
-        return cfg.to_dict()
-    except Exception as exc:
-        raise RuntimeError(f"cfg.to_dict() failed while {context}") from exc
-
-
 def merge_user_cfg_over_full_json(cfg: Any, full_json: Dict[str, Any]) -> Dict[str, Any]:
-    cfg_dict = _cfg_to_dict_or_raise(
-        cfg,
-        context="merging Python-side config over full JSON",
-    )
+    cfg_dict = _payload_dict_or_raise(cfg, context="merging Python-side config over full JSON")
 
     if not isinstance(cfg_dict, dict):
         return full_json
 
     merged = copy.deepcopy(full_json) if isinstance(full_json, dict) else {}
+    extras = cfg_dict.pop("extras", None)
     for key, value in cfg_dict.items():
         merged[key] = value
 
-    if hasattr(cfg, "extras") and cfg.extras and "_root_path" in cfg.extras:
-        merged["root_path"] = cfg.extras["_root_path"]
+    if isinstance(extras, dict) and "_root_path" in extras:
+        merged["root_path"] = extras["_root_path"]
     elif isinstance(full_json, dict) and "root_path" in full_json:
         merged["root_path"] = full_json["root_path"]
 
@@ -137,26 +168,18 @@ def build_full_json(cfg: Any) -> Optional[Dict[str, Any]]:
     if cfg_array_mesh_payload(cfg) is not None:
         return None
 
-    if hasattr(cfg, "extras") and cfg.extras and "_full_json_config" in cfg.extras:
-        return merge_user_cfg_over_full_json(cfg, cfg.extras["_full_json_config"])
-
-    cfg_dict = _cfg_to_dict_or_raise(
-        cfg,
-        context="building full JSON settings",
-    )
+    cfg_dict = _payload_dict_or_raise(cfg, context="building full JSON settings")
+    extras = cfg_dict.get("extras")
+    if isinstance(extras, dict) and "_full_json_config" in extras:
+        return merge_user_cfg_over_full_json(cfg_dict, extras["_full_json_config"])
 
     if not (isinstance(cfg_dict, dict) and "geometry" in cfg_dict):
         return None
 
     full_json = cfg_dict
+    full_json.pop("extras", None)
+    full_json.pop("_mesh_array_mode", None)
     _promote_materials_to_list(full_json, infer_type_from_pde=False)
-    if (
-        hasattr(cfg, "extras")
-        and cfg.extras
-        and "root_path" not in full_json
-        and "_root_path" in cfg.extras
-    ):
-        full_json["root_path"] = cfg.extras["_root_path"]
     return full_json
 
 
@@ -228,6 +251,8 @@ def clean_json_for_cpp(obj: Any):
 def process_json_config(full_json: Dict[str, Any], cfg: Any) -> Dict[str, Any]:
     processed = copy.deepcopy(full_json)
     processed.pop("common", None)
+    processed.pop("extras", None)
+    processed.pop("_mesh_array_mode", None)
 
     out = processed.get("output")
     if isinstance(out, dict):
@@ -286,15 +311,13 @@ def build_canonical_solver_settings(
             raise ValueError("JSON mesh mode requires full_json settings")
         return clean_json_for_cpp(process_json_config(full_json, cfg))
 
-    if hasattr(cfg, "to_dict"):
-        settings = cfg.to_dict()
-    elif hasattr(cfg, "to_json_dict"):
-        settings = cfg.to_json_dict()
-    else:
-        raise TypeError("cfg must provide to_dict() or to_json_dict() for array mode.")
+    settings = _payload_dict_or_raise(cfg, context="building array-mode backend settings")
 
     if mesh_source.mode == "guided_array":
         _strip_guided_array_placeholders(settings)
+
+    settings.pop("extras", None)
+    settings.pop("_mesh_array_mode", None)
 
     if "geometry" not in settings:
         settings["geometry"] = [

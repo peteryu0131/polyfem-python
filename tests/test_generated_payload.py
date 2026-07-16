@@ -17,7 +17,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.new_api.generated_payload import (  # noqa: E402
+from polyfempy.api._generated_payload import (  # noqa: E402
     generated_payload_from_config,
     prepare_generated_backend_payload,
 )

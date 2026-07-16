@@ -118,7 +118,8 @@ def _geometry_uses_only_absolute_mesh_paths(settings: Dict[str, Any]) -> bool:
         if not isinstance(mesh, str) or not mesh.strip():
             return False
         found_mesh = True
-        if not Path(mesh).is_absolute():
+        mesh_path = mesh.strip()
+        if not (Path(mesh_path).is_absolute() or mesh_path.startswith("/")):
             return False
     return found_mesh
 

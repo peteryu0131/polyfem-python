@@ -11,26 +11,9 @@ previous version; this refactor is behavior-preserving.
 
 from typing import Callable, Optional
 
-# ``solve`` is the only recommended public entry in this module. The staged
-# helpers are imported here only to preserve older import paths.
 from . import _solve_pipeline as _p
-from ._solve_compat import (
-    COMPATIBILITY_ALIASES,
-    COMPATIBILITY_ALIAS_TARGETS,
-    install_solve_compat,
-)
 
 __all__ = ["solve"]
-
-
-# ---------------------------------------------------------------------------
-# Backward-compat aliases for callers that previously imported helpers from
-# this module. New code should use the staged internal modules directly. These
-# names intentionally stay out of ``__all__``.
-# ---------------------------------------------------------------------------
-
-install_solve_compat(globals())
-del install_solve_compat
 
 
 def solve(

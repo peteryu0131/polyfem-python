@@ -1,12 +1,7 @@
-"""Unit tests for the cfg / mesh normalization stages of `_solve_pipeline`.
+"""Pure-Python tests for cfg and mesh normalization.
 
-Covers:
-    - normalize_cfg:               dict / str path / SimulationConfig / None / bad types
-    - build_full_json:             extras['_full_json_config'] path + cfg.to_dict() path
-    - merge_user_cfg_over_full_json: Python-side overrides win over original full JSON
-    - normalize_mesh_inputs:       array mode / JSON mode / neither
-
-These tests never touch the C++ backend. They only exercise pure Python stages.
+The solve path now accepts backend-shaped dicts, JSON paths, and generated
+objects directly. It no longer bridges through SimulationConfig.
 """
 
 from __future__ import annotations
@@ -16,7 +11,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 
@@ -37,7 +31,6 @@ from polyfempy.api._solve_contract import (  # noqa: E402
     build_canonical_solver_settings,
     prepare_canonical_solve_input,
 )
-from polyfempy.api.config import SimulationConfig  # noqa: E402
 
 
 _MINIMAL_FULL = {
@@ -52,20 +45,22 @@ _MINIMAL_FULL = {
 class NormalizeCfgTests(unittest.TestCase):
     def test_accepts_plain_dict(self):
         cfg = normalize_cfg(dict(_MINIMAL_FULL))
-        self.assertIsInstance(cfg, SimulationConfig)
-        self.assertEqual(cfg.pde, "LinearElasticity")
+        self.assertIsInstance(cfg, dict)
+        self.assertEqual(cfg["pde"], "LinearElasticity")
 
-    def test_accepts_simulationconfig_passthrough(self):
-        original = SimulationConfig.from_json_dict(_MINIMAL_FULL)
-        returned = normalize_cfg(original)
-        self.assertIs(returned, original)
+    def test_plain_dict_is_copied(self):
+        original = dict(_MINIMAL_FULL)
+        cfg = normalize_cfg(original)
+        cfg["pde"] = "Poisson"
+        self.assertEqual(original["pde"], "LinearElasticity")
 
     def test_accepts_json_file_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
             path.write_text(json.dumps(_MINIMAL_FULL), encoding="utf-8")
             cfg = normalize_cfg(str(path))
-        self.assertIsInstance(cfg, SimulationConfig)
+        self.assertIsInstance(cfg, dict)
+        self.assertEqual(cfg["root_path"], str(path.resolve()))
 
     def test_accepts_generated_config_object_with_as_dict(self):
         class GeneratedConfig:
@@ -74,8 +69,8 @@ class NormalizeCfgTests(unittest.TestCase):
 
         cfg = normalize_cfg(GeneratedConfig())
 
-        self.assertIsInstance(cfg, SimulationConfig)
-        self.assertEqual(cfg.to_dict()["geometry"], [{"mesh": "beam.msh"}])
+        self.assertIsInstance(cfg, dict)
+        self.assertEqual(cfg["geometry"], [{"mesh": "beam.msh"}])
 
     def test_none_raises_value_error(self):
         with self.assertRaises(ValueError):
@@ -89,30 +84,37 @@ class NormalizeCfgTests(unittest.TestCase):
 
 
 class BuildFullJsonTests(unittest.TestCase):
-    def test_returns_merged_full_json_when_loaded_from_json(self):
-        cfg = SimulationConfig.from_json_dict(_MINIMAL_FULL)
-        self.assertIn("_full_json_config", cfg.extras)
-        fj = build_full_json(cfg)
+    def test_returns_full_json_for_backend_dict(self):
+        fj = build_full_json(dict(_MINIMAL_FULL))
         self.assertIsInstance(fj, dict)
         self.assertEqual(fj["pde"], "LinearElasticity")
         self.assertEqual(fj["geometry"], [{"mesh": "beam.msh"}])
 
-    def test_python_override_wins_over_original_full_json(self):
-        cfg = SimulationConfig.from_json_dict(_MINIMAL_FULL)
-        cfg.discr_order = 2  # Python-side override after loading from JSON
+    def test_material_dict_is_promoted_to_backend_list(self):
+        cfg = {
+            "pde": "LinearElasticity",
+            "materials": {"type": "LinearElasticity", "E": 20, "nu": 0.3},
+            "geometry": [{"mesh": "beam.msh"}],
+        }
+        fj = build_full_json(cfg)
+        self.assertEqual(fj["materials"], [{"type": "LinearElasticity", "E": 20, "nu": 0.3}])
+
+    def test_payload_override_wins_over_original_full_json(self):
+        cfg = {
+            "extras": {"_full_json_config": dict(_MINIMAL_FULL)},
+            "discr_order": 2,
+        }
         fj = build_full_json(cfg)
         self.assertEqual(fj["discr_order"], 2)
+        self.assertEqual(fj["geometry"], _MINIMAL_FULL["geometry"])
 
-    def test_returns_none_when_no_geometry_anywhere(self):
-        cfg = SimulationConfig.linear_elasticity(2100, 0.3)
-        # No geometry in extras or to_dict() → JSON mode is infeasible.
+    def test_returns_none_when_no_geometry(self):
+        cfg = {"pde": "LinearElasticity", "materials": {"E": 2100, "nu": 0.3}}
         fj = build_full_json(cfg)
         self.assertIsNone(fj)
 
     def test_raises_when_cfg_to_dict_raises(self):
         class BrokenCfg:
-            extras: dict = {}
-
             def to_dict(self):
                 raise RuntimeError("boom")
 
@@ -123,26 +125,21 @@ class BuildFullJsonTests(unittest.TestCase):
 class MergeUserCfgOverFullJsonTests(unittest.TestCase):
     def test_python_side_keys_overlay_original_full_json(self):
         full_json = dict(_MINIMAL_FULL)
-        cfg = SimulationConfig.from_json_dict(full_json)
-        cfg.discr_order = 3
-        merged = merge_user_cfg_over_full_json(cfg, full_json)
+        merged = merge_user_cfg_over_full_json({"discr_order": 3}, full_json)
         self.assertEqual(merged["discr_order"], 3)
         self.assertEqual(merged["geometry"], full_json["geometry"])
 
     def test_root_path_preserved_from_extras_when_present(self):
         full_json = dict(_MINIMAL_FULL)
         full_json["root_path"] = "/tmp/legacy"
-        cfg = SimulationConfig.from_json_dict(full_json)
-        cfg.extras["_root_path"] = "/tmp/new"
+        cfg = {"extras": {"_root_path": "/tmp/new"}}
         merged = merge_user_cfg_over_full_json(cfg, full_json)
         self.assertEqual(merged["root_path"], "/tmp/new")
 
     def test_root_path_falls_back_to_full_json_when_extras_absent(self):
         full_json = dict(_MINIMAL_FULL)
         full_json["root_path"] = "/tmp/legacy"
-        cfg = SimulationConfig.from_json_dict(full_json)
-        cfg.extras.pop("_root_path", None)
-        merged = merge_user_cfg_over_full_json(cfg, full_json)
+        merged = merge_user_cfg_over_full_json({}, full_json)
         self.assertEqual(merged["root_path"], "/tmp/legacy")
 
     def test_raises_when_cfg_to_dict_fails(self):
@@ -150,20 +147,19 @@ class MergeUserCfgOverFullJsonTests(unittest.TestCase):
             def to_dict(self):
                 raise RuntimeError("boom")
 
-        full_json = {"a": 1}
         with self.assertRaisesRegex(RuntimeError, r"cfg\.to_dict\(\) failed"):
-            merge_user_cfg_over_full_json(BrokenCfg(), full_json)
+            merge_user_cfg_over_full_json(BrokenCfg(), {"a": 1})
 
 
 class NormalizeMeshInputsTests(unittest.TestCase):
     def test_array_mode_returns_numpy_arrays(self):
         V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
-        C = np.array([[0, 1, 2]], dtype=np.int64)  # not int32 on purpose
+        C = np.array([[0, 1, 2]], dtype=np.int64)
         inputs = normalize_mesh_inputs(V, C, None, dtype=None)
         self.assertIsInstance(inputs, NormalizedInputs)
         self.assertFalse(inputs.use_json_mode)
         self.assertEqual(inputs.V_np.shape, (3, 2))
-        self.assertEqual(inputs.C_np.dtype, np.int32)  # cast to int32
+        self.assertEqual(inputs.C_np.dtype, np.int32)
         self.assertEqual(inputs.v_backend, "numpy")
 
     def test_json_mode_when_full_json_has_geometry_and_no_arrays(self):
@@ -184,7 +180,6 @@ class NormalizeMeshInputsTests(unittest.TestCase):
         C = np.array([[0, 1, 2]], dtype=np.int32)
         full_json = {"geometry": [{"mesh": "beam.msh"}]}
         inputs = normalize_mesh_inputs(V, C, full_json, dtype=None)
-        # Arrays are present, so the pipeline prefers array mode.
         self.assertFalse(inputs.use_json_mode)
         self.assertIsNotNone(inputs.V_np)
 
@@ -198,12 +193,10 @@ class NormalizeMeshInputsTests(unittest.TestCase):
 
 class CanonicalSolverSettingsTests(unittest.TestCase):
     def test_prepare_canonical_solve_input_for_json_mode(self):
-        cfg = SimulationConfig.from_json_dict(_MINIMAL_FULL)
-
         canonical = prepare_canonical_solve_input(
             vertices=None,
             cells=None,
-            cfg=cfg,
+            cfg=dict(_MINIMAL_FULL),
             dtype=None,
         )
 
@@ -212,7 +205,7 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
         self.assertIn("geometry", canonical.backend_settings)
         self.assertNotIn("common", canonical.backend_settings)
 
-    def test_prepare_canonical_solve_input_for_generated_object_does_not_bridge_to_simulationconfig(self):
+    def test_prepare_canonical_solve_input_for_generated_object_uses_generated_path(self):
         class GeneratedConfig:
             def as_dict(self):
                 return {
@@ -222,18 +215,12 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
                 }
 
         generated = GeneratedConfig()
-
-        with patch.object(
-            SimulationConfig,
-            "from_json_dict",
-            side_effect=AssertionError("generated path must not construct SimulationConfig"),
-        ):
-            canonical = prepare_canonical_solve_input(
-                vertices=None,
-                cells=None,
-                cfg=generated,
-                dtype=None,
-            )
+        canonical = prepare_canonical_solve_input(
+            vertices=None,
+            cells=None,
+            cfg=generated,
+            dtype=None,
+        )
 
         self.assertIs(canonical.config, generated)
         self.assertEqual(canonical.metadata["config_source"], "generated")
@@ -241,7 +228,7 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
         self.assertFalse(canonical.backend_settings["solver"]["new_backend_option"])
 
     def test_prepare_canonical_solve_input_for_direct_array_mode(self):
-        cfg = SimulationConfig.linear_elasticity(20.0, 0.3)
+        cfg = {"pde": "LinearElasticity", "materials": {"E": 20.0, "nu": 0.3}}
         V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
         C = np.array([[0, 1, 2]], dtype=np.int64)
 
@@ -256,13 +243,19 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
         self.assertEqual(canonical.metadata["mesh_source"], "array")
         self.assertEqual(canonical.mesh_source.cells.dtype, np.int32)
         self.assertEqual(canonical.backend_settings["geometry"][0]["type"], "ground")
+        self.assertEqual(canonical.backend_settings["materials"][0]["type"], "LinearElasticity")
 
     def test_prepare_canonical_solve_input_for_guided_array_mode(self):
-        cfg = SimulationConfig.linear_elasticity(20.0, 0.3)
-        cfg.extras["_mesh_array_mode"] = {
-            "vertices": np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
-            "cells": np.array([[0, 1, 2]], dtype=np.int32),
-            "body_ids": np.array([3], dtype=np.int32),
+        cfg = {
+            "pde": "LinearElasticity",
+            "materials": {"E": 20.0, "nu": 0.3},
+            "extras": {
+                "_mesh_array_mode": {
+                    "vertices": np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
+                    "cells": np.array([[0, 1, 2]], dtype=np.int32),
+                    "body_ids": np.array([3], dtype=np.int32),
+                }
+            },
         }
 
         canonical = prepare_canonical_solve_input(
@@ -275,18 +268,14 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
         self.assertEqual(canonical.mesh_source.mode, "guided_array")
         self.assertEqual(canonical.metadata["mesh_source"], "guided_array")
         np.testing.assert_array_equal(canonical.mesh_source.body_ids, np.array([3], dtype=np.int32))
+        self.assertNotIn("extras", canonical.backend_settings)
 
     def test_guided_array_placeholder_is_removed_from_backend_settings(self):
-        class ConfigWithArrayPlaceholder:
-            boundary_conditions = {}
-
-            def to_dict(self):
-                return {
-                    "pde": "LinearElasticity",
-                    "geometry": [{"mesh": "__array_body__:beam"}],
-                    "materials": {"E": 20.0, "nu": 0.3},
-                }
-
+        cfg = {
+            "pde": "LinearElasticity",
+            "geometry": [{"mesh": "__array_body__:beam"}],
+            "materials": {"E": 20.0, "nu": 0.3},
+        }
         mesh_source = MeshSource(
             mode="guided_array",
             vertices=np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
@@ -297,24 +286,21 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
         )
 
         settings = build_canonical_solver_settings(
-            ConfigWithArrayPlaceholder(),
+            cfg,
             full_json=None,
             mesh_source=mesh_source,
         )
 
         self.assertNotIn("__array_body__", json.dumps(settings))
-        self.assertEqual(settings["geometry"], [{"type": "ground", "height": 0.0, "enabled": True, "is_obstacle": False}])
+        self.assertEqual(
+            settings["geometry"],
+            [{"type": "ground", "height": 0.0, "enabled": True, "is_obstacle": False}],
+        )
         self.assertIsInstance(settings["materials"], list)
 
 
 class ConfigureSolverContractTests(unittest.TestCase):
     def test_array_configure_uses_prebuilt_backend_settings(self):
-        class CfgThatMustNotSerialize:
-            boundary_conditions = {}
-
-            def to_dict(self):
-                raise AssertionError("configure_solver should use canonical backend_settings")
-
         class FakeMesh:
             pass
 
@@ -350,7 +336,7 @@ class ConfigureSolverContractTests(unittest.TestCase):
 
         configure_solver(
             solver,
-            CfgThatMustNotSerialize(),
+            {},
             full_json=None,
             inputs=inputs,
             backend_settings=backend_settings,

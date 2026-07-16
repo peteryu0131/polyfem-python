@@ -8,7 +8,7 @@ EXAMPLES = ROOT / "examples"
 
 
 def _example_source_files() -> list[Path]:
-    return sorted(path for path in EXAMPLES.glob("*.py") if path.is_file())
+    return sorted(path for path in EXAMPLES.rglob("*.py") if path.is_file())
 
 
 def test_examples_do_not_reintroduce_removed_impact_template_name():
@@ -21,14 +21,12 @@ def test_examples_do_not_reintroduce_removed_impact_template_name():
     assert offenders == []
 
 
-def test_differentiable_examples_print_reviewer_summaries():
-    expected_terms = {
-        "examples/03_shape_gradient.py": ("loss", "gradient", "workspace"),
-        "examples/04_scalar_E_gradient.py": ("loss", "dL/dE", "workspace"),
-        "examples/06_dataset_one_case.py": ("metadata", "workspace"),
+def test_classic_examples_use_generated_api_helpers_only():
+    expected = {
+        "examples/classic_example/2D/new_better_contact_2d_golf_ball_deformable_wall_generated_api.py",
+        "examples/classic_example/2D/_contact_2d_common.py",
+        "examples/classic_example/3D/contact_3d_codimensional_mat_knives_generated_api.py",
+        "examples/classic_example/3D/_contact_3d_common.py",
     }
-    for relative_path, terms in expected_terms.items():
-        text = (ROOT / relative_path).read_text(encoding="utf-8")
-        assert "print(" in text, relative_path
-        for term in terms:
-            assert term in text, f"{relative_path} missing {term!r}"
+    actual = {path.relative_to(ROOT).as_posix() for path in _example_source_files()}
+    assert expected <= actual

@@ -10,8 +10,9 @@ T7 pulls the logic into an explicit, idempotent ``configure_windows_runtime()``
 helper and gates the auto-call behind an env-var opt-out. These tests lock
 the new contract:
 
-    - ``configure_windows_runtime()`` remains explicitly importable for
-      advanced callers, and no-ops on non-Windows platforms.
+    - ``configure_windows_runtime()`` remains explicitly importable from
+      ``polyfempy.api._runtime`` for advanced callers, and no-ops on
+      non-Windows platforms.
     - ``should_auto_configure_windows()`` honors the env-var opt-out and
       tolerates casing / whitespace.
     - The helper is idempotent (safe to call twice).
@@ -42,14 +43,11 @@ from polyfempy.api._runtime import (  # noqa: E402
 
 
 class PublicSurfaceTests(unittest.TestCase):
-    def test_function_is_reexported_from_polyfempy_api(self):
-        """Advanced callers may import the helper explicitly, but it is not
-        part of the recommended star-import surface."""
+    def test_function_is_not_reexported_from_polyfempy_api(self):
+        """Advanced callers use ``polyfempy.api._runtime`` explicitly."""
         api_mod = importlib.import_module("polyfempy.api")
-        self.assertTrue(hasattr(api_mod, "configure_windows_runtime"))
-        self.assertIn("configure_windows_runtime", api_mod.WINDOWS_RUNTIME_API)
-        self.assertIn("configure_windows_runtime", api_mod.ADVANCED_COMPAT_API)
-        self.assertNotIn("configure_windows_runtime", api_mod.__all__)
+        self.assertFalse(hasattr(api_mod, "configure_windows_runtime"))
+        self.assertEqual(api_mod.__all__, ["solve", "Result"])
 
     def test_returns_applied_and_skipped_keys(self):
         result = configure_windows_runtime()
