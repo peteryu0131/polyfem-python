@@ -15,10 +15,9 @@ Planned files:
 - `schema_patches.json`: PolyFEM schema patches or overlays that should be
   applied before generating the schema-faithful classes.
 
-Current transition state:
+Current state:
 
-- The active config files still live in `python-from-jse/generator/`.
-- Do not move them until the generator workflow is updated to read this
-  directory by default.
-- This directory documents the intended boundary first, so the later move can
-  be small and mechanical.
+- The active PolyFEM config files live in this directory.
+- Generator tools and validators should read this directory by default.
+- Generic generator examples or dummy config may still live under
+  `python-from-jse/` when they document supported generator capabilities.

@@ -30,12 +30,12 @@ polyfem-python/
 ```
 
 `generator-config/` is reserved for PolyFEM-specific generator config. The
-active config has not moved yet; it still lives under
-`python-from-jse/generator/` until the generation workflow is updated.
+active config lives there now, while `python-from-jse/` stays focused on the
+generic generator and its tools.
 
-Generated Python API files should eventually be written to
-`polyfempy/generated/` during build/install or explicit regeneration. They
-should be treated as generated artifacts, not as hand-maintained source files.
+Generated Python API files are written to `polyfempy/generated/` during explicit
+regeneration. They should be treated as generated artifacts, not as
+hand-maintained source files.
 
 ## Conda-Forge Package Versus Source Build
 

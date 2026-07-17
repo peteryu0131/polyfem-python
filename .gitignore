@@ -28,6 +28,10 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Generated Python API artifacts
+/polyfempy/generated/
+/python-from-jse/generated/
+
 # Local agent/build scratch
 .codex
 .codex_tmp/

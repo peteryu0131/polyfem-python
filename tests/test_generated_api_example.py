@@ -6,6 +6,7 @@ import copy
 import importlib.util
 import json
 import py_compile
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,18 @@ def _import_example(example_path: Path) -> Any:
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
+    return module
+
+
+def _import_module(module_path: Path, module_name: str) -> Any:
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(module_name, None)
     return module
 
 
@@ -152,6 +165,27 @@ def test_classic_generated_example_declares_polyfem_data_source(case: tuple[Path
 
     assert Path(example.SOURCE_JSON).resolve() == source_path.resolve()
     assert POLYFEM_DATA_CONTACT in Path(example.SOURCE_JSON).resolve().parents
+
+
+def test_classic_common_helpers_support_polyfem_data_root_env(monkeypatch, tmp_path):
+    data_root = tmp_path / "polyfem-data-alt"
+    monkeypatch.setenv("POLYFEM_DATA_ROOT", str(data_root))
+
+    common_2d = _import_module(
+        CLASSIC_EXAMPLES / "2D" / "_contact_2d_common.py",
+        "contact_2d_common_env_test",
+    )
+    common_3d = _import_module(
+        CLASSIC_EXAMPLES / "3D" / "_contact_3d_common.py",
+        "contact_3d_common_env_test",
+    )
+
+    assert common_2d.POLYFEM_DATA_ROOT == data_root.resolve()
+    assert common_2d.POLYFEM_DATA_CONTACT == data_root.resolve() / "contact"
+    assert common_2d.CONTACT_EXAMPLES_DIR == data_root.resolve() / "contact" / "examples"
+    assert common_2d.MESHES_DIR == data_root.resolve() / "contact" / "meshes"
+    assert common_3d.POLYFEM_DATA_ROOT == data_root.resolve()
+    assert common_3d.POLYFEM_DATA_CONTACT == data_root.resolve() / "contact"
 
 
 @pytest.mark.parametrize("case", EXAMPLE_CASES, ids=_case_id)

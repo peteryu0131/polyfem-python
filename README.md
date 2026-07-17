@@ -6,7 +6,7 @@ rewritten.
 The current work-in-progress public API direction is:
 
 - generated Python configuration helpers from `python-from-jse/json-specs/`
-- PolyFEM-specific generator config under `generator-config/` in the future
+- PolyFEM-specific generator config under `generator-config/`
 - `polyfempy.api.solve(...)` as the forward solve entry point
 - generated/model-builder examples under `examples/classic_example/`
 - `solve(cfg=...)` accepts generated config objects, backend-shaped dicts, or JSON paths
