@@ -17,13 +17,16 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.api._generated_payload import (  # noqa: E402
+from polyfempy.api._solve_contract import (  # noqa: E402
     generated_payload_from_config,
     prepare_generated_backend_payload,
 )
 
 
 class GeneratedPayloadTests(unittest.TestCase):
+    def test_generated_payload_helpers_live_in_solve_contract(self):
+        self.assertFalse((_REPO / "polyfempy" / "api" / "_generated_payload.py").exists())
+
     def test_generated_payload_from_config_requires_dict(self):
         class BadGeneratedConfig:
             def as_dict(self):

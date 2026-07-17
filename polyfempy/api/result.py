@@ -863,36 +863,6 @@ class Result:
             "sampled_data": {k: tuple(v.shape) for k, v in self._sampled_data.items()},
         }
 
-    def report(self, **kwargs):
-        """Structured, human-oriented summary for CLI/reporting use."""
-        from .report import summarize_result
-
-        return summarize_result(self, **kwargs)
-
-    def format_summary(self, **kwargs) -> str:
-        """Return a compact multi-line summary string for this result."""
-        from .report import format_result_summary
-
-        return format_result_summary(self, **kwargs)
-
-    def history_bundle(self, **kwargs):
-        """Structured per-step history bundle for reporting/training use."""
-        from .report import summarize_history_bundle
-
-        return summarize_history_bundle(self, **kwargs)
-
-    def format_history_bundle_txt(self, **kwargs) -> str:
-        """Return a TSV-style text bundle for ``result.history``."""
-        from .report import format_history_bundle_txt
-
-        return format_history_bundle_txt(self, **kwargs)
-
-    def write_history_bundle_txt(self, path, **kwargs):
-        """Write a TSV-style history bundle to ``path``."""
-        from .report import write_history_bundle_txt
-
-        return write_history_bundle_txt(self, path, **kwargs)
-
     @staticmethod
     def _guess_cell_type(cells, vertices):
         k = cells.shape[1] if cells.ndim == 2 else None

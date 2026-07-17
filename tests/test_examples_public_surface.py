@@ -30,3 +30,13 @@ def test_classic_examples_use_generated_api_helpers_only():
     }
     actual = {path.relative_to(ROOT).as_posix() for path in _example_source_files()}
     assert expected <= actual
+
+
+def test_classic_examples_do_not_import_core_runtime_helper():
+    offenders = []
+    for path in _example_source_files():
+        text = path.read_text(encoding="utf-8")
+        if "polyfempy.api.runtime" in text:
+            offenders.append(path.relative_to(ROOT).as_posix())
+
+    assert offenders == []

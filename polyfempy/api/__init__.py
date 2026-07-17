@@ -6,8 +6,8 @@ The recommended user-facing surface is intentionally small:
 - ``Result`` for structured solver output
 
 Generated configuration helpers are the preferred direction for new authoring
-APIs. Legacy config, output, report, and runtime helpers remain importable from
-their owning modules, but they are not re-exported here.
+APIs. Legacy config, output, report, guided, and example runtime helpers have
+been removed from this package.
 """
 
 from ._runtime import (
