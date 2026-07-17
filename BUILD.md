@@ -12,6 +12,31 @@ compiled with nanobind. In Python, the package is imported as:
 import polyfempy as pf
 ```
 
+## Repository Layout Direction
+
+The current checkout contains the Python binding, generator, data, and examples
+in one working tree. The future direction is to keep these as separate repos
+that are checked out at stable paths under `polyfem-python`, likely through Git
+submodules:
+
+```text
+polyfem-python/
+  polyfempy/
+  src/
+  generator-config/
+  python-from-jse/
+  polyfem-data/
+  examples/
+```
+
+`generator-config/` is reserved for PolyFEM-specific generator config. The
+active config has not moved yet; it still lives under
+`python-from-jse/generator/` until the generation workflow is updated.
+
+Generated Python API files should eventually be written to
+`polyfempy/generated/` during build/install or explicit regeneration. They
+should be treated as generated artifacts, not as hand-maintained source files.
+
 ## Conda-Forge Package Versus Source Build
 
 There are two distinct ways to consume `polyfempy`.
