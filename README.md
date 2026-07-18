@@ -21,5 +21,17 @@ tree. The intended split is:
 - `examples/`: generated-API examples, with `classic_example/` as the current
   example collection.
 
+Generate the packaged API from the repository root:
+
+```powershell
+python tools\generate_polyfem_api.py
+```
+
+Run the backend-free generation and parity checks:
+
+```powershell
+python tools\generate_polyfem_api.py --check
+```
+
 Older guided API, artifact, experiment, and example documentation has been
 removed because it no longer matches the current API direction.

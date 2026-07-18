@@ -37,6 +37,22 @@ Generated Python API files are written to `polyfempy/generated/` during explicit
 regeneration. They should be treated as generated artifacts, not as
 hand-maintained source files.
 
+Regenerate them from the repository root:
+
+```powershell
+python tools\generate_polyfem_api.py
+```
+
+Run backend-free generated API checks from the repository root:
+
+```powershell
+python tools\generate_polyfem_api.py --check
+```
+
+These checks regenerate the API, compile/import the generated Python layer
+through the generator test suite, and run classic example source-JSON parity
+tests. They do not run backend simulations.
+
 ## Conda-Forge Package Versus Source Build
 
 There are two distinct ways to consume `polyfempy`.
