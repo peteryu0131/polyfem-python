@@ -12,6 +12,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "tools" / "generate_polyfem_api.py"
+GENERATOR_SCRIPT = ROOT / "python-from-jse" / "tools" / "generate_with_overrides.py"
+GENERATED_DIR = ROOT / "polyfempy" / "generated"
 
 
 def import_workflow(module_name: str = "generate_polyfem_api_for_test"):
@@ -37,7 +39,21 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
             [
                 [
                     sys.executable,
-                    str(ROOT / "python-from-jse" / "tools" / "generate_with_overrides.py"),
+                    str(GENERATOR_SCRIPT),
+                    "--schema-file",
+                    str(ROOT / "python-from-jse" / "json-specs" / "input-spec.json"),
+                    "--output-file",
+                    str(GENERATED_DIR / "generated_class.py"),
+                    "--api-output-file",
+                    str(GENERATED_DIR / "generated_api.py"),
+                    "--manifest-dir",
+                    str(GENERATED_DIR),
+                    "--relationships",
+                    str(ROOT / "generator-config" / "id_relationships.json"),
+                    "--api-aliases",
+                    str(ROOT / "generator-config" / "api_aliases.json"),
+                    "--model-entry",
+                    "polyfem.model",
                 ],
             ],
             [call.args[0] for call in run_mock.call_args_list],
@@ -61,7 +77,21 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
             [
                 [
                     sys.executable,
-                    str(ROOT / "python-from-jse" / "tools" / "generate_with_overrides.py"),
+                    str(GENERATOR_SCRIPT),
+                    "--schema-file",
+                    str(ROOT / "python-from-jse" / "json-specs" / "input-spec.json"),
+                    "--output-file",
+                    str(GENERATED_DIR / "generated_class.py"),
+                    "--api-output-file",
+                    str(GENERATED_DIR / "generated_api.py"),
+                    "--manifest-dir",
+                    str(GENERATED_DIR),
+                    "--relationships",
+                    str(ROOT / "generator-config" / "id_relationships.json"),
+                    "--api-aliases",
+                    str(ROOT / "generator-config" / "api_aliases.json"),
+                    "--model-entry",
+                    "polyfem.model",
                 ],
                 [
                     sys.executable,

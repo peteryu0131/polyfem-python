@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_ROOT = REPO_ROOT / "python-from-jse"
 GENERATOR_CONFIG_DIR = REPO_ROOT / "generator-config"
 POLYFEMPY_PACKAGE_DIR = REPO_ROOT / "polyfempy"
+GENERATED_DIR = POLYFEMPY_PACKAGE_DIR / "generated"
 
 
 def workflow_steps(run_checks: bool) -> list[tuple[list[str], Path]]:
@@ -20,6 +21,20 @@ def workflow_steps(run_checks: bool) -> list[tuple[list[str], Path]]:
             [
                 sys.executable,
                 str(GENERATOR_ROOT / "tools" / "generate_with_overrides.py"),
+                "--schema-file",
+                str(GENERATOR_ROOT / "json-specs" / "input-spec.json"),
+                "--output-file",
+                str(GENERATED_DIR / "generated_class.py"),
+                "--api-output-file",
+                str(GENERATED_DIR / "generated_api.py"),
+                "--manifest-dir",
+                str(GENERATED_DIR),
+                "--relationships",
+                str(GENERATOR_CONFIG_DIR / "id_relationships.json"),
+                "--api-aliases",
+                str(GENERATOR_CONFIG_DIR / "api_aliases.json"),
+                "--model-entry",
+                "polyfem.model",
             ],
             REPO_ROOT,
         ),
