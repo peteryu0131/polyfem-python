@@ -29,12 +29,12 @@ polyfem-python/
   examples/
 ```
 
-`generator-config/` is reserved for PolyFEM-specific generator config. The
+`generator-config/` is reserved for PolyFEM-specific Python API config. The
 active config lives there now, while `python-from-jse/` stays focused on the
-generic generator and its tools.
+generic generator, its tools, and JSON specs.
 
-Generated Python API files are written to `polyfempy/generated/` during explicit
-regeneration. They should be treated as generated artifacts, not as
+Generated Python API files are written to `polyfempy/generated_api/` during
+explicit regeneration. They should be treated as generated artifacts, not as
 hand-maintained source files.
 
 Regenerate them from the repository root:
@@ -119,6 +119,6 @@ backend.
 ## Runtime API Notes
 
 - The core compute happens in C++ through `pf.Solver()`.
-- The high-level Python entry point is `polyfempy.api.solve`.
+- The high-level Python entry point is `polyfempy.runtime.solve`.
 - The C++ binding implements `Solver.solve()` as returning `(sol, pressure)`.
-- Use `polyfempy.api.Result` for structured Python-side result fields.
+- Use `polyfempy.runtime.Result` for structured Python-side result fields.

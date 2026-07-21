@@ -29,7 +29,7 @@ __pycache__/
 htmlcov/
 
 # Generated Python API artifacts
-/polyfempy/generated/
+/polyfempy/generated_api/
 /python-from-jse/generated/
 
 # Local agent/build scratch

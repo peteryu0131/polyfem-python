@@ -1,4 +1,4 @@
-"""Optional runtime tweaks used at ``polyfempy.api`` import time.
+"""Optional runtime tweaks used at ``polyfempy.runtime`` import time.
 
 Historically the package ``__init__`` silently rewrapped ``sys.stdout`` /
 ``sys.stderr``, ran ``chcp 65001`` and set ``KMP_DUPLICATE_LIB_OK=TRUE`` on
@@ -33,7 +33,7 @@ _TRUTHY = {"1", "true", "yes", "on", "y", "t"}
 
 def should_auto_configure_windows() -> bool:
     """Return True iff the package should auto-apply Windows runtime tweaks
-    during ``polyfempy.api`` import.
+    during ``polyfempy.runtime`` import.
 
     Returns False when ``POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG`` is set to a
     truthy value (``1``, ``true``, ``yes``, ``on``, ``y``, ``t``; any casing).

@@ -1,7 +1,7 @@
 """polyfempy Python package.
 
 This repository contains:
-- A pure-Python high-level API (`polyfempy.api.*`)
+- A pure-Python solve/runtime layer (`polyfempy.runtime.*`)
 - A compiled C++ extension submodule built by CMake (nanobind backend)
 
 Why this shape:
@@ -14,8 +14,8 @@ Important:
   package top-level for convenience.
 """
 
-# High-level (pure Python) API
-from .api import *  # noqa: F403
+# High-level (pure Python) solve/runtime surface
+from .runtime import *  # noqa: F403
 
 # Low-level C++ extension (optional at import time; required for real compute)
 _cpp_backend_available = False

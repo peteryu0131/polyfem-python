@@ -7,15 +7,17 @@ The current work-in-progress public API direction is:
 
 - generated Python configuration helpers from `python-from-jse/json-specs/`
 - PolyFEM-specific generator config under `generator-config/`
-- `polyfempy.api.solve(...)` as the forward solve entry point
+- `polyfempy.runtime.solve(...)` as the forward solve entry point
 - generated/model-builder examples under `examples/classic_example/`
 - `solve(cfg=...)` accepts generated config objects, backend-shaped dicts, or JSON paths
 
 The repository currently keeps the generator, data, and examples in one working
 tree. The intended split is:
 
-- `polyfempy/` and `src/`: Python binding package and C++ extension.
-- `python-from-jse/`: generic JSON-spec-to-Python generator.
+- `polyfempy/runtime/`: handwritten solve/runtime layer.
+- `polyfempy/generated_api/`: packaged generated config authoring API.
+- `src/`: C++ extension sources.
+- `python-from-jse/`: generic JSON-spec-to-Python generator and JSON specs.
 - `generator-config/`: PolyFEM-specific generator config.
 - `polyfem-data/`: data, meshes, source JSON examples, and expected test data.
 - `examples/`: generated-API examples, with `classic_example/` as the current

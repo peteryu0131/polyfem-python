@@ -1,8 +1,8 @@
 """Resolve the compiled ``polyfempy.polyfempy`` extension.
 
-``import polyfempy`` can expose the pure-Python :class:`polyfempy.api.config.Solver`
-(settings DTO) when the C++ submodule fails to load. Differentiable code must use the
-compiled module directly so ``Solver()`` is the FEM backend.
+``import polyfempy`` can still succeed when the C++ submodule fails to load.
+Differentiable code must use the compiled module directly so ``Solver()`` is the
+FEM backend.
 """
 
 from __future__ import annotations

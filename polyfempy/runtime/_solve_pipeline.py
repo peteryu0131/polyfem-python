@@ -5,7 +5,7 @@ few typed intermediate structures. The public entry point in ``solve.py`` keeps
 its signature and external behavior; it only delegates to the functions here.
 
 This is an internal implementation module. User code should call
-``polyfempy.api.solve(...)`` rather than importing pipeline stages directly.
+``polyfempy.runtime.solve(...)`` rather than importing pipeline stages directly.
 Tests import the stages to protect behavior.
 
 Pipeline (linear):

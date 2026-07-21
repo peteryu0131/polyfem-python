@@ -7,7 +7,7 @@ import pytest
 
 def test_backend_forward_solve_smoke(tmp_path):
     import polyfempy as pf
-    from polyfempy.api import solve
+    from polyfempy.runtime import solve
 
     if not pf.cpp_backend_available():
         pytest.skip(f"C++ backend is unavailable: {pf.cpp_backend_error()}")

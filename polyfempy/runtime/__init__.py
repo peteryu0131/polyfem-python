@@ -1,4 +1,4 @@
-"""Public Python API for PolyFEM.
+"""Handwritten solve/runtime layer for PolyFEM.
 
 The recommended user-facing surface is intentionally small:
 
@@ -6,8 +6,8 @@ The recommended user-facing surface is intentionally small:
 - ``Result`` for structured solver output
 
 Generated configuration helpers are the preferred direction for new authoring
-APIs. Legacy config, output, report, guided, and example runtime helpers have
-been removed from this package.
+APIs. This package owns runtime preparation, backend dispatch, and result
+objects.
 """
 
 from ._runtime import (
@@ -21,9 +21,9 @@ if _should_auto_configure_windows():
 from .result import Result
 from .solve import solve
 
-CORE_API = [
+CORE_RUNTIME = [
     "solve",
     "Result",
 ]
 
-__all__ = list(CORE_API)
+__all__ = list(CORE_RUNTIME)

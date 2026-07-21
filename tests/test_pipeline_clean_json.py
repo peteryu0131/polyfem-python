@@ -20,7 +20,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.api._solve_pipeline import (  # noqa: E402
+from polyfempy.runtime._solve_pipeline import (  # noqa: E402
     clean_json_for_cpp,
     process_json_config,
 )

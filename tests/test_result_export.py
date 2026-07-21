@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from polyfempy.api.result import Result
+from polyfempy.runtime.result import Result
 
 
 def _small_result() -> Result:

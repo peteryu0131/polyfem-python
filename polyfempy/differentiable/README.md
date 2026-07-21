@@ -2,14 +2,14 @@
 
 This directory contains the previous differentiable API implementation.
 
-It is kept as experimental reference code and is not part of the current supported polyfempy.api interface.
+It is kept as experimental reference code and is not part of the current supported polyfempy.runtime interface.
 The supported forward-solve path is:
 
 ```text
 generated API configuration
-  -> polyfempy.api.solve(...)
+  -> polyfempy.runtime.solve(...)
   -> C++ PolyFEM backend
-  -> polyfempy.api.Result
+  -> polyfempy.runtime.Result
 ```
 
 Some modules in this directory may still refer to removed APIs such as

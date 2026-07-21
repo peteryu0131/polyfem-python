@@ -36,11 +36,11 @@ def test_classic_examples_use_generated_api_helpers_only():
     assert expected <= actual
 
 
-def test_classic_examples_do_not_import_core_runtime_helper():
+def test_classic_examples_do_not_import_legacy_api_package():
     offenders = []
     for path in _example_source_files():
         text = path.read_text(encoding="utf-8")
-        if "polyfempy.api.runtime" in text:
+        if "polyfempy.api" in text:
             offenders.append(path.relative_to(ROOT).as_posix())
 
     assert offenders == []
@@ -54,7 +54,8 @@ def test_classic_helpers_import_packaged_generated_api():
 
     for path in helpers:
         text = path.read_text(encoding="utf-8")
-        assert "from polyfempy.generated import generated_api as polyfem" in text
+        assert "from polyfempy.runtime import solve" in text
+        assert "from polyfempy.generated_api import generated_api as polyfem" in text
         assert "python-from-jse" not in text
         assert "GENERATED_DIR" not in text
         assert "importlib.util" not in text

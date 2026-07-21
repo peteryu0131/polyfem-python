@@ -28,8 +28,8 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.api.result import Result  # noqa: E402
-from polyfempy.api._solve_pipeline import _field_available  # noqa: E402
+from polyfempy.runtime.result import Result  # noqa: E402
+from polyfempy.runtime._solve_pipeline import _field_available  # noqa: E402
 
 
 def _make_native_result(*, with_native_stress: bool = False) -> Result:

@@ -19,7 +19,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.api.result import HistoryView, Result  # noqa: E402
+from polyfempy.runtime.result import HistoryView, Result  # noqa: E402
 
 
 def _make_frame(step: int, n_sampled: int = 4, dim: int = 2):

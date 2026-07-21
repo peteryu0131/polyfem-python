@@ -1,4 +1,4 @@
-"""Unit tests for the Windows-runtime shim in ``polyfempy.api._runtime``.
+"""Unit tests for the Windows-runtime shim in ``polyfempy.runtime._runtime``.
 
 Before T7 the ``polyfempy.api`` package ``__init__`` silently mutated
 ``sys.stdout`` / ``sys.stderr``, set ``KMP_DUPLICATE_LIB_OK=TRUE`` and ran
@@ -11,7 +11,7 @@ helper and gates the auto-call behind an env-var opt-out. These tests lock
 the new contract:
 
     - ``configure_windows_runtime()`` remains explicitly importable from
-      ``polyfempy.api._runtime`` for advanced callers, and no-ops on
+      ``polyfempy.runtime._runtime`` for advanced callers, and no-ops on
       non-Windows platforms.
     - ``should_auto_configure_windows()`` honors the env-var opt-out and
       tolerates casing / whitespace.
@@ -36,18 +36,18 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.api._runtime import (  # noqa: E402
+from polyfempy.runtime._runtime import (  # noqa: E402
     configure_windows_runtime,
     should_auto_configure_windows,
 )
 
 
 class PublicSurfaceTests(unittest.TestCase):
-    def test_function_is_not_reexported_from_polyfempy_api(self):
-        """Advanced callers use ``polyfempy.api._runtime`` explicitly."""
-        api_mod = importlib.import_module("polyfempy.api")
-        self.assertFalse(hasattr(api_mod, "configure_windows_runtime"))
-        self.assertEqual(api_mod.__all__, ["solve", "Result"])
+    def test_function_is_not_reexported_from_polyfempy_runtime(self):
+        """Advanced callers use ``polyfempy.runtime._runtime`` explicitly."""
+        runtime_mod = importlib.import_module("polyfempy.runtime")
+        self.assertFalse(hasattr(runtime_mod, "configure_windows_runtime"))
+        self.assertEqual(runtime_mod.__all__, ["solve", "Result"])
 
     def test_returns_applied_and_skipped_keys(self):
         result = configure_windows_runtime()

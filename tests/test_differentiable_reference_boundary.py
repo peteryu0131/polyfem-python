@@ -12,5 +12,5 @@ def test_differentiable_package_is_marked_reference_only():
 
     assert "reference" in text
     assert "experimental" in text
-    assert "not part of the current supported polyfempy.api interface" in text
+    assert "not part of the current supported polyfempy.runtime interface" in text
     assert "simulationconfig" in text

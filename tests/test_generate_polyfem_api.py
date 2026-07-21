@@ -13,7 +13,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "tools" / "generate_polyfem_api.py"
 GENERATOR_SCRIPT = ROOT / "python-from-jse" / "tools" / "generate_with_overrides.py"
-GENERATED_DIR = ROOT / "polyfempy" / "generated"
+POLYFEM_SCHEMA_FILE = ROOT / "python-from-jse" / "json-specs" / "input-spec.json"
+GENERATED_DIR = ROOT / "polyfempy" / "generated_api"
 
 
 def import_workflow(module_name: str = "generate_polyfem_api_for_test"):
@@ -41,7 +42,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
                     sys.executable,
                     str(GENERATOR_SCRIPT),
                     "--schema-file",
-                    str(ROOT / "python-from-jse" / "json-specs" / "input-spec.json"),
+                    str(POLYFEM_SCHEMA_FILE),
                     "--output-file",
                     str(GENERATED_DIR / "generated_class.py"),
                     "--api-output-file",
@@ -79,7 +80,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
                     sys.executable,
                     str(GENERATOR_SCRIPT),
                     "--schema-file",
-                    str(ROOT / "python-from-jse" / "json-specs" / "input-spec.json"),
+                    str(POLYFEM_SCHEMA_FILE),
                     "--output-file",
                     str(GENERATED_DIR / "generated_class.py"),
                     "--api-output-file",

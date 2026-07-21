@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def test_output_adapter_exports_pipeline_output_helpers():
-    from polyfempy.api import _solve_outputs as outputs
+    from polyfempy.runtime import _solve_outputs as outputs
 
     expected = [
         "NativeOutputs",
@@ -16,8 +16,8 @@ def test_output_adapter_exports_pipeline_output_helpers():
 
 
 def test_pipeline_reexports_output_helpers_for_compatibility():
-    from polyfempy.api import _solve_outputs as outputs
-    from polyfempy.api import _solve_pipeline as pipeline
+    from polyfempy.runtime import _solve_outputs as outputs
+    from polyfempy.runtime import _solve_pipeline as pipeline
 
     assert pipeline.NativeOutputs is outputs.NativeOutputs
     assert pipeline.extract_native_outputs is outputs.extract_native_outputs

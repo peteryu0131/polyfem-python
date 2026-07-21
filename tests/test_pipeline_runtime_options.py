@@ -10,7 +10,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.api._solve_pipeline import RuntimeOptions, resolve_runtime_options  # noqa: E402
+from polyfempy.runtime._solve_pipeline import RuntimeOptions, resolve_runtime_options  # noqa: E402
 
 
 def _make_cfg(output: dict | None = None) -> dict:

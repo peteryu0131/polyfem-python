@@ -11,8 +11,9 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_ROOT = REPO_ROOT / "python-from-jse"
 GENERATOR_CONFIG_DIR = REPO_ROOT / "generator-config"
+POLYFEM_SCHEMA_FILE = GENERATOR_ROOT / "json-specs" / "input-spec.json"
 POLYFEMPY_PACKAGE_DIR = REPO_ROOT / "polyfempy"
-GENERATED_DIR = POLYFEMPY_PACKAGE_DIR / "generated"
+GENERATED_DIR = POLYFEMPY_PACKAGE_DIR / "generated_api"
 
 
 def workflow_steps(run_checks: bool) -> list[tuple[list[str], Path]]:
@@ -22,7 +23,7 @@ def workflow_steps(run_checks: bool) -> list[tuple[list[str], Path]]:
                 sys.executable,
                 str(GENERATOR_ROOT / "tools" / "generate_with_overrides.py"),
                 "--schema-file",
-                str(GENERATOR_ROOT / "json-specs" / "input-spec.json"),
+                str(POLYFEM_SCHEMA_FILE),
                 "--output-file",
                 str(GENERATED_DIR / "generated_class.py"),
                 "--api-output-file",
@@ -70,6 +71,7 @@ def missing_required_paths() -> list[Path]:
     required = [
         GENERATOR_ROOT,
         GENERATOR_ROOT / "tools" / "generate_with_overrides.py",
+        POLYFEM_SCHEMA_FILE,
         GENERATOR_CONFIG_DIR,
         GENERATOR_CONFIG_DIR / "api_aliases.json",
         GENERATOR_CONFIG_DIR / "id_relationships.json",
@@ -81,7 +83,7 @@ def missing_required_paths() -> list[Path]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate polyfempy/generated from python-from-jse and "
+            "Generate polyfempy/generated_api from python-from-jse and "
             "generator-config."
         ),
     )

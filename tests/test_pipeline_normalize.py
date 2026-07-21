@@ -18,7 +18,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.api._solve_pipeline import (  # noqa: E402
+from polyfempy.runtime._solve_pipeline import (  # noqa: E402
     NormalizedInputs,
     build_full_json,
     configure_solver,
@@ -26,7 +26,7 @@ from polyfempy.api._solve_pipeline import (  # noqa: E402
     normalize_cfg,
     normalize_mesh_inputs,
 )
-from polyfempy.api._solve_contract import (  # noqa: E402
+from polyfempy.runtime._solve_contract import (  # noqa: E402
     MeshSource,
     build_canonical_solver_settings,
     prepare_canonical_solve_input,

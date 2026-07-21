@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from polyfempy.api._solve_contract import prepare_canonical_solve_input
+from polyfempy.runtime._solve_contract import prepare_canonical_solve_input
 
 
 ROOT = Path(__file__).resolve().parents[1]
