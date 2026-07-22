@@ -13,7 +13,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "tools" / "generate_polyfem_api.py"
 GENERATOR_SCRIPT = ROOT / "python-from-jse" / "tools" / "generate_with_overrides.py"
-POLYFEM_SOURCE_DIR = ROOT / "external" / "polyfem"
+POLYFEM_SOURCE_DIR = ROOT / "polyfem"
 POLYFEM_SCHEMA_FILE = POLYFEM_SOURCE_DIR / "json-specs" / "input-spec.json"
 GENERATED_DIR = ROOT / "polyfempy" / "generated_api"
 
@@ -212,7 +212,6 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
                 result = workflow.main([])
 
         self.assertEqual(1, result)
-        self.assertIn("external", stderr.getvalue())
         self.assertIn("polyfem", stderr.getvalue())
         self.assertIn("submodule", stderr.getvalue())
         run_mock.assert_not_called()

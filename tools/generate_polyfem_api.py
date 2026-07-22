@@ -12,7 +12,7 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_ROOT = REPO_ROOT / "python-from-jse"
 GENERATOR_CONFIG_DIR = REPO_ROOT / "generator-config"
-DEFAULT_POLYFEM_SOURCE_DIR = REPO_ROOT / "external" / "polyfem"
+DEFAULT_POLYFEM_SOURCE_DIR = REPO_ROOT / "polyfem"
 POLYFEMPY_PACKAGE_DIR = REPO_ROOT / "polyfempy"
 GENERATED_DIR = POLYFEMPY_PACKAGE_DIR / "generated_api"
 LINKED_SOLVER_SPEC_FILES = (
@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help=(
             "Path to a PolyFEM source checkout. Defaults to the "
-            "external/polyfem submodule."
+            "polyfem submodule."
         ),
     )
     parser.add_argument(
@@ -158,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Missing required path: {path}", file=sys.stderr)
         print(
             "If this is a fresh checkout, run "
-            "`git submodule update --init --recursive` so external/polyfem "
+            "`git submodule update --init --recursive` so polyfem "
             "and python-from-jse are present. "
             "If the missing file is a linked solver spec, pass "
             "`--include-spec-dir <dir-containing-linked-specs>`.",

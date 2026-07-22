@@ -5,7 +5,7 @@ rewritten.
 
 The current work-in-progress public API direction is:
 
-- generated Python configuration helpers from `external/polyfem/json-specs/`
+- generated Python configuration helpers from `polyfem/json-specs/`
 - PolyFEM-specific generator config under `generator-config/`
 - `polyfempy.runtime.solve(...)` as the forward solve entry point
 - generated/model-builder examples from the `examples/` submodule
@@ -17,7 +17,8 @@ checkouts for upstream source, generator, data, and examples:
 - `polyfempy/runtime/`: handwritten solve/runtime layer.
 - `polyfempy/generated_api/`: packaged generated config authoring API.
 - `src/`: C++ extension sources.
-- `external/polyfem/`: PolyFEM backend source and canonical JSON specs.
+- `polyfem/`: `polyfem/polyfem` submodule for PolyFEM backend source and
+  canonical JSON specs.
 - `python-from-jse/`: `polyfem/python-from-jse` submodule for the generic
   JSON-spec-to-Python generator and dummy examples.
 - `generator-config/`: PolyFEM-specific generator config.
@@ -46,7 +47,7 @@ python tools\generate_polyfem_api.py --check
 ```
 
 PolyFEM's raw JSON spec may reference linked solver specs that are provided by
-the C++ dependency/spec setup rather than `external/polyfem/json-specs/` itself.
+the C++ dependency/spec setup rather than `polyfem/json-specs/` itself.
 When those files are available in a local directory, pass it explicitly:
 
 ```powershell
