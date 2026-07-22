@@ -52,6 +52,20 @@ class GeneratedPayloadTests(unittest.TestCase):
         self.assertEqual(prepared["output"]["directory"], "")
         self.assertFalse(prepared["output"]["stats"])
 
+    def test_prepare_payload_leaves_output_schema_validation_to_backend(self):
+        payload = {
+            "geometry": [{"mesh": "beam.msh"}],
+            "materials": [{"type": "LinearElasticity", "E": 20.0, "nu": 0.3}],
+            "output": {
+                "directory": "out",
+                "future_backend_option": {"enabled": True},
+            },
+        }
+
+        prepared = prepare_generated_backend_payload(payload)
+
+        self.assertEqual(prepared["output"], payload["output"])
+
     def test_prepare_payload_resolves_relative_geometry_mesh_from_root_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             case_dir = Path(tmp) / "case"

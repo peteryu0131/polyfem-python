@@ -31,8 +31,6 @@ def test_backend_forward_solve_smoke(tmp_path):
         "json": "smoke_stats.json",
         "paraview": {"file_name": ""},
         "advanced": {"save_time_sequence": False},
-        "result": {"fields": ["u"], "strict": True},
-        "fallback": {"sampled_vtu": "never"},
     }
 
     result = solve(cfg=cfg)

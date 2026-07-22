@@ -1,8 +1,8 @@
-"""Unit tests for JSON normalization helpers in `_solve_pipeline`.
+"""Unit tests for JSON normalization helpers in `_solve_contract`.
 
 Covers:
     - clean_json_for_cpp:    recursively drop None leaves from dicts and lists
-    - process_json_config:   pop `common`, strip Python-only output keys,
+    - process_json_config:   pop `common`, preserve backend output keys,
                              resolve relative mesh paths via `root_path`
 
 These tests never touch the C++ backend. They only exercise pure Python stages.
@@ -20,7 +20,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.runtime._solve_pipeline import (  # noqa: E402
+from polyfempy.runtime._solve_contract import (  # noqa: E402
     clean_json_for_cpp,
     process_json_config,
 )
@@ -79,10 +79,6 @@ class ProcessJsonConfigTests(unittest.TestCase):
             "common": "legacy-should-be-dropped",
             "output": {
                 "directory": "out",
-                "result": {"fields": ["u"]},
-                "fallback": {"sampled_vtu": "auto"},
-                "save_paraview": False,
-                "save_vtu": False,
                 "json": True,
             },
             "materials": [{"type": "LinearElasticity", "E": 20, "nu": 0.3}],
@@ -92,16 +88,24 @@ class ProcessJsonConfigTests(unittest.TestCase):
         processed = process_json_config(self._base(), cfg=None)
         self.assertNotIn("common", processed)
 
-    def test_strips_python_only_output_keys(self):
+    def test_keeps_backend_output_keys(self):
         processed = process_json_config(self._base(), cfg=None)
         self.assertIn("output", processed)
-        self.assertNotIn("result", processed["output"])
-        self.assertNotIn("fallback", processed["output"])
-        self.assertNotIn("save_paraview", processed["output"])
-        self.assertNotIn("save_vtu", processed["output"])
-        # Keys that belong to the C++ schema must survive.
         self.assertEqual(processed["output"].get("directory"), "out")
         self.assertTrue(processed["output"].get("json"))
+
+    def test_leaves_output_schema_validation_to_backend(self):
+        payload = self._base()
+        payload["output"].update(
+            {
+                "future_backend_option": {"enabled": True},
+                "nested_backend_option": {"mode": "raw"},
+            }
+        )
+
+        processed = process_json_config(payload, cfg=None)
+
+        self.assertEqual(processed["output"], payload["output"])
 
     def test_does_not_mutate_input(self):
         original = self._base()

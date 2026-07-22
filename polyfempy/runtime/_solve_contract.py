@@ -117,7 +117,6 @@ _NONLINEAR_ADVANCED_GENERATED_DEFAULTS = {
     "gradient_fd_eps": 1e-07,
 }
 
-
 def _restore_backend_payload_semantics(payload: Dict[str, Any]) -> None:
     _restore_transformation_semantics(payload)
     _restore_nonlinear_solver_semantics(payload)
@@ -455,13 +454,6 @@ def process_json_config(full_json: Dict[str, Any], cfg: Any) -> Dict[str, Any]:
     processed.pop("common", None)
     processed.pop("extras", None)
     processed.pop("_mesh_array_mode", None)
-
-    out = processed.get("output")
-    if isinstance(out, dict):
-        out.pop("result", None)
-        out.pop("fallback", None)
-        out.pop("save_paraview", None)
-        out.pop("save_vtu", None)
 
     root_path = processed.get("root_path")
     geometry = processed.get("geometry")

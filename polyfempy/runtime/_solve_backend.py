@@ -3,8 +3,7 @@
 This module owns the mechanics of talking to the compiled PolyFEM backend:
 constructing a solver, applying settings, attaching meshes, applying sidesets,
 and running assemble/solve. User-facing config and mesh-source semantics live
-in ``_solve_contract.py``; output extraction lives in ``_solve_pipeline.py`` for
-now.
+in ``_solve_contract.py``; the final backend bundle is converted in ``solve.py``.
 """
 
 from __future__ import annotations
@@ -27,7 +26,6 @@ class SolverConfigContext:
 
     settings_dict: Optional[Dict[str, Any]] = None
     bc: Dict[str, Any] = field(default_factory=dict)
-    use_json_mode: bool = False
 
 
 def _first_attr(obj, *names):
@@ -117,13 +115,13 @@ def _configure_json_mode(
         solver.load_mesh_from_settings()
     else:
         raise RuntimeError("JSON mode requires load_mesh_from_settings() method")
-    return SolverConfigContext(settings_dict=None, bc={}, use_json_mode=True)
+    return SolverConfigContext(settings_dict=None, bc={})
 
 
 def _configure_array_mode(
     solver,
     cfg,
-    inputs,
+    mesh_source: MeshSource,
     *,
     backend_settings: Optional[Dict[str, Any]] = None,
 ) -> SolverConfigContext:
@@ -133,14 +131,7 @@ def _configure_array_mode(
         else build_canonical_solver_settings(
             cfg,
             full_json=None,
-            mesh_source=MeshSource(
-                mode=inputs.mesh_source or "array",
-                vertices=inputs.V_np,
-                cells=inputs.C_np,
-                body_ids=inputs.body_ids_np,
-                boundary_ids=inputs.boundary_ids_np,
-                v_backend=inputs.v_backend,
-            ),
+            mesh_source=mesh_source,
         )
     )
 
@@ -155,11 +146,11 @@ def _configure_array_mode(
         settings_dict["boundary_conditions"].update(bc)
 
     _apply_settings_json(solver, json.dumps(settings_dict))
-    return SolverConfigContext(settings_dict=settings_dict, bc=bc, use_json_mode=False)
+    return SolverConfigContext(settings_dict=settings_dict, bc=bc)
 
 
-def _apply_mesh_array_mode(solver, inputs) -> None:
-    V_np, C_np = inputs.V_np, inputs.C_np
+def _apply_mesh_array_mode(solver, mesh_source: MeshSource) -> None:
+    V_np, C_np = mesh_source.vertices, mesh_source.cells
     for name in ("set_mesh", "set_mesh_data", "load_mesh_from_points"):
         if hasattr(solver, name):
             fn = getattr(solver, name)
@@ -178,10 +169,10 @@ def _apply_mesh_array_mode(solver, inputs) -> None:
     mesh = solver.mesh() if hasattr(solver, "mesh") else None
     if mesh is None:
         return
-    if inputs.body_ids_np is not None and hasattr(mesh, "set_body_ids"):
-        mesh.set_body_ids(inputs.body_ids_np)
-    if inputs.boundary_ids_np is not None and hasattr(mesh, "set_boundary_ids"):
-        mesh.set_boundary_ids(inputs.boundary_ids_np)
+    if mesh_source.body_ids is not None and hasattr(mesh, "set_body_ids"):
+        mesh.set_body_ids(mesh_source.body_ids)
+    if mesh_source.boundary_ids is not None and hasattr(mesh, "set_boundary_ids"):
+        mesh.set_boundary_ids(mesh_source.boundary_ids)
 
 
 def _retouch_bc_after_mesh(solver, ctx: SolverConfigContext) -> None:
@@ -215,12 +206,12 @@ def configure_solver(
     solver,
     cfg,
     full_json: Optional[dict],
-    inputs,
+    mesh_source: MeshSource,
     *,
     backend_settings: Optional[Dict[str, Any]] = None,
 ) -> SolverConfigContext:
     """Set settings, load/attach mesh. Returns context used by later retouch stages."""
-    if inputs.use_json_mode:
+    if mesh_source.mode == "json":
         return _configure_json_mode(
             solver,
             full_json,
@@ -231,10 +222,10 @@ def configure_solver(
     ctx = _configure_array_mode(
         solver,
         cfg,
-        inputs,
+        mesh_source,
         backend_settings=backend_settings,
     )
-    _apply_mesh_array_mode(solver, inputs)
+    _apply_mesh_array_mode(solver, mesh_source)
     _retouch_bc_after_mesh(solver, ctx)
     return ctx
 
@@ -269,7 +260,7 @@ def apply_sidesets(
     except Exception as exc:
         warnings.warn(f"Failed to set boundary IDs: {exc}", RuntimeWarning)
 
-    if not ctx.use_json_mode and ctx.bc and ctx.settings_dict is not None:
+    if ctx.bc and ctx.settings_dict is not None:
         try:
             ctx.settings_dict.setdefault("boundary_conditions", {})
             ctx.settings_dict["boundary_conditions"].update(ctx.bc)
@@ -282,7 +273,7 @@ def _resolve_log_level(full_json: Optional[dict]) -> int:
     if not (full_json and "output" in full_json and "log" in full_json["output"]):
         return 2
     log_cfg = full_json["output"]["log"]
-    # Keep terminal logging aligned with the Python-side OutputLog default.
+    # Keep terminal logging aligned with the generated OutputLog default.
     # ``OutputLog.to_dict()`` omits ``level`` when it is the default "debug",
     # so falling back to "info" here would silently make console output less
     # verbose than the file log.
@@ -295,12 +286,7 @@ def _resolve_log_level(full_json: Optional[dict]) -> int:
 
 
 def run_solver_stage(solver, full_json: Optional[dict]):
-    """Run assemble + solve. Returns raw solver return value."""
-    if hasattr(solver, "build_basis"):
-        solver.build_basis()
-    if hasattr(solver, "assemble"):
-        solver.assemble()
-
+    """Run the backend solve entry point and return its raw result."""
     name = _first_attr(solver, "solve", "run")
     if not name:
         raise RuntimeError("No solver entry point found (solve / run).")

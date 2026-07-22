@@ -39,6 +39,7 @@ def test_runtime_recommended_surface_is_small():
         "solve_with_timing",
         "configure_windows_runtime",
         "batch_solve",
+        "HistoryView",
     ):
         assert not hasattr(runtime, name)
 
@@ -50,11 +51,16 @@ def test_legacy_api_and_generated_packages_are_removed():
 
     assert not (package_dir / "api").exists()
     assert not (package_dir / "generated").exists()
+    assert not (package_dir / "runtime" / "_solve_pipeline.py").exists()
+    assert not (package_dir / "runtime" / "_solve_outputs.py").exists()
 
 
 def test_solve_module_all_only_recommends_solve():
     import importlib
+    import inspect
 
     solve_module = importlib.import_module("polyfempy.runtime.solve")
 
     assert solve_module.__all__ == ["solve"]
+    assert "sampled_vtu_fallback" not in inspect.signature(solve_module.solve).parameters
+    assert not hasattr(solve_module, "populate_sampled_history")

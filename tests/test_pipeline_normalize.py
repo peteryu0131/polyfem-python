@@ -18,17 +18,14 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-from polyfempy.runtime._solve_pipeline import (  # noqa: E402
-    NormalizedInputs,
-    build_full_json,
-    configure_solver,
-    merge_user_cfg_over_full_json,
-    normalize_cfg,
-    normalize_mesh_inputs,
-)
+from polyfempy.runtime._solve_backend import configure_solver  # noqa: E402
 from polyfempy.runtime._solve_contract import (  # noqa: E402
     MeshSource,
     build_canonical_solver_settings,
+    build_full_json,
+    choose_mesh_source,
+    merge_user_cfg_over_full_json,
+    normalize_config as normalize_cfg,
     prepare_canonical_solve_input,
 )
 
@@ -151,44 +148,51 @@ class MergeUserCfgOverFullJsonTests(unittest.TestCase):
             merge_user_cfg_over_full_json(BrokenCfg(), {"a": 1})
 
 
-class NormalizeMeshInputsTests(unittest.TestCase):
+class ChooseMeshSourceTests(unittest.TestCase):
+    def test_mesh_source_is_the_only_normalized_mesh_contract(self):
+        import polyfempy.runtime._solve_contract as contract
+
+        self.assertFalse(hasattr(contract, "NormalizedInputs"))
+        self.assertFalse(hasattr(contract, "inputs_from_mesh_source"))
+        self.assertFalse(hasattr(contract, "normalize_mesh_inputs"))
+
     def test_array_mode_returns_numpy_arrays(self):
         V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
         C = np.array([[0, 1, 2]], dtype=np.int64)
-        inputs = normalize_mesh_inputs(V, C, None, dtype=None)
-        self.assertIsInstance(inputs, NormalizedInputs)
-        self.assertFalse(inputs.use_json_mode)
-        self.assertEqual(inputs.V_np.shape, (3, 2))
-        self.assertEqual(inputs.C_np.dtype, np.int32)
-        self.assertEqual(inputs.v_backend, "numpy")
+        mesh_source = choose_mesh_source(V, C, None, dtype=None)
+        self.assertIsInstance(mesh_source, MeshSource)
+        self.assertEqual(mesh_source.mode, "array")
+        self.assertEqual(mesh_source.vertices.shape, (3, 2))
+        self.assertEqual(mesh_source.cells.dtype, np.int32)
+        self.assertEqual(mesh_source.v_backend, "numpy")
 
     def test_json_mode_when_full_json_has_geometry_and_no_arrays(self):
         full_json = {"geometry": [{"mesh": "beam.msh"}]}
-        inputs = normalize_mesh_inputs(None, None, full_json, dtype=None)
-        self.assertTrue(inputs.use_json_mode)
-        self.assertIsNone(inputs.V_np)
-        self.assertIsNone(inputs.C_np)
+        mesh_source = choose_mesh_source(None, None, full_json, dtype=None)
+        self.assertEqual(mesh_source.mode, "json")
+        self.assertIsNone(mesh_source.vertices)
+        self.assertIsNone(mesh_source.cells)
 
     def test_neither_arrays_nor_geometry_raises(self):
         with self.assertRaises(ValueError):
-            normalize_mesh_inputs(None, None, None, dtype=None)
+            choose_mesh_source(None, None, None, dtype=None)
         with self.assertRaises(ValueError):
-            normalize_mesh_inputs(None, None, {"pde": "LinearElasticity"}, dtype=None)
+            choose_mesh_source(None, None, {"pde": "LinearElasticity"}, dtype=None)
 
     def test_arrays_override_json_mode_when_both_provided(self):
         V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
         C = np.array([[0, 1, 2]], dtype=np.int32)
         full_json = {"geometry": [{"mesh": "beam.msh"}]}
-        inputs = normalize_mesh_inputs(V, C, full_json, dtype=None)
-        self.assertFalse(inputs.use_json_mode)
-        self.assertIsNotNone(inputs.V_np)
+        mesh_source = choose_mesh_source(V, C, full_json, dtype=None)
+        self.assertEqual(mesh_source.mode, "array")
+        self.assertIsNotNone(mesh_source.vertices)
 
     def test_partial_array_input_raises_even_when_json_geometry_exists(self):
         V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
         full_json = {"geometry": [{"mesh": "beam.msh"}]}
 
         with self.assertRaisesRegex(ValueError, "array mode requires both vertices and cells"):
-            normalize_mesh_inputs(V, None, full_json, dtype=None)
+            choose_mesh_source(V, None, full_json, dtype=None)
 
 
 class CanonicalSolverSettingsTests(unittest.TestCase):
@@ -244,6 +248,28 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
         self.assertEqual(canonical.mesh_source.cells.dtype, np.int32)
         self.assertEqual(canonical.backend_settings["geometry"][0]["type"], "ground")
         self.assertEqual(canonical.backend_settings["materials"][0]["type"], "LinearElasticity")
+
+    def test_array_mode_leaves_output_schema_validation_to_backend(self):
+        V = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64)
+        C = np.array([[0, 1, 2]], dtype=np.int64)
+        output = {
+            "directory": "out",
+            "future_backend_option": {"enabled": True},
+        }
+        cfg = {
+            "pde": "LinearElasticity",
+            "materials": {"E": 20.0, "nu": 0.3},
+            "output": output,
+        }
+
+        canonical = prepare_canonical_solve_input(
+            vertices=V,
+            cells=C,
+            cfg=cfg,
+            dtype=None,
+        )
+
+        self.assertEqual(canonical.backend_settings["output"], output)
 
     def test_prepare_canonical_solve_input_for_guided_array_mode(self):
         cfg = {
@@ -318,14 +344,13 @@ class ConfigureSolverContractTests(unittest.TestCase):
             def mesh(self):
                 return FakeMesh()
 
-        inputs = NormalizedInputs(
-            V_np=np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
-            C_np=np.array([[0, 1, 2]], dtype=np.int32),
-            body_ids_np=None,
-            boundary_ids_np=None,
+        mesh_source = MeshSource(
+            mode="guided_array",
+            vertices=np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
+            cells=np.array([[0, 1, 2]], dtype=np.int32),
+            body_ids=None,
+            boundary_ids=None,
             v_backend="numpy",
-            use_json_mode=False,
-            mesh_source="guided_array",
         )
         backend_settings = {
             "pde": "LinearElasticity",
@@ -338,7 +363,7 @@ class ConfigureSolverContractTests(unittest.TestCase):
             solver,
             {},
             full_json=None,
-            inputs=inputs,
+            mesh_source=mesh_source,
             backend_settings=backend_settings,
         )
 

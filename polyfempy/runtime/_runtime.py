@@ -42,27 +42,6 @@ def should_auto_configure_windows() -> bool:
     return raw not in _TRUTHY
 
 
-def _wrap_stream_as_utf8(stream) -> bool:
-    """Rewrap a binary-buffered text stream with UTF-8. Idempotent: returns
-    False if the stream is already a UTF-8 ``TextIOWrapper``.
-    """
-    if stream is None:
-        return False
-    if isinstance(stream, io.TextIOWrapper):
-        try:
-            if (stream.encoding or "").lower().replace("-", "") == "utf8":
-                return False
-        except Exception:
-            pass
-    buf = getattr(stream, "buffer", None)
-    if buf is None:
-        return False
-    try:
-        return io.TextIOWrapper(buf, encoding="utf-8", errors="replace") is not None
-    except Exception:
-        return False
-
-
 def configure_windows_runtime(*, force: bool = False) -> Dict[str, List[str]]:
     """Apply Windows-only runtime tweaks to the current Python process.
 

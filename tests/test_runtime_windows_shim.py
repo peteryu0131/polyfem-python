@@ -56,6 +56,10 @@ class PublicSurfaceTests(unittest.TestCase):
         self.assertIsInstance(result["applied"], list)
         self.assertIsInstance(result["skipped"], list)
 
+    def test_dead_private_stream_wrapper_is_not_present(self):
+        runtime_mod = importlib.import_module("polyfempy.runtime._runtime")
+        self.assertFalse(hasattr(runtime_mod, "_wrap_stream_as_utf8"))
+
 
 class NonWindowsNoOpTests(unittest.TestCase):
     def test_linux_is_a_noop_and_reports_why(self):
