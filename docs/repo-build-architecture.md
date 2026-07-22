@@ -205,7 +205,12 @@ CPM 和 FetchContent 适合 CMake 在 build 时拉 C++ dependency。
 CPMAddPackage("gh:polyfem/polyfem#e8bd3d3")
 ```
 
-当前 `polyfem-data` 则通过 FetchContent 逻辑下载到数据目录。
+`polyfem-data` 现在不再由 CMake 在 build 时自动下载，而是作为 submodule
+固定版本。如果目录不存在，build 应该清楚报错并提示运行：
+
+```bash
+git submodule update --init --recursive
+```
 
 这对 C++ dependency 是合理的，但对 `python-from-jse` 这种 Python generator
 不一定最清楚。因为 generator 是开发者会直接看和改的工具，用 submodule 更容易讲清楚。
@@ -364,27 +369,27 @@ polyfempy/polyfempy*.so    # Linux/macOS
 
 ## 当前需要注意的问题
 
-### 1. CMake 默认 data path 还不一致
+### 1. CMake 默认 data path
 
-当前 `CMakeLists.txt` 默认数据路径是：
+当前 `CMakeLists.txt` 默认数据路径已经是：
 
 ```cmake
-${CMAKE_CURRENT_SOURCE_DIR}/data/
+${CMAKE_CURRENT_SOURCE_DIR}/polyfem-data
 ```
 
-但当前 repo 方向已经是：
+这和当前 repo 方向一致：
 
 ```text
 polyfem-data/
 ```
 
-所以后续应该考虑把默认路径改成 `polyfem-data/`，或者要求 build 时显式传：
+如果本地数据放在别的位置，也可以 build 时显式传：
 
 ```bash
 -DINPUT_POLYFEMPY_DATA_ROOT=polyfem-data
 ```
 
-### 2. submodule 结构还没有全部完成
+### 2. submodule 结构已经统一
 
 当前已经有 `.gitmodules`，并且 `polyfem/`、`python-from-jse/`、`polyfem-data/` 和 `examples/` 都是正式 submodule。
 
