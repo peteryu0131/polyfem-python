@@ -32,6 +32,9 @@ htmlcov/
 /polyfempy/generated_api/
 /python-from-jse/generated/
 
+# Local architecture/discussion notes
+/docs/
+
 # Local agent/build scratch
 .codex
 .codex_tmp/
