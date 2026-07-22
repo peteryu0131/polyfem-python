@@ -60,6 +60,28 @@ def _case_id(case: tuple[Path, Path]) -> str:
     return example_path.stem
 
 
+def _require_examples_submodule() -> None:
+    if not CLASSIC_EXAMPLES.exists():
+        pytest.skip(
+            "examples submodule is not initialized; run "
+            "`git submodule update --init examples`"
+        )
+
+
+def _require_polyfem_data_submodule() -> None:
+    if not POLYFEM_DATA_EXAMPLES.exists():
+        pytest.skip(
+            "polyfem-data submodule is not initialized; run "
+            "`git submodule update --init polyfem-data`"
+        )
+
+
+@pytest.fixture(autouse=True)
+def _skip_without_required_submodules():
+    _require_examples_submodule()
+    _require_polyfem_data_submodule()
+
+
 def _import_example(example_path: Path) -> Any:
     spec = importlib.util.spec_from_file_location(example_path.stem, example_path)
     module = importlib.util.module_from_spec(spec)

@@ -47,8 +47,8 @@ polyfem-python/
 - `generator-config/` 是 PolyFEM Python API 的配置。
 - `external/polyfem/` 是 PolyFEM backend source submodule，也是 canonical JSON spec 来源。
 - `python-from-jse/` 是通用 generator，不是 PolyFEM Python 专属代码。
-- `polyfem-data/` 是数据，不应该混在 Python package 源码里。
-- `examples/` 是用户示例，可以独立维护。
+- `polyfem-data/` 是数据，现在作为 `polyfem/polyfem-data` submodule 独立维护。
+- `examples/` 是用户示例，现在作为 `polyfem/python_data` submodule 独立维护。
 
 ## Python Package 内部分层
 
@@ -227,7 +227,7 @@ polyfem-python/
     polyfem/       # submodule, backend source and canonical JSON specs
   python-from-jse/   # submodule
   polyfem-data/      # submodule
-  examples/          # submodule, optional
+  examples/          # submodule, polyfem/python_data
 ```
 
 这个结构里：
@@ -386,9 +386,9 @@ polyfem-data/
 
 ### 2. submodule 结构还没有全部完成
 
-当前已经有 `.gitmodules`，并且 `external/polyfem/` 是正式 submodule。
+当前已经有 `.gitmodules`，并且 `external/polyfem/`、`polyfem-data/` 和 `examples/` 是正式 submodule。
 
-但 `python-from-jse/`、`polyfem-data/`、`examples/` 还不是完整的正式 submodule
+但 `python-from-jse/` 还不是完整的正式 submodule
 结构。后续如果要让老师或其他人 clone 后自动得到同样结构，需要继续把这些目录
 也整理成 submodule 或明确的 bootstrap 步骤。
 
@@ -456,7 +456,7 @@ Python package 内部也分成两层：
 
 1. 保留现在的 repo 边界文档。
 2. 和老师确认 `polyfempy/generated_api/` 是否进入 git。
-3. 已增加 `external/polyfem` submodule；后续再把 `python-from-jse`、`polyfem-data`、`examples` 变成正式 submodule。
+3. 已增加 `external/polyfem`、`polyfem-data` 和 `examples` submodule；后续再把 `python-from-jse` 变成正式 submodule。
 4. 增加 `tools/bootstrap_repos.py` 或 PowerShell 版本。
 5. 修改 CMake 默认 data path，避免继续默认指向旧的 `data/`。
 6. 更新 GitHub Actions，让 CI 使用 submodules 并运行 generated API checks。

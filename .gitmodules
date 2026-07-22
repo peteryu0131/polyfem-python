@@ -1,3 +1,9 @@
 [submodule "external/polyfem"]
 	path = external/polyfem
 	url = https://github.com/polyfem/polyfem.git
+[submodule "examples"]
+	path = examples
+	url = https://github.com/polyfem/python_data.git
+[submodule "polyfem-data"]
+	path = polyfem-data
+	url = https://github.com/polyfem/polyfem-data.git

@@ -8,11 +8,11 @@ The current work-in-progress public API direction is:
 - generated Python configuration helpers from `external/polyfem/json-specs/`
 - PolyFEM-specific generator config under `generator-config/`
 - `polyfempy.runtime.solve(...)` as the forward solve entry point
-- generated/model-builder examples under `examples/classic_example/`
+- generated/model-builder examples from the `examples/` submodule
 - `solve(cfg=...)` accepts generated config objects, backend-shaped dicts, or JSON paths
 
-The repository currently keeps the generator, data, and examples in one working
-tree. The intended split is:
+The repository is being split into the Python package plus fixed submodule
+checkouts for upstream source, data, and examples:
 
 - `polyfempy/runtime/`: handwritten solve/runtime layer.
 - `polyfempy/generated_api/`: packaged generated config authoring API.
@@ -20,11 +20,13 @@ tree. The intended split is:
 - `external/polyfem/`: PolyFEM backend source and canonical JSON specs.
 - `python-from-jse/`: generic JSON-spec-to-Python generator and dummy examples.
 - `generator-config/`: PolyFEM-specific generator config.
-- `polyfem-data/`: data, meshes, source JSON examples, and expected test data.
-- `examples/`: generated-API examples, with `classic_example/` as the current
-  example collection.
+- `polyfem-data/`: `polyfem/polyfem-data` submodule for data, meshes, source
+  JSON examples, and expected test data.
+- `examples/`: `polyfem/python_data` submodule, with `classic_example/` as the
+  current generated-API example collection.
 
-For a fresh checkout, initialize submodules before generating or building:
+For a fresh checkout, initialize submodules before generating, building, or
+running example parity tests:
 
 ```powershell
 git submodule update --init --recursive
