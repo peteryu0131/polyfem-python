@@ -12,13 +12,14 @@ The current work-in-progress public API direction is:
 - `solve(cfg=...)` accepts generated config objects, backend-shaped dicts, or JSON paths
 
 The repository is being split into the Python package plus fixed submodule
-checkouts for upstream source, data, and examples:
+checkouts for upstream source, generator, data, and examples:
 
 - `polyfempy/runtime/`: handwritten solve/runtime layer.
 - `polyfempy/generated_api/`: packaged generated config authoring API.
 - `src/`: C++ extension sources.
 - `external/polyfem/`: PolyFEM backend source and canonical JSON specs.
-- `python-from-jse/`: generic JSON-spec-to-Python generator and dummy examples.
+- `python-from-jse/`: `polyfem/python-from-jse` submodule for the generic
+  JSON-spec-to-Python generator and dummy examples.
 - `generator-config/`: PolyFEM-specific generator config.
 - `polyfem-data/`: `polyfem/polyfem-data` submodule for data, meshes, source
   JSON examples, and expected test data.

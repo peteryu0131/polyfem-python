@@ -157,9 +157,9 @@ def main(argv: list[str] | None = None) -> int:
         for path in missing:
             print(f"Missing required path: {path}", file=sys.stderr)
         print(
-            "If this is a fresh checkout, make sure python-from-jse and "
-            "generator-config are present, then run "
-            "`git submodule update --init --recursive` for external/polyfem. "
+            "If this is a fresh checkout, run "
+            "`git submodule update --init --recursive` so external/polyfem "
+            "and python-from-jse are present. "
             "If the missing file is a linked solver spec, pass "
             "`--include-spec-dir <dir-containing-linked-specs>`.",
             file=sys.stderr,

@@ -194,6 +194,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
         self.assertEqual(1, result)
         self.assertIn("Missing required path", stderr.getvalue())
         self.assertIn("python-from-jse", stderr.getvalue())
+        self.assertIn("submodule", stderr.getvalue())
         run_mock.assert_not_called()
 
     def test_missing_polyfem_schema_points_to_submodule_setup(self):

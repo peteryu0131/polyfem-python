@@ -7,3 +7,7 @@
 [submodule "polyfem-data"]
 	path = polyfem-data
 	url = https://github.com/polyfem/polyfem-data.git
+[submodule "python-from-jse"]
+	path = python-from-jse
+	url = https://github.com/polyfem/python-from-jse.git
+	branch = jingyao
