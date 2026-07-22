@@ -35,12 +35,12 @@ def test_backend_forward_solve_smoke(tmp_path):
 
     result = solve(cfg=cfg)
     try:
-        vertices = np.asarray(result.vertices)
-        u = np.asarray(result.u)
+        sol = np.asarray(result.sol)
 
-        assert vertices.ndim == 2
-        assert vertices.shape[0] > 0
-        assert u.size > 0
+        assert sol.size > 0
+        assert not hasattr(result, "vertices")
+        assert not hasattr(result, "cells")
+        assert not hasattr(result, "p")
     finally:
         if hasattr(result, "release_solver"):
             result.release_solver()

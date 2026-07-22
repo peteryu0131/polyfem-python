@@ -324,12 +324,42 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
         )
         self.assertIsInstance(settings["materials"], list)
 
+    def test_generated_config_preserves_supported_output_log_level(self):
+        from polyfempy.generated_api import generated_api as polyfem
+
+        cfg = polyfem.config(
+            materials=[
+                polyfem.linear_elasticity(
+                    E=20.0,
+                    nu=0.3,
+                    id=1,
+                )
+            ],
+            geometry=[
+                polyfem.mesh(
+                    mesh="beam.msh",
+                )
+            ],
+            output=polyfem.output(
+                log=polyfem.output_log(
+                    level=4,
+                )
+            ),
+        )
+
+        canonical = prepare_canonical_solve_input(
+            vertices=None,
+            cells=None,
+            cfg=cfg,
+            dtype=None,
+        )
+
+        self.assertEqual(canonical.full_json["output"]["log"]["level"], 4)
+        self.assertEqual(canonical.backend_settings["output"]["log"]["level"], 4)
+
 
 class ConfigureSolverContractTests(unittest.TestCase):
     def test_array_configure_uses_prebuilt_backend_settings(self):
-        class FakeMesh:
-            pass
-
         class FakeSolver:
             def __init__(self):
                 self.settings_json = None
@@ -340,9 +370,6 @@ class ConfigureSolverContractTests(unittest.TestCase):
 
             def set_mesh(self, vertices, cells):
                 self.mesh_args = (vertices, cells)
-
-            def mesh(self):
-                return FakeMesh()
 
         mesh_source = MeshSource(
             mode="guided_array",
@@ -369,6 +396,36 @@ class ConfigureSolverContractTests(unittest.TestCase):
 
         self.assertNotIn("__array_body__", solver.settings_json)
         self.assertEqual(solver.mesh_args[1].dtype, np.int32)
+
+    def test_array_configure_rejects_python_side_mesh_ids_for_varform_runtime(self):
+        class FakeSolver:
+            def set_settings(self, settings_json, strict_validation=False):
+                pass
+
+            def set_mesh(self, vertices, cells):
+                pass
+
+        mesh_source = MeshSource(
+            mode="guided_array",
+            vertices=np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]),
+            cells=np.array([[0, 1, 2]], dtype=np.int32),
+            body_ids=np.array([1], dtype=np.int32),
+            boundary_ids=None,
+            v_backend="numpy",
+        )
+
+        with self.assertRaisesRegex(NotImplementedError, "body_ids"):
+            configure_solver(
+                FakeSolver(),
+                {},
+                full_json=None,
+                mesh_source=mesh_source,
+                backend_settings={
+                    "pde": "LinearElasticity",
+                    "geometry": [{"type": "ground", "height": 0.0}],
+                    "materials": [{"type": "LinearElasticity", "E": 20.0, "nu": 0.3}],
+                },
+            )
 
 
 if __name__ == "__main__":

@@ -46,41 +46,42 @@ def _run_pipeline_from_backend_return(ret):
 
 
 class BackendBundleTests(unittest.TestCase):
-    def test_pipeline_extracts_current_backend_bundle_fields(self):
+    def test_pipeline_extracts_raw_varform_solution_bundle_fields(self):
         ret = {
             "_result_bundle": True,
-            "vertices": np.array([[0, 0], [1, 0], [0, 1]], dtype=np.float64),
-            "cells": np.array([[0, 1, 2]], dtype=np.int64),
-            "u": np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]]),
-            "p": np.array([0.5, 0.5, 0.5]),
-            "stress": np.ones((3, 3)),
-            "energy": 2.5,
+            "sol": np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]]),
             "meta": {"from_bundle": True},
         }
 
         result = _run_pipeline_from_backend_return(ret)
 
-        np.testing.assert_array_equal(result.vertices, ret["vertices"])
-        np.testing.assert_array_equal(result.cells, ret["cells"].astype(np.int32))
-        self.assertEqual(result.cells.dtype, np.int32)
-        np.testing.assert_array_equal(result.u, ret["u"])
-        np.testing.assert_array_equal(result.p, ret["p"])
+        np.testing.assert_array_equal(result.sol, ret["sol"])
         self.assertEqual(result.meta, {"from_bundle": True})
+        self.assertFalse(hasattr(result, "vertices"))
+        self.assertFalse(hasattr(result, "cells"))
+        self.assertFalse(hasattr(result, "p"))
+        self.assertFalse(hasattr(result, "u"))
         self.assertFalse(hasattr(result, "fields"))
 
-    def test_pipeline_drops_empty_pressure(self):
+    def test_pipeline_rejects_legacy_pressure_bundle_field(self):
         ret = {
             "_result_bundle": True,
-            "vertices": np.array([[0, 0], [1, 0], [0, 1]], dtype=np.float64),
-            "cells": np.array([[0, 1, 2]], dtype=np.int32),
-            "u": np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]]),
+            "sol": np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]]),
             "p": np.array([]),
         }
 
-        result = _run_pipeline_from_backend_return(ret)
+        with self.assertRaisesRegex(RuntimeError, "legacy pressure"):
+            _run_pipeline_from_backend_return(ret)
 
-        np.testing.assert_array_equal(result.u, ret["u"])
-        self.assertIsNone(result.p)
+    def test_pipeline_rejects_legacy_u_bundle_field(self):
+        ret = {
+            "_result_bundle": True,
+            "sol": np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]]),
+            "u": np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]]),
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "legacy u"):
+            _run_pipeline_from_backend_return(ret)
 
     def test_pipeline_rejects_non_bundle_backend_result(self):
         with self.assertRaisesRegex(RuntimeError, "standard result bundle"):
@@ -89,11 +90,9 @@ class BackendBundleTests(unittest.TestCase):
     def test_pipeline_rejects_bundle_missing_required_keys(self):
         ret = {
             "_result_bundle": True,
-            "vertices": np.array([[0, 0], [1, 0], [0, 1]], dtype=np.float64),
-            "u": np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]]),
         }
 
-        with self.assertRaisesRegex(RuntimeError, "missing required keys: cells"):
+        with self.assertRaisesRegex(RuntimeError, "missing required keys: sol"):
             _run_pipeline_from_backend_return(ret)
 
 

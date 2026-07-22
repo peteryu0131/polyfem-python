@@ -10,7 +10,7 @@ Why this shape:
 Important:
 - The compiled extension is expected to be available as `polyfempy.polyfempy`
   (i.e., a submodule inside this package). When present, we re-export its public
-  symbols (e.g., `Solver`, `version`, `CacheLevel`, derivatives, etc.) at the
+  symbols (e.g., `Solver`, `version`, etc.) at the
   package top-level for convenience.
 """
 

@@ -123,5 +123,9 @@ backend.
 
 - The core compute happens in C++ through `pf.Solver()`.
 - The high-level Python entry point is `polyfempy.runtime.solve`.
-- The C++ binding implements `Solver.solve()` as returning `(sol, pressure)`.
-- Use `polyfempy.runtime.Result` for structured Python-side result fields.
+- The C++ binding implements `Solver.solve()` through the new VarForm
+  `polyfem::State::solve(sol)` path.
+- `polyfempy.runtime.Result.sol` is the raw backend solution. It is not assumed
+  to be aligned with mesh vertices or sampled visualization data.
+- File outputs are owned by the backend `output` config and VarForm
+  `save_json(sol)` / `export_data(sol)` calls.

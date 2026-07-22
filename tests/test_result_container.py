@@ -14,50 +14,35 @@ if str(_REPO) not in sys.path:
 from polyfempy.runtime.result import Result  # noqa: E402
 
 
-def _mesh():
-    vertices = np.array(
-        [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
-        dtype=np.float64,
-    )
-    cells = np.array([[0, 1, 2]], dtype=np.int32)
-    return vertices, cells
+def test_result_stores_raw_backend_solution_and_meta():
+    sol = np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]])
 
+    result = Result(sol, meta={"from_bundle": True})
 
-def test_result_stores_backend_mesh_solution_pressure_and_meta():
-    vertices, cells = _mesh()
-    u = np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]])
-    p = np.array([0.5, 0.5, 0.5])
-
-    result = Result(vertices, cells, u, p=p, meta={"from_bundle": True})
-
-    np.testing.assert_array_equal(result.vertices, vertices)
-    np.testing.assert_array_equal(result.cells, cells)
-    np.testing.assert_array_equal(result.u, u)
-    np.testing.assert_array_equal(result.p, p)
+    np.testing.assert_array_equal(result.sol, sol)
     assert result.meta == {"from_bundle": True}
+    assert not hasattr(result, "vertices")
+    assert not hasattr(result, "cells")
+    assert not hasattr(result, "p")
+    assert not hasattr(result, "u")
 
 
-def test_result_reshapes_flat_solution_dofs():
-    vertices, cells = _mesh()
-    result = Result(vertices, cells, np.arange(6))
+def test_result_keeps_raw_backend_solution_shape():
+    result = Result(np.arange(6))
 
-    np.testing.assert_array_equal(result.u, np.arange(6).reshape(3, 2))
-
-
-def test_result_keeps_missing_pressure_as_none():
-    vertices, cells = _mesh()
-    result = Result(vertices, cells, np.zeros((3, 2)))
-
-    assert result.p is None
+    np.testing.assert_array_equal(result.sol, np.arange(6))
 
 
 def test_removed_runtime_output_and_convenience_helpers_are_absent():
-    vertices, cells = _mesh()
-    result = Result(vertices, cells, np.zeros((3, 2)))
+    result = Result(np.zeros((3, 2)))
 
     for name in (
         "backend",
+        "vertices",
+        "cells",
         "V",
+        "p",
+        "u",
         "fields",
         "point_data",
         "cell_data",

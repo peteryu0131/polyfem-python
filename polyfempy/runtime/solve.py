@@ -18,10 +18,21 @@ def _result_from_backend_return(ret) -> Result:
     if not isinstance(ret, dict) or not ret.get("_result_bundle"):
         raise RuntimeError(
             "PolyFEM backend did not return the standard result bundle. "
-            "Expected a dict with _result_bundle, vertices, cells, and u."
+            "Expected a dict with _result_bundle and sol."
         )
 
-    required = ("vertices", "cells", "u")
+    if "p" in ret:
+        raise RuntimeError(
+            "PolyFEM backend returned legacy pressure field 'p'. "
+            "Rebuild the VarForm backend so Solver.solve() returns only sol."
+        )
+    if "u" in ret:
+        raise RuntimeError(
+            "PolyFEM backend returned legacy u field. "
+            "Rebuild the VarForm backend so Solver.solve() returns raw sol."
+        )
+
+    required = ("sol",)
     missing = [key for key in required if key not in ret]
     if missing:
         raise RuntimeError(
@@ -29,21 +40,12 @@ def _result_from_backend_return(ret) -> Result:
             + ", ".join(missing)
         )
 
-    pressure = None
-    if ret.get("p") is not None:
-        pressure_candidate = np.asarray(ret["p"])
-        if pressure_candidate.size > 0:
-            pressure = pressure_candidate
-
     meta = {}
     if isinstance(ret.get("meta"), dict):
         meta.update(ret["meta"])
 
     return Result(
-        np.asarray(ret["vertices"]),
-        np.asarray(ret["cells"], dtype=np.int32),
-        np.asarray(ret["u"]),
-        p=pressure,
+        np.asarray(ret["sol"]),
         meta=meta,
     )
 
@@ -63,14 +65,14 @@ def run_pipeline(
         dtype=dtype,
     )
     solver = _backend.build_solver()
-    ctx = _backend.configure_solver(
+    _backend.configure_solver(
         solver,
         canonical.config,
         canonical.full_json,
         canonical.mesh_source,
         backend_settings=canonical.backend_settings,
     )
-    _backend.apply_sidesets(solver, sidesets_func, ctx)
+    _backend.apply_sidesets(solver, sidesets_func)
 
     ret = _backend.run_solver_stage(solver, canonical.full_json)
     return _result_from_backend_return(ret)
