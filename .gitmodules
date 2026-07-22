@@ -1,0 +1,3 @@
+[submodule "external/polyfem"]
+	path = external/polyfem
+	url = https://github.com/polyfem/polyfem.git

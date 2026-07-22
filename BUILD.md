@@ -23,15 +23,18 @@ submodules:
 polyfem-python/
   polyfempy/
   src/
+  external/polyfem/
   generator-config/
   python-from-jse/
   polyfem-data/
   examples/
 ```
 
-`generator-config/` is reserved for PolyFEM-specific Python API config. The
-active config lives there now, while `python-from-jse/` stays focused on the
-generic generator, its tools, and JSON specs.
+`external/polyfem/` is the PolyFEM source submodule. It provides the backend
+source and canonical JSON specs. `generator-config/` is reserved for
+PolyFEM-specific Python API config. The active config lives there now, while
+`python-from-jse/` stays focused on the generic generator, its tools, and dummy
+examples.
 
 Generated Python API files are written to `polyfempy/generated_api/` during
 explicit regeneration. They should be treated as generated artifacts, not as

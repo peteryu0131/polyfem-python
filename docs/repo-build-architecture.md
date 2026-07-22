@@ -45,6 +45,7 @@ polyfem-python/
 - `polyfempy/api/` 和 `polyfempy/generated/` 已经删除，不再作为兼容入口。
 - `src/` 是 C++ binding 源码。
 - `generator-config/` 是 PolyFEM Python API 的配置。
+- `external/polyfem/` 是 PolyFEM backend source submodule，也是 canonical JSON spec 来源。
 - `python-from-jse/` 是通用 generator，不是 PolyFEM Python 专属代码。
 - `polyfem-data/` 是数据，不应该混在 Python package 源码里。
 - `examples/` 是用户示例，可以独立维护。
@@ -109,18 +110,14 @@ from polyfempy.generated import generated_api
 它应该包含：
 
 - generator core code
-- `json-specs/`
-- generic examples
+- generic examples 和 dummy specs
 - validators
 - standalone tests
 - `tools/generate_with_overrides.py`
 
-`json-specs/` 放在这里是合理的。原因是 PolyFEM 主 repo 自己的 CMake 也把
-JSON specs 当作 build 输入，例如它会从 `json-specs/input-spec.json`、
-`json-specs/opt-input-spec.json`、`json-specs/objective-spec.json` 生成 embedded
-spec headers。
-
-所以 JSON spec 不是 Python binding 私有配置。它是 generator 支持的输入格式。
+PolyFEM 的真实 `json-specs/` 不应该长期放在这里。原因是这些 schema 描述的是
+PolyFEM backend 接受的 JSON 结构，ownership 应该在 `polyfem/polyfem` 主 repo。
+`python-from-jse` 只需要保留 dummy/example specs，用来测试 generator 能力。
 
 ### `generator-config`
 
@@ -135,8 +132,8 @@ spec headers。
 换句话说：
 
 ```text
-json-specs/       = 后端真实配置结构
-generator-config/ = Python API 怎么变得更好用
+external/polyfem/json-specs/ = 后端真实配置结构
+generator-config/            = Python API 怎么变得更好用
 ```
 
 ### `polyfem-data`
@@ -172,6 +169,7 @@ Submodule 适合管理“人需要看、需要改、需要固定版本”的 rep
 
 适合用 submodule 的目录：
 
+- `external/polyfem/`
 - `python-from-jse/`
 - `polyfem-data/`
 - `examples/`
@@ -225,6 +223,8 @@ polyfem-python/
   tools/
     generate_polyfem_api.py
     bootstrap_repos.py
+  external/
+    polyfem/       # submodule, backend source and canonical JSON specs
   python-from-jse/   # submodule
   polyfem-data/      # submodule
   examples/          # submodule, optional
@@ -233,10 +233,12 @@ polyfem-python/
 这个结构里：
 
 - Python binding repo 是主入口。
+- `external/polyfem` 是 backend source 和 canonical schema 来源。
 - `python-from-jse` 是工具依赖。
 - `polyfem-data` 是数据依赖。
 - `examples` 是示例依赖。
-- C++ PolyFEM 本体仍然可以由 CMake/CPM 固定版本拉取。
+- C++ extension build 也应该和 `external/polyfem` 的版本保持一致；CMake/CPM
+  可以后续再清理成复用同一个 source checkout。
 
 ## 推荐的一键准备流程
 
@@ -269,7 +271,7 @@ git submodule update --init --recursive
 
 ```text
 python-from-jse/tools/generate_with_overrides.py
-python-from-jse/json-specs/input-spec.json
+external/polyfem/json-specs/input-spec.json
 generator-config/api_aliases.json
 generator-config/id_relationships.json
 polyfem-data/
@@ -302,7 +304,9 @@ python tools/generate_polyfem_api.py --check
 
 这个命令负责：
 
-- 从 `python-from-jse/json-specs/input-spec.json` 读 schema
+- 从 `external/polyfem/json-specs/input-spec.json` 读 schema
+- 如果 PolyFEM schema 引用 C++ dependency 提供的 linked solver specs，用
+  `--include-spec-dir` 显式传入这些 spec 所在目录
 - 合并 `generator-config/` 里的 PolyFEM Python API config
 - 输出到 `polyfempy/generated_api/`
 - 运行 backend-free checks
@@ -380,13 +384,13 @@ polyfem-data/
 -DINPUT_POLYFEMPY_DATA_ROOT=polyfem-data
 ```
 
-### 2. 现在还没有 `.gitmodules`
+### 2. submodule 结构还没有全部完成
 
-当前 checkout 有 `python-from-jse/`、`polyfem-data/`、`examples/`，但根目录没有
-`.gitmodules`。
+当前已经有 `.gitmodules`，并且 `external/polyfem/` 是正式 submodule。
 
-这说明它们现在还不是正式 submodule 结构。后续如果要让老师或其他人 clone 后
-自动得到同样结构，需要加 submodule。
+但 `python-from-jse/`、`polyfem-data/`、`examples/` 还不是完整的正式 submodule
+结构。后续如果要让老师或其他人 clone 后自动得到同样结构，需要继续把这些目录
+也整理成 submodule 或明确的 bootstrap 步骤。
 
 ### 3. `setup.py` 不应该负责 clone repo
 
@@ -452,7 +456,7 @@ Python package 内部也分成两层：
 
 1. 保留现在的 repo 边界文档。
 2. 和老师确认 `polyfempy/generated_api/` 是否进入 git。
-3. 增加 `.gitmodules`，把 `python-from-jse`、`polyfem-data`、`examples` 变成正式 submodule。
+3. 已增加 `external/polyfem` submodule；后续再把 `python-from-jse`、`polyfem-data`、`examples` 变成正式 submodule。
 4. 增加 `tools/bootstrap_repos.py` 或 PowerShell 版本。
 5. 修改 CMake 默认 data path，避免继续默认指向旧的 `data/`。
 6. 更新 GitHub Actions，让 CI 使用 submodules 并运行 generated API checks。
@@ -487,7 +491,8 @@ python tools\generate_polyfem_api.py --check
 
 ```powershell
 python python-from-jse\tools\generate_with_overrides.py `
-  --schema-file python-from-jse\json-specs\input-spec.json `
+  --schema-file external\polyfem\json-specs\input-spec.json `
+  --include-spec-dir path\to\linked-specs `
   --output-file polyfempy\generated_api\generated_class.py `
   --api-output-file polyfempy\generated_api\generated_api.py `
   --manifest-dir polyfempy\generated_api `
@@ -503,7 +508,7 @@ python python-from-jse\tools\generate_with_overrides.py `
 ```text
 checkout repo with submodules
 install Python test dependencies
-python tools/generate_polyfem_api.py --check
+python tools/generate_polyfem_api.py --include-spec-dir path/to/linked-specs --check
 python -m pytest tests
 ```
 
