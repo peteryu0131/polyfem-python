@@ -66,6 +66,23 @@ class CleanJsonForCppTests(unittest.TestCase):
         clean_json_for_cpp(original)
         self.assertEqual(original, snapshot)
 
+    def test_cleans_list_items_once(self):
+        class OneShotDict(dict):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.items_calls = 0
+
+            def items(self):
+                self.items_calls += 1
+                if self.items_calls > 1:
+                    raise AssertionError("list item was cleaned more than once")
+                return super().items()
+
+        item = OneShotDict({"keep": 1})
+
+        self.assertEqual(clean_json_for_cpp([item]), [{"keep": 1}])
+        self.assertEqual(item.items_calls, 1)
+
     def test_passes_through_scalars(self):
         for v in (1, 1.5, "text", True, False, 0):
             with self.subTest(value=v):
@@ -85,11 +102,11 @@ class ProcessJsonConfigTests(unittest.TestCase):
         }
 
     def test_pops_common_key(self):
-        processed = process_json_config(self._base(), cfg=None)
+        processed = process_json_config(self._base())
         self.assertNotIn("common", processed)
 
     def test_keeps_backend_output_keys(self):
-        processed = process_json_config(self._base(), cfg=None)
+        processed = process_json_config(self._base())
         self.assertIn("output", processed)
         self.assertEqual(processed["output"].get("directory"), "out")
         self.assertTrue(processed["output"].get("json"))
@@ -103,21 +120,21 @@ class ProcessJsonConfigTests(unittest.TestCase):
             }
         )
 
-        processed = process_json_config(payload, cfg=None)
+        processed = process_json_config(payload)
 
         self.assertEqual(processed["output"], payload["output"])
 
     def test_does_not_mutate_input(self):
         original = self._base()
         snapshot = copy.deepcopy(original)
-        process_json_config(original, cfg=None)
+        process_json_config(original)
         self.assertEqual(original, snapshot)
 
     def test_leaves_absolute_mesh_paths_untouched(self):
         d = self._base()
         d["geometry"] = [{"mesh": "/abs/path/to/mesh.msh"}]
         d["root_path"] = "/tmp/cfg.json"
-        processed = process_json_config(d, cfg=None)
+        processed = process_json_config(d)
         self.assertEqual(processed["geometry"][0]["mesh"], "/abs/path/to/mesh.msh")
 
     def test_resolves_relative_mesh_against_root_path_dir(self):
@@ -130,7 +147,7 @@ class ProcessJsonConfigTests(unittest.TestCase):
             d["geometry"] = [{"mesh": "beam.msh"}]
             d["root_path"] = str(cfg_dir / "config.json")
 
-            processed = process_json_config(d, cfg=None)
+            processed = process_json_config(d)
             self.assertEqual(processed["geometry"][0]["mesh"], str(mesh_file))
 
     def test_resolves_relative_mesh_against_sibling_meshes_dir(self):
@@ -147,7 +164,7 @@ class ProcessJsonConfigTests(unittest.TestCase):
             d["geometry"] = [{"mesh": "beam.msh"}]
             d["root_path"] = str(case_dir / "config.json")
 
-            processed = process_json_config(d, cfg=None)
+            processed = process_json_config(d)
             # Not under case_dir directly, so falls back to ../meshes/beam.msh.
             self.assertEqual(processed["geometry"][0]["mesh"], str(mesh_file))
 
@@ -155,7 +172,7 @@ class ProcessJsonConfigTests(unittest.TestCase):
         d = self._base()
         d["geometry"] = [{"mesh": "does_not_exist.msh"}]
         d["root_path"] = "/tmp/nonexistent_dir/config.json"
-        processed = process_json_config(d, cfg=None)
+        processed = process_json_config(d)
         # When the file cannot be located, the original mesh string is kept
         # (the C++ solver will raise its own error later if that's wrong).
         self.assertEqual(processed["geometry"][0]["mesh"], "does_not_exist.msh")
@@ -165,7 +182,7 @@ class ProcessJsonConfigTests(unittest.TestCase):
         # Non-dict entries should be ignored gracefully rather than crashing.
         d["geometry"] = ["not-a-dict", {"mesh": "beam.msh"}]
         d["root_path"] = "/tmp/cfg.json"
-        processed = process_json_config(d, cfg=None)
+        processed = process_json_config(d)
         self.assertEqual(processed["geometry"][0], "not-a-dict")
 
 

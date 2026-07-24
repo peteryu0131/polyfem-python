@@ -38,8 +38,8 @@ class CMakeBuild(build_ext):
 
         cmake_version = LooseVersion(
             re.search(r'version\s*([\d.]+)', out.decode()).group(1))
-        if cmake_version < '3.1.0':
-            raise RuntimeError("CMake >= 3.1.0 is required")
+        if cmake_version < '3.25.0':
+            raise RuntimeError("CMake >= 3.25.0 is required")
 
         for ext in self.extensions:
             self.build_extension(ext)
@@ -93,6 +93,7 @@ class CMakeBuild(build_ext):
                       '-DPOLYSOLVE_WITH_SPECTRA=OFF',
                       '-DPOLYSOLVE_WITH_AMGCL=OFF',
                       '-DPOLYSOLVE_WITH_UMFPACK=OFF',
+                      '-DPOLYSOLVE_WITH_HYPRE=OFF',
                       '-DCMAKE_POLICY_VERSION_MINIMUM=3.5']
         
         # Use nanobind for Python bindings (pybind11 support removed)
@@ -105,19 +106,19 @@ class CMakeBuild(build_ext):
             print(f"nanobind_DIR={nb_dir}")
         except Exception as e:
             print(f"Warning: could not resolve nanobind_DIR: {e}")
-            
-            # Ensure CMake can find conda-installed C++ packages (e.g., tsl-robin-map)
-            # This is critical when using --no-build-isolation
-            conda_prefix = os.environ.get('CONDA_PREFIX')
-            if conda_prefix:
-                cmake_prefix_path = os.environ.get('CMAKE_PREFIX_PATH', '')
-                if cmake_prefix_path:
-                    cmake_prefix_path = f"{conda_prefix};{cmake_prefix_path}"
-                else:
-                    cmake_prefix_path = conda_prefix
-                cmake_args.append(f'-DCMAKE_PREFIX_PATH={cmake_prefix_path}')
-                print(f"CMAKE_PREFIX_PATH={cmake_prefix_path}")
-            
+
+        # Ensure CMake can find conda-installed C++ packages when building from
+        # an activated conda environment with --no-build-isolation.
+        conda_prefix = os.environ.get('CONDA_PREFIX')
+        if conda_prefix:
+            cmake_prefix_path = os.environ.get('CMAKE_PREFIX_PATH', '')
+            if cmake_prefix_path:
+                cmake_prefix_path = f"{conda_prefix};{cmake_prefix_path}"
+            else:
+                cmake_prefix_path = conda_prefix
+            cmake_args.append(f'-DCMAKE_PREFIX_PATH={cmake_prefix_path}')
+            print(f"CMAKE_PREFIX_PATH={cmake_prefix_path}")
+
         print("Building with nanobind binding library")
 
         # Always ship the extension as Release. Debug CMake builds produce a different
@@ -220,6 +221,11 @@ setup(
     # Keep package discovery aligned with pyproject.toml and avoid shipping
     # internal helper modules such as legacy_differentiable as top-level packages.
     packages=find_packages(include=["polyfempy*"]),
+    entry_points={
+        "console_scripts": [
+            "polyfempy=polyfempy.cli:main",
+        ],
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",

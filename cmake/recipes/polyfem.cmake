@@ -5,16 +5,18 @@ if(TARGET polyfem::polyfem)
     return()
 endif()
 
-message(STATUS "Third-party: creating target 'polyfem::polyfem'")
+get_filename_component(POLYFEMPY_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(POLYFEMPY_POLYFEM_ROOT "${POLYFEMPY_REPO_ROOT}/polyfem")
 
-# include(FetchContent)
-# FetchContent_Declare(
-#     polyfem
-#     GIT_REPOSITORY https://github.com/polyfem/polyfem.git
-#     GIT_TAG 07ee824f836c445699bbc47ee6f19afbfe39bad4
-#     GIT_SHALLOW FALSE
-# )
-# FetchContent_MakeAvailable(polyfem)
+message(STATUS "Third-party: using 'polyfem' submodule")
 
-include(CPM)
-CPMAddPackage("gh:polyfem/polyfem#e8bd3d3")
+if(NOT EXISTS "${POLYFEMPY_POLYFEM_ROOT}/CMakeLists.txt")
+    message(
+        FATAL_ERROR
+        "polyfem submodule is missing at: ${POLYFEMPY_POLYFEM_ROOT}\n"
+        "Run: git submodule update --init --recursive\n"
+        "Or clone with: git clone --recurse-submodules <repo-url>"
+    )
+endif()
+
+add_subdirectory("${POLYFEMPY_POLYFEM_ROOT}" "${CMAKE_BINARY_DIR}/polyfem")

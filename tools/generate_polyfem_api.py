@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import urllib.request
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,7 @@ GENERATOR_CONFIG_DIR = REPO_ROOT / "generator-config"
 DEFAULT_POLYFEM_SOURCE_DIR = REPO_ROOT / "polyfem"
 POLYFEMPY_PACKAGE_DIR = REPO_ROOT / "polyfempy"
 GENERATED_DIR = POLYFEMPY_PACKAGE_DIR / "generated_api"
+POLYSOLVE_SPEC_CACHE_DIR = REPO_ROOT / "build" / "polysolve-json-specs"
 LINKED_SOLVER_SPEC_FILES = (
     "linear-solver-spec.json",
     "nonlinear-solver-spec.json",
@@ -62,12 +64,6 @@ def workflow_steps(
         ),
     ]
     if run_checks:
-        generator_test_env = {
-            "POLYFEM_SPEC_DIR": str(schema_file.parent),
-            "POLYFEM_INCLUDE_SPEC_DIRS": os.pathsep.join(
-                str(path) for path in include_spec_dirs
-            ),
-        }
         steps.extend([
             (
                 [
@@ -83,14 +79,10 @@ def workflow_steps(
             (
                 [
                     sys.executable,
-                    "-m",
-                    "unittest",
-                    "discover",
-                    "-s",
-                    "tests",
+                    str(GENERATOR_ROOT / "tools" / "regenerate_and_test.py"),
                 ],
                 GENERATOR_ROOT,
-                generator_test_env,
+                None,
             ),
         ])
     return steps
@@ -115,6 +107,73 @@ def missing_required_paths(schema_file: Path, include_spec_dirs: list[Path]) -> 
         if not any((search_dir / spec_file).exists() for search_dir in search_dirs):
             required.append(schema_file.parent / spec_file)
     return [path for path in required if not path.exists()]
+
+
+def _linked_solver_specs_are_available(search_dirs: list[Path]) -> bool:
+    return all(
+        any((search_dir / spec_file).exists() for search_dir in search_dirs)
+        for spec_file in LINKED_SOLVER_SPEC_FILES
+    )
+
+
+def _polysolve_revision_from_recipe(polyfem_source_dir: Path) -> str | None:
+    recipe = polyfem_source_dir / "cmake" / "recipes" / "polysolve.cmake"
+    if not recipe.exists():
+        return None
+
+    match = re.search(
+        r"polyfem/polysolve#([A-Za-z0-9_.-]+)",
+        recipe.read_text(encoding="utf-8"),
+    )
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _cache_polysolve_solver_specs(polyfem_source_dir: Path) -> bool:
+    revision = _polysolve_revision_from_recipe(polyfem_source_dir)
+    if revision is None:
+        return False
+
+    POLYSOLVE_SPEC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    for spec_file in LINKED_SOLVER_SPEC_FILES:
+        target = POLYSOLVE_SPEC_CACHE_DIR / spec_file
+        if target.exists():
+            continue
+
+        url = (
+            "https://raw.githubusercontent.com/polyfem/polysolve/"
+            f"{revision}/{spec_file}"
+        )
+        try:
+            urllib.request.urlretrieve(url, target)
+        except Exception as exc:
+            target.unlink(missing_ok=True)
+            print(
+                f"Warning: could not download {spec_file} from polysolve "
+                f"revision {revision}: {exc}",
+                file=sys.stderr,
+            )
+            return False
+
+    return _linked_solver_specs_are_available([POLYSOLVE_SPEC_CACHE_DIR])
+
+
+def resolve_include_spec_dirs(
+    schema_file: Path,
+    include_spec_dirs: list[Path],
+    polyfem_source_dir: Path,
+) -> list[Path]:
+    """Return include spec dirs, auto-caching PolySolve linked specs if needed."""
+    resolved_include_dirs = list(include_spec_dirs)
+    search_dirs = [schema_file.parent, *resolved_include_dirs]
+    if _linked_solver_specs_are_available(search_dirs):
+        return resolved_include_dirs
+
+    if _cache_polysolve_solver_specs(polyfem_source_dir):
+        resolved_include_dirs.append(POLYSOLVE_SPEC_CACHE_DIR)
+
+    return resolved_include_dirs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -151,7 +210,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     schema_file = polyfem_schema_file(args.polyfem_source_dir)
-    include_spec_dirs = args.include_spec_dir
+    include_spec_dirs = resolve_include_spec_dirs(
+        schema_file,
+        args.include_spec_dir,
+        args.polyfem_source_dir,
+    )
     missing = missing_required_paths(schema_file, include_spec_dirs)
     if missing:
         for path in missing:

@@ -5,6 +5,7 @@ import importlib.util
 import io
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -31,6 +32,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
         workflow = import_workflow()
 
         with (
+            mock.patch.object(workflow, "resolve_include_spec_dirs", return_value=[]),
             mock.patch.object(workflow, "missing_required_paths", return_value=[]),
             mock.patch.object(workflow.subprocess, "run") as run_mock,
         ):
@@ -74,6 +76,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
         custom_schema_file = custom_source_dir / "json-specs" / "input-spec.json"
 
         with (
+            mock.patch.object(workflow, "resolve_include_spec_dirs", return_value=[]),
             mock.patch.object(workflow, "missing_required_paths", return_value=[]),
             mock.patch.object(workflow.subprocess, "run") as run_mock,
         ):
@@ -96,6 +99,11 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
         include_dir = ROOT / "custom-linked-specs"
 
         with (
+            mock.patch.object(
+                workflow,
+                "resolve_include_spec_dirs",
+                return_value=[include_dir],
+            ),
             mock.patch.object(workflow, "missing_required_paths", return_value=[]),
             mock.patch.object(workflow.subprocess, "run") as run_mock,
         ):
@@ -113,10 +121,47 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
             run_mock.call_args_list[0].args[0],
         )
 
+    def test_missing_linked_solver_specs_are_cached_from_polysolve_pin(self):
+        workflow = import_workflow()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            polyfem_source_dir = tmp_dir / "polyfem"
+            json_spec_dir = polyfem_source_dir / "json-specs"
+            cmake_dir = polyfem_source_dir / "cmake" / "recipes"
+            cache_dir = tmp_dir / "build" / "polysolve-json-specs"
+            json_spec_dir.mkdir(parents=True)
+            cmake_dir.mkdir(parents=True)
+            schema_file = json_spec_dir / "input-spec.json"
+            schema_file.write_text("{}", encoding="utf-8")
+            (cmake_dir / "polysolve.cmake").write_text(
+                'CPMAddPackage("gh:polyfem/polysolve#abc123")',
+                encoding="utf-8",
+            )
+
+            def fake_urlretrieve(url, target):
+                Path(target).write_text("{}", encoding="utf-8")
+                return target, None
+
+            with (
+                mock.patch.object(workflow, "POLYSOLVE_SPEC_CACHE_DIR", cache_dir),
+                mock.patch.object(workflow.urllib.request, "urlretrieve", fake_urlretrieve),
+            ):
+                include_dirs = workflow.resolve_include_spec_dirs(
+                    schema_file,
+                    [],
+                    polyfem_source_dir,
+                )
+
+            self.assertEqual([cache_dir], include_dirs)
+            self.assertTrue((cache_dir / "linear-solver-spec.json").exists())
+            self.assertTrue((cache_dir / "nonlinear-solver-spec.json").exists())
+
     def test_check_workflow_runs_backend_free_checks_after_generation(self):
         workflow = import_workflow()
 
         with (
+            mock.patch.object(workflow, "resolve_include_spec_dirs", return_value=[]),
             mock.patch.object(workflow, "missing_required_paths", return_value=[]),
             mock.patch.object(workflow.subprocess, "run") as run_mock,
         ):
@@ -155,11 +200,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
                 ],
                 [
                     sys.executable,
-                    "-m",
-                    "unittest",
-                    "discover",
-                    "-s",
-                    "tests",
+                    str(ROOT / "python-from-jse" / "tools" / "regenerate_and_test.py"),
                 ],
             ],
             [call.args[0] for call in run_mock.call_args_list],
@@ -168,14 +209,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
             [ROOT, ROOT, ROOT / "python-from-jse"],
             [call.kwargs["cwd"] for call in run_mock.call_args_list],
         )
-        self.assertEqual(
-            str(POLYFEM_SCHEMA_FILE.parent),
-            run_mock.call_args_list[2].kwargs["env"]["POLYFEM_SPEC_DIR"],
-        )
-        self.assertEqual(
-            "",
-            run_mock.call_args_list[2].kwargs["env"]["POLYFEM_INCLUDE_SPEC_DIRS"],
-        )
+        self.assertNotIn("env", run_mock.call_args_list[2].kwargs)
 
     def test_workflow_reports_missing_required_directory(self):
         workflow = import_workflow()
@@ -184,6 +218,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
             return path != ROOT / "python-from-jse"
 
         with (
+            mock.patch.object(workflow, "resolve_include_spec_dirs", return_value=[]),
             mock.patch.object(workflow.Path, "exists", fake_exists),
             mock.patch.object(workflow.subprocess, "run") as run_mock,
         ):
@@ -204,6 +239,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
             return path != POLYFEM_SCHEMA_FILE
 
         with (
+            mock.patch.object(workflow, "resolve_include_spec_dirs", return_value=[]),
             mock.patch.object(workflow.Path, "exists", fake_exists),
             mock.patch.object(workflow.subprocess, "run") as run_mock,
         ):
@@ -226,6 +262,7 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
             }
 
         with (
+            mock.patch.object(workflow, "resolve_include_spec_dirs", return_value=[]),
             mock.patch.object(workflow.Path, "exists", fake_exists),
             mock.patch.object(workflow.subprocess, "run") as run_mock,
         ):

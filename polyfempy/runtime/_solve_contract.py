@@ -73,7 +73,7 @@ def prepare_generated_backend_payload(
     backend = copy.deepcopy(payload)
     resolved_root_path = root_path or backend.get("root_path")
     if resolved_root_path:
-        _resolve_relative_geometry_mesh_paths(backend, str(resolved_root_path))
+        _resolve_geometry_mesh_paths_in_place(backend, str(resolved_root_path))
     _restore_backend_payload_semantics(backend)
     return _drop_none(backend)
 
@@ -116,6 +116,7 @@ _NONLINEAR_ADVANCED_GENERATED_DEFAULTS = {
     "apply_gradient_fd": "None",
     "gradient_fd_eps": 1e-07,
 }
+
 
 def _restore_backend_payload_semantics(payload: Dict[str, Any]) -> None:
     _restore_transformation_semantics(payload)
@@ -222,7 +223,7 @@ def _drop_none(obj: Any) -> Any:
     return obj
 
 
-def _resolve_relative_geometry_mesh_paths(payload: Dict[str, Any], root_path: str) -> None:
+def _resolve_geometry_mesh_paths_in_place(payload: Dict[str, Any], root_path: str) -> None:
     geometry = payload.get("geometry")
     if not isinstance(geometry, list):
         return
@@ -314,14 +315,8 @@ def normalize_config(cfg: Any) -> Dict[str, Any]:
         return copy.deepcopy(cfg)
     if isinstance(cfg, (str, Path)):
         return _load_json_payload(cfg)
-    as_dict = getattr(cfg, "as_dict", None)
-    if callable(as_dict):
-        payload = as_dict()
-        if not isinstance(payload, dict):
-            raise TypeError(
-                f"cfg.as_dict() must return dict, got {type(payload).__name__}"
-            )
-        return copy.deepcopy(payload)
+    if is_generated_config(cfg):
+        return copy.deepcopy(generated_payload_from_config(cfg))
     return _payload_dict_or_raise(cfg, context="normalizing config")
 
 
@@ -346,9 +341,6 @@ def _promote_materials_to_list(payload: Dict[str, Any], *, infer_type_from_pde: 
 
 def merge_user_cfg_over_full_json(cfg: Any, full_json: Dict[str, Any]) -> Dict[str, Any]:
     cfg_dict = _payload_dict_or_raise(cfg, context="merging Python-side config over full JSON")
-
-    if not isinstance(cfg_dict, dict):
-        return full_json
 
     merged = copy.deepcopy(full_json) if isinstance(full_json, dict) else {}
     extras = cfg_dict.pop("extras", None)
@@ -445,36 +437,24 @@ def clean_json_for_cpp(obj: Any):
                 cleaned[key] = cleaned_value
         return cleaned
     if isinstance(obj, list):
-        return [clean_json_for_cpp(item) for item in obj if clean_json_for_cpp(item) is not None]
+        cleaned_items = []
+        for item in obj:
+            cleaned_item = clean_json_for_cpp(item)
+            if cleaned_item is not None:
+                cleaned_items.append(cleaned_item)
+        return cleaned_items
     return obj
 
 
-def process_json_config(full_json: Dict[str, Any], cfg: Any) -> Dict[str, Any]:
+def process_json_config(full_json: Dict[str, Any]) -> Dict[str, Any]:
     processed = copy.deepcopy(full_json)
     processed.pop("common", None)
     processed.pop("extras", None)
     processed.pop("_mesh_array_mode", None)
 
     root_path = processed.get("root_path")
-    geometry = processed.get("geometry")
-    if root_path and isinstance(geometry, list):
-        root_dir = Path(root_path).resolve().parent
-        for entry in geometry:
-            if not isinstance(entry, dict):
-                continue
-            mesh_path = entry.get("mesh")
-            if not isinstance(mesh_path, str) or not mesh_path.strip():
-                continue
-            mesh_file = Path(mesh_path)
-            if mesh_file.is_absolute():
-                continue
-            direct = root_dir / mesh_file
-            if direct.exists():
-                entry["mesh"] = str(direct)
-                continue
-            sibling = root_dir.parent / "meshes" / mesh_file.name
-            if sibling.exists():
-                entry["mesh"] = str(sibling)
+    if root_path:
+        _resolve_geometry_mesh_paths_in_place(processed, str(root_path))
     return processed
 
 
@@ -503,7 +483,7 @@ def build_canonical_solver_settings(
     if mesh_source.mode == "json":
         if full_json is None:
             raise ValueError("JSON mesh mode requires full_json settings")
-        return clean_json_for_cpp(process_json_config(full_json, cfg))
+        return clean_json_for_cpp(process_json_config(full_json))
 
     settings = _payload_dict_or_raise(cfg, context="building array-mode backend settings")
 

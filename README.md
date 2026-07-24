@@ -27,8 +27,15 @@ checkouts for upstream source, generator, data, and examples:
 - `examples/`: `polyfem/python_data` submodule, with `classic_example/` as the
   current generated-API example collection.
 
-For a fresh checkout, initialize submodules before generating, building, or
-running example parity tests:
+For a fresh checkout, clone with submodules:
+
+```powershell
+git clone --recurse-submodules https://github.com/polyfem/polyfem-python.git
+cd polyfem-python
+```
+
+If the repository was already cloned without submodules, initialize them before
+generating, building, or running example parity tests:
 
 ```powershell
 git submodule update --init --recursive
@@ -46,13 +53,9 @@ Run the backend-free generation and parity checks:
 python tools\generate_polyfem_api.py --check
 ```
 
-PolyFEM's raw JSON spec may reference linked solver specs that are provided by
-the C++ dependency/spec setup rather than `polyfem/json-specs/` itself.
-When those files are available in a local directory, pass it explicitly:
-
-```powershell
-python tools\generate_polyfem_api.py --include-spec-dir path\to\linked-specs --check
-```
+`tools\generate_polyfem_api.py` reads the schema from the `polyfem/` submodule.
+If PolyFEM's schema references solver specs owned by the pinned PolySolve
+dependency, the wrapper caches those linked specs under `build/` automatically.
 
 Older guided API, artifact, experiment, and example documentation has been
 removed because it no longer matches the current API direction.

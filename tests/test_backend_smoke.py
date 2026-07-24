@@ -1,46 +1,88 @@
 from pathlib import Path
 import json
+import subprocess
+import sys
 
-import numpy as np
 import pytest
 
 
-def test_backend_forward_solve_smoke(tmp_path):
-    import polyfempy as pf
-    from polyfempy.runtime import solve
+def _load_expected_error_metrics(config_path: Path) -> tuple[dict[str, float], float]:
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    tests = payload.get("tests")
+    if not isinstance(tests, dict):
+        raise AssertionError(f"backend smoke config has no tests block: {config_path}")
 
-    if not pf.cpp_backend_available():
-        pytest.skip(f"C++ backend is unavailable: {pf.cpp_backend_error()}")
+    margin = float(tests.get("margin", 1e-8))
+    expected = {
+        key: float(value)
+        for key, value in tests.items()
+        if key.startswith("err_") and isinstance(value, (int, float))
+    }
+    if not expected:
+        raise AssertionError(f"backend smoke config has no err_* test metrics: {config_path}")
+    return expected, margin
 
-    # The test file may run from an installed editable checkout or from the
-    # repository root. Use this file location so the example config and meshes
-    # are found independently of the current working directory.
-    config_path = Path(__file__).resolve().parents[1] / "examples" / "configs" / "contact_impact.json"
-    if not config_path.exists():
-        pytest.skip(f"backend smoke config is missing: {config_path}")
 
-    cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    cfg["root_path"] = str(config_path)
-    cfg.setdefault("time", {})
-    cfg["time"]["tend"] = 0.01
-    cfg["time"]["dt"] = 0.01
+def _load_actual_error_metrics(output_dir: Path) -> dict[str, float]:
+    stats_path = output_dir / "sim.json"
+    if not stats_path.exists():
+        raise AssertionError(f"backend did not write expected stats file: {stats_path}")
 
-    output_dir = tmp_path / "backend_smoke"
-    cfg["output"] = {
-        "directory": str(output_dir),
-        "json": "smoke_stats.json",
-        "paraview": {"file_name": ""},
-        "advanced": {"save_time_sequence": False},
+    payload = json.loads(stats_path.read_text(encoding="utf-8"))
+    return {
+        key: float(value)
+        for key, value in payload.items()
+        if key.startswith("err_") and isinstance(value, (int, float))
     }
 
-    result = solve(cfg=cfg)
-    try:
-        sol = np.asarray(result.sol)
 
-        assert sol.size > 0
-        assert not hasattr(result, "vertices")
-        assert not hasattr(result, "cells")
-        assert not hasattr(result, "p")
-    finally:
-        if hasattr(result, "release_solver"):
-            result.release_solver()
+def test_backend_forward_solve_smoke(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+
+    backend_info = subprocess.run(
+        [sys.executable, "-m", "polyfempy", "backend-info", "--require"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if backend_info.returncode != 0:
+        pytest.skip(
+            "C++ backend is unavailable: "
+            + (backend_info.stderr.strip() or backend_info.stdout.strip())
+        )
+
+    config_path = root / "polyfem-data" / "units" / "neohookean.json"
+    if not config_path.exists():
+        pytest.skip(f"backend smoke config is missing: {config_path}")
+    expected_metrics, margin = _load_expected_error_metrics(config_path)
+
+    output_dir = tmp_path / "backend_smoke"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "polyfempy",
+            "solve",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--log-level",
+            "2",
+            "--max-threads",
+            "1",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output_dir.exists()
+    assert any(output_dir.iterdir())
+
+    actual_metrics = _load_actual_error_metrics(output_dir)
+    for key, expected_value in expected_metrics.items():
+        assert key in actual_metrics
+        assert abs(actual_metrics[key] - expected_value) <= margin

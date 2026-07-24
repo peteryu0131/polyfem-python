@@ -12,6 +12,9 @@ compiled with nanobind. In Python, the package is imported as:
 import polyfempy as pf
 ```
 
+For the full fresh-clone, install, CI, backend smoke, and generated-example
+diagnostic workflow, see `TESTING.md`.
+
 ## Repository Layout Direction
 
 The current checkout contains the Python binding, generator, data, and examples
@@ -23,18 +26,35 @@ submodules:
 polyfem-python/
   polyfempy/
   src/
-  external/polyfem/
+  polyfem/
   generator-config/
   python-from-jse/
   polyfem-data/
   examples/
 ```
 
-`external/polyfem/` is the PolyFEM source submodule. It provides the backend
-source and canonical JSON specs. `generator-config/` is reserved for
-PolyFEM-specific Python API config. The active config lives there now, while
-`python-from-jse/` stays focused on the generic generator, its tools, and dummy
-examples.
+`polyfem/` is the PolyFEM source submodule. It provides the backend source and
+canonical JSON specs. `generator-config/` is reserved for PolyFEM-specific
+Python API config. The active config lives there now, while `python-from-jse/`
+stays focused on the generic generator, its tools, and dummy examples.
+
+For a fresh checkout, clone with submodules:
+
+```powershell
+git clone --recurse-submodules https://github.com/polyfem/polyfem-python.git
+cd polyfem-python
+```
+
+If the repository was already cloned without submodules, initialize them before
+generating or building:
+
+```powershell
+git submodule update --init --recursive
+```
+
+The CMake build uses the `polyfem/` submodule directly. It does not fetch
+PolyFEM through CPM. If the submodule is missing, configure fails with the
+submodule command above.
 
 Generated Python API files are written to `polyfempy/generated_api/` during
 explicit regeneration. They should be treated as generated artifacts, not as
@@ -59,6 +79,44 @@ tests. They do not run backend simulations.
 ## Conda-Forge Package Versus Source Build
 
 There are two distinct ways to consume `polyfempy`.
+
+## Local Conda Build Checklist
+
+Use this when you want to test the current checkout against the real C++
+backend. This is the path for your local `polyfem` conda environment.
+
+```powershell
+conda activate polyfem
+git submodule update --init --recursive
+python -m pip install -U pip setuptools wheel cmake nanobind pytest numpy
+python tools\generate_polyfem_api.py
+$env:N_THREADS = "4"
+python -m pip install -e . --no-build-isolation *>&1 | Tee-Object -FilePath .\build.log
+python -m polyfempy backend-info --require
+```
+
+After the backend is available, run the backend smoke test:
+
+```powershell
+python -m pytest tests\test_backend_smoke.py -q
+```
+
+For normal Python/generator checks that do not build or load the C++ backend:
+
+```powershell
+python tools\generate_polyfem_api.py
+python -m pytest tests -q
+```
+
+The command-line entry point is intentionally small:
+
+```powershell
+python -m polyfempy backend-info
+python -m polyfempy solve path\to\input.json --output-dir out
+```
+
+`backend-info` is safe before building. `solve` requires the compiled
+`polyfempy.polyfempy` extension.
 
 ### Conda-Forge Package
 

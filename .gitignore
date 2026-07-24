@@ -34,6 +34,7 @@ htmlcov/
 
 # Local architecture/discussion notes
 /docs/
+/polyfempy/runtime/README.md
 
 # Local agent/build scratch
 .codex
