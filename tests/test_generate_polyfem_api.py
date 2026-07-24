@@ -198,18 +198,14 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
                     "tests/test_examples_public_surface.py",
                     "tests/test_generated_api_example.py",
                 ],
-                [
-                    sys.executable,
-                    str(ROOT / "python-from-jse" / "tools" / "regenerate_and_test.py"),
-                ],
             ],
             [call.args[0] for call in run_mock.call_args_list],
         )
         self.assertEqual(
-            [ROOT, ROOT, ROOT / "python-from-jse"],
+            [ROOT, ROOT],
             [call.kwargs["cwd"] for call in run_mock.call_args_list],
         )
-        self.assertNotIn("env", run_mock.call_args_list[2].kwargs)
+        self.assertNotIn("regenerate_and_test.py", str(run_mock.call_args_list))
 
     def test_workflow_reports_missing_required_directory(self):
         workflow = import_workflow()

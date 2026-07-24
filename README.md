@@ -47,15 +47,23 @@ Generate the packaged API from the repository root:
 python tools\generate_polyfem_api.py
 ```
 
-Run the backend-free generation and parity checks:
+Run the backend-free generation and PolyFEM API parity checks:
 
 ```powershell
 python tools\generate_polyfem_api.py --check
 ```
 
+The generator submodule owns its own standalone test suite. The
+`polyfem-python` checks only verify that the generated PolyFEM API is produced
+and remains compatible with this package's examples/tests.
+
 `tools\generate_polyfem_api.py` reads the schema from the `polyfem/` submodule.
 If PolyFEM's schema references solver specs owned by the pinned PolySolve
 dependency, the wrapper caches those linked specs under `build/` automatically.
+
+Submodule revisions are compatibility pins. Do not update `polyfem/` by simply
+pulling the latest commit unless `python-from-jse`, `generator-config/`, the
+regenerated API, and the backend-free checks are updated together.
 
 Older guided API, artifact, experiment, and example documentation has been
 removed because it no longer matches the current API direction.

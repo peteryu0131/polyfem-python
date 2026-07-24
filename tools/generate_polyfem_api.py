@@ -76,14 +76,6 @@ def workflow_steps(
                 REPO_ROOT,
                 None,
             ),
-            (
-                [
-                    sys.executable,
-                    str(GENERATOR_ROOT / "tools" / "regenerate_and_test.py"),
-                ],
-                GENERATOR_ROOT,
-                None,
-            ),
         ])
     return steps
 
