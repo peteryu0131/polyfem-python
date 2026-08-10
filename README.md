@@ -60,6 +60,15 @@ and remains compatible with this package's examples/tests.
 `tools\generate_polyfem_api.py` reads the schema from the `polyfem/` submodule.
 If PolyFEM's schema references solver specs owned by the pinned PolySolve
 dependency, the wrapper caches those linked specs under `build/` automatically.
+When a PolyFEM build exports the complete embedded/resolved schema, prefer that
+single source of truth instead:
+
+```powershell
+python tools\generate_polyfem_api.py --resolved-schema-file path\to\polyfem-resolved-spec.json --check
+```
+
+Using `--resolved-schema-file` skips automatic PolySolve cache resolution and
+generates from the same full schema that PolyFEM's JSON validation uses.
 
 Submodule revisions are compatibility pins. Do not update `polyfem/` by simply
 pulling the latest commit unless `python-from-jse`, `generator-config/`, the

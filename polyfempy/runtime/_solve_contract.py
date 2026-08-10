@@ -119,9 +119,20 @@ _NONLINEAR_ADVANCED_GENERATED_DEFAULTS = {
 
 
 def _restore_backend_payload_semantics(payload: Dict[str, Any]) -> None:
+    _restore_materials_semantics(payload)
     _restore_transformation_semantics(payload)
     _restore_nonlinear_solver_semantics(payload)
     _drop_solver_advanced_generated_defaults(payload)
+
+
+def _restore_materials_semantics(payload: Dict[str, Any]) -> None:
+    materials = payload.get("materials")
+    if not isinstance(materials, list) or len(materials) != 1:
+        return
+
+    material = materials[0]
+    if isinstance(material, dict) and "id" not in material:
+        payload["materials"] = material
 
 
 def _restore_transformation_semantics(payload: Dict[str, Any]) -> None:
@@ -178,9 +189,6 @@ def _restore_nonlinear_solver_semantics(payload: Dict[str, Any]) -> None:
     nonlinear = solver.get("nonlinear")
     if not isinstance(nonlinear, dict):
         return
-
-    _rename_key(nonlinear, "x_delta_tol", "x_delta")
-    _rename_key(nonlinear, "grad_norm_tol", "grad_norm")
 
     for key, default_value in _NONLINEAR_GENERATED_DEFAULTS.items():
         if nonlinear.get(key) == default_value:
@@ -372,7 +380,6 @@ def build_full_json(cfg: Any) -> Optional[Dict[str, Any]]:
     full_json = cfg_dict
     full_json.pop("extras", None)
     full_json.pop("_mesh_array_mode", None)
-    _promote_materials_to_list(full_json, infer_type_from_pde=False)
     return full_json
 
 

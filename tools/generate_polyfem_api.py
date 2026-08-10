@@ -80,7 +80,12 @@ def workflow_steps(
     return steps
 
 
-def missing_required_paths(schema_file: Path, include_spec_dirs: list[Path]) -> list[Path]:
+def missing_required_paths(
+    schema_file: Path,
+    include_spec_dirs: list[Path],
+    *,
+    require_linked_specs: bool = True,
+) -> list[Path]:
     required = [
         GENERATOR_ROOT,
         GENERATOR_ROOT / "tools" / "generate_with_overrides.py",
@@ -94,10 +99,11 @@ def missing_required_paths(schema_file: Path, include_spec_dirs: list[Path]) -> 
         required.extend([
             include_spec_dir,
         ])
-    search_dirs = [schema_file.parent, *include_spec_dirs]
-    for spec_file in LINKED_SOLVER_SPEC_FILES:
-        if not any((search_dir / spec_file).exists() for search_dir in search_dirs):
-            required.append(schema_file.parent / spec_file)
+    if require_linked_specs:
+        search_dirs = [schema_file.parent, *include_spec_dirs]
+        for spec_file in LINKED_SOLVER_SPEC_FILES:
+            if not any((search_dir / spec_file).exists() for search_dir in search_dirs):
+                required.append(schema_file.parent / spec_file)
     return [path for path in required if not path.exists()]
 
 
@@ -190,6 +196,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--resolved-schema-file",
+        default=None,
+        type=Path,
+        help=(
+            "Path to a complete PolyFEM schema JSON dumped from the PolyFEM "
+            "build/embedded spec. When set, automatic PolySolve linked-spec "
+            "cache resolution is skipped."
+        ),
+    )
+    parser.add_argument(
         "--include-spec-dir",
         action="append",
         default=[],
@@ -201,24 +217,42 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    schema_file = polyfem_schema_file(args.polyfem_source_dir)
-    include_spec_dirs = resolve_include_spec_dirs(
+    if args.resolved_schema_file is not None:
+        schema_file = args.resolved_schema_file
+        include_spec_dirs = list(args.include_spec_dir)
+        require_linked_specs = False
+    else:
+        schema_file = polyfem_schema_file(args.polyfem_source_dir)
+        include_spec_dirs = resolve_include_spec_dirs(
+            schema_file,
+            args.include_spec_dir,
+            args.polyfem_source_dir,
+        )
+        require_linked_specs = True
+
+    missing = missing_required_paths(
         schema_file,
-        args.include_spec_dir,
-        args.polyfem_source_dir,
+        include_spec_dirs,
+        require_linked_specs=require_linked_specs,
     )
-    missing = missing_required_paths(schema_file, include_spec_dirs)
     if missing:
         for path in missing:
             print(f"Missing required path: {path}", file=sys.stderr)
-        print(
-            "If this is a fresh checkout, run "
-            "`git submodule update --init --recursive` so polyfem "
-            "and python-from-jse are present. "
-            "If the missing file is a linked solver spec, pass "
-            "`--include-spec-dir <dir-containing-linked-specs>`.",
-            file=sys.stderr,
-        )
+        if args.resolved_schema_file is not None:
+            print(
+                "If using --resolved-schema-file, build PolyFEM and dump the "
+                "embedded/resolved spec first, then pass that JSON path.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "If this is a fresh checkout, run "
+                "`git submodule update --init --recursive` so polyfem "
+                "and python-from-jse are present. "
+                "If the missing file is a linked solver spec, pass "
+                "`--include-spec-dir <dir-containing-linked-specs>`.",
+                file=sys.stderr,
+            )
         return 1
 
     for command, cwd, extra_env in workflow_steps(

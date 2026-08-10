@@ -66,6 +66,31 @@ class GeneratedPayloadTests(unittest.TestCase):
 
         self.assertEqual(prepared["output"], payload["output"])
 
+    def test_prepare_payload_restores_single_global_material_object_shape(self):
+        payload = {
+            "materials": [
+                {"type": "NeoHookean", "E": 10000.0, "nu": 0.4, "rho": 1000.0}
+            ]
+        }
+
+        prepared = prepare_generated_backend_payload(payload)
+
+        self.assertEqual(
+            {"type": "NeoHookean", "E": 10000.0, "nu": 0.4, "rho": 1000.0},
+            prepared["materials"],
+        )
+
+    def test_prepare_payload_keeps_id_materials_as_list(self):
+        payload = {
+            "materials": [
+                {"id": 1, "type": "LinearElasticity", "E": 20.0, "nu": 0.3}
+            ]
+        }
+
+        prepared = prepare_generated_backend_payload(payload)
+
+        self.assertEqual(payload["materials"], prepared["materials"])
+
     def test_prepare_payload_resolves_relative_geometry_mesh_from_root_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             case_dir = Path(tmp) / "case"
@@ -125,7 +150,7 @@ class GeneratedPayloadTests(unittest.TestCase):
 
         self.assertEqual({"lump_mass_matrix": True}, prepared["solver"]["advanced"])
 
-    def test_prepare_payload_restores_backend_nonlinear_solver_names(self):
+    def test_prepare_payload_keeps_backend_nonlinear_solver_names(self):
         payload = {
             "solver": {
                 "nonlinear": {
@@ -164,10 +189,10 @@ class GeneratedPayloadTests(unittest.TestCase):
         prepared = prepare_generated_backend_payload(payload)
         nonlinear = prepared["solver"]["nonlinear"]
 
-        self.assertEqual(1e-12, nonlinear["x_delta"])
-        self.assertEqual(1e-5, nonlinear["grad_norm"])
-        self.assertNotIn("x_delta_tol", nonlinear)
-        self.assertNotIn("grad_norm_tol", nonlinear)
+        self.assertEqual(1e-12, nonlinear["x_delta_tol"])
+        self.assertEqual(1e-5, nonlinear["grad_norm_tol"])
+        self.assertNotIn("x_delta", nonlinear)
+        self.assertNotIn("grad_norm", nonlinear)
         self.assertNotIn("rel_grad_norm_tol", nonlinear)
         self.assertNotIn("newton_decrement_tol", nonlinear)
         self.assertNotIn("rel_x_delta_tol", nonlinear)

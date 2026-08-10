@@ -87,14 +87,17 @@ class BuildFullJsonTests(unittest.TestCase):
         self.assertEqual(fj["pde"], "LinearElasticity")
         self.assertEqual(fj["geometry"], [{"mesh": "beam.msh"}])
 
-    def test_material_dict_is_promoted_to_backend_list(self):
+    def test_json_mode_preserves_material_dict_shape(self):
         cfg = {
             "pde": "LinearElasticity",
             "materials": {"type": "LinearElasticity", "E": 20, "nu": 0.3},
             "geometry": [{"mesh": "beam.msh"}],
         }
         fj = build_full_json(cfg)
-        self.assertEqual(fj["materials"], [{"type": "LinearElasticity", "E": 20, "nu": 0.3}])
+        self.assertEqual(
+            fj["materials"],
+            {"type": "LinearElasticity", "E": 20, "nu": 0.3},
+        )
 
     def test_payload_override_wins_over_original_full_json(self):
         cfg = {

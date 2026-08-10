@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from polyfempy.runtime._solve_contract import prepare_canonical_solve_input
+from polyfempy.generated_api import generated_api as polyfem
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +55,186 @@ EXAMPLE_CASES = [
     ),
 ]
 
+DOLPHIN_MATERIAL_SHAPE_CASES = [
+    (
+        CLASSIC_EXAMPLES
+        / "3D"
+        / "contact_3d_stress_tests_dolphin_funnel_generated_api.py",
+        POLYFEM_DATA_EXAMPLES / "3D" / "stress-tests" / "dolphin-funnel.json",
+    ),
+    (
+        CLASSIC_EXAMPLES
+        / "3D"
+        / "contact_3d_stress_tests_dolphin_funnel_linf_generated_api.py",
+        POLYFEM_DATA_EXAMPLES / "3D" / "stress-tests" / "dolphin-funnel-Linf.json",
+    ),
+]
+
+EXPECTED_GENERATED_API_FALLBACK_SOURCES = {
+    "3D/static/two-cubes.json",
+}
+
+
+def _ordinary_contact_source_paths() -> set[Path]:
+    sources: set[Path] = set()
+    for dim in ("2D", "3D"):
+        for path in (POLYFEM_DATA_EXAMPLES / dim).rglob("*.json"):
+            if _is_auxiliary_contact_json(path):
+                continue
+            sources.add(path.resolve())
+    return sources
+
+
+def _is_auxiliary_contact_json(path: Path) -> bool:
+    return (
+        path.name == "common.json"
+        or path.name.endswith("-common.json")
+        or path.name == "params.json"
+    )
+
+
+def _generated_example_files() -> list[Path]:
+    return sorted(CLASSIC_EXAMPLES.glob("[23]D/contact_*_generated_api.py"))
+
+
+def _declared_source_paths() -> set[Path]:
+    return {
+        Path(_import_example(path).SOURCE_JSON).resolve()
+        for path in _generated_example_files()
+    }
+
+
+def _all_example_cases() -> list[tuple[Path, Path]]:
+    cases = []
+    for example_path in _generated_example_files():
+        example = _import_example(example_path)
+        cases.append((example_path, Path(example.SOURCE_JSON).resolve()))
+    return cases
+
+
+def _builder_safe_source_paths() -> set[Path]:
+    safe = set()
+    for source_path in _ordinary_contact_source_paths():
+        config = _load_source_config(source_path)
+        try:
+            polyfem.config(**copy.deepcopy(config))
+        except TypeError:
+            continue
+        if _is_builder_safe_config(config):
+            safe.add(source_path)
+    return safe
+
+
+def _is_builder_safe_config(config: dict[str, Any]) -> bool:
+    geometry = config.get("geometry")
+    if not isinstance(geometry, list):
+        return False
+    if any(not isinstance(item, dict) or item.get("type") != "mesh" for item in geometry):
+        return False
+
+    volume_ids = {
+        item.get("volume_selection")
+        for item in geometry
+        if isinstance(item.get("volume_selection"), int)
+        and item.get("volume_selection") > 0
+    }
+    if len(volume_ids) != len(geometry):
+        return False
+
+    materials = _optional_items(config.get("materials"))
+    if any(not isinstance(item, dict) or item.get("id") not in volume_ids for item in materials):
+        return False
+
+    selection_ids = _builder_selection_ids(geometry)
+    if selection_ids is None:
+        return False
+    if not _builder_safe_boundary_conditions(
+        config.get("boundary_conditions"),
+        selection_ids,
+    ):
+        return False
+    return _builder_safe_initial_conditions(
+        config.get("initial_conditions"),
+        volume_ids,
+    )
+
+
+def _builder_selection_ids(geometry: list[dict[str, Any]]) -> set[int] | None:
+    selection_ids = set()
+    for item in geometry:
+        for field in ("surface_selection", "point_selection"):
+            value = item.get(field)
+            if value is None:
+                continue
+            if isinstance(value, int):
+                if value > 0:
+                    selection_ids.add(value)
+                continue
+            if isinstance(value, dict):
+                return None
+            if not isinstance(value, list):
+                return None
+            for selection in value:
+                if not isinstance(selection, dict):
+                    return None
+                selection_id = selection.get("id")
+                if not isinstance(selection_id, int) or selection_id <= 0:
+                    return None
+                selection_ids.add(selection_id)
+    return selection_ids
+
+
+def _builder_safe_boundary_conditions(
+    boundary_conditions: Any,
+    selection_ids: set[int],
+) -> bool:
+    if boundary_conditions is None:
+        return True
+    if not isinstance(boundary_conditions, dict):
+        return False
+
+    bindable = {
+        "dirichlet_boundary",
+        "neumann_boundary",
+        "normal_aligned_neumann_boundary",
+        "pressure_boundary",
+        "pressure_cavity",
+    }
+    if any(key not in {"rhs", *bindable} for key in boundary_conditions):
+        return False
+
+    for section in bindable:
+        for item in _optional_items(boundary_conditions.get(section)):
+            if not isinstance(item, dict) or item.get("id") not in selection_ids:
+                return False
+    return True
+
+
+def _builder_safe_initial_conditions(
+    initial_conditions: Any,
+    volume_ids: set[int],
+) -> bool:
+    if initial_conditions is None:
+        return True
+    if not isinstance(initial_conditions, dict):
+        return False
+
+    bindable = {"velocity", "solution", "acceleration"}
+    if any(key not in bindable for key in initial_conditions):
+        return False
+
+    for section in bindable:
+        for item in _optional_items(initial_conditions.get(section)):
+            if not isinstance(item, dict) or item.get("id") not in volume_ids:
+                return False
+    return True
+
+
+def _optional_items(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
 
 def _case_id(case: tuple[Path, Path]) -> str:
     example_path, _source_path = case
@@ -82,6 +263,45 @@ def _skip_without_required_submodules():
     _require_polyfem_data_submodule()
 
 
+def test_classic_generated_examples_cover_all_contact_source_jsons():
+    assert _declared_source_paths() == _ordinary_contact_source_paths()
+
+
+def test_classic_generated_examples_show_api_configuration():
+    offenders = []
+    fallback_sources = {
+        (POLYFEM_DATA_EXAMPLES / source).resolve()
+        for source in EXPECTED_GENERATED_API_FALLBACK_SOURCES
+    }
+    for example_path, source_path in _all_example_cases():
+        text = example_path.read_text(encoding="utf-8")
+        has_constructor_config = (
+            "polyfem.config(" in text or "model.config(" in text
+        )
+        has_known_fallback = (
+            source_path in fallback_sources and "SourcePayloadConfig(" in text
+        )
+        if "load_polyfem_config(SOURCE_JSON)" in text:
+            offenders.append(example_path.relative_to(ROOT).as_posix())
+        elif not has_constructor_config and not has_known_fallback:
+            offenders.append(example_path.relative_to(ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_builder_safe_classic_examples_use_model_builder():
+    offenders = []
+    builder_safe_sources = _builder_safe_source_paths()
+    for example_path, source_path in _all_example_cases():
+        if source_path not in builder_safe_sources:
+            continue
+        text = example_path.read_text(encoding="utf-8")
+        if "model = polyfem.model()" not in text or "polyfem_config = model.config(" not in text:
+            offenders.append(example_path.relative_to(ROOT).as_posix())
+
+    assert offenders == []
+
+
 def _import_example(example_path: Path) -> Any:
     spec = importlib.util.spec_from_file_location(example_path.stem, example_path)
     module = importlib.util.module_from_spec(spec)
@@ -106,30 +326,75 @@ def _deep_merge(base: Any, override: Any) -> Any:
     if isinstance(base, dict) and isinstance(override, dict):
         merged = copy.deepcopy(base)
         for key, value in override.items():
-            merged[key] = _deep_merge(merged[key], value) if key in merged else copy.deepcopy(value)
+            merged[key] = (
+                _deep_merge(merged[key], value)
+                if key in merged
+                else copy.deepcopy(value)
+            )
         return merged
     return copy.deepcopy(override)
 
 
 def _load_source_config(source_path: Path) -> dict[str, Any]:
+    source_path = source_path.resolve()
     with source_path.open(encoding="utf-8") as f:
         source = json.load(f)
 
     common_ref = source.pop("common", None)
     source.pop("tests", None)
+    source.pop("default_params", None)
+    patch = source.pop("patch", None)
 
     if common_ref is None:
         merged = source
     else:
         common_path = (source_path.parent / common_ref).resolve()
-        with common_path.open(encoding="utf-8") as f:
-            common = json.load(f)
-        merged = _deep_merge(common, source)
+        merged = _deep_merge(_load_source_config(common_path), source)
+
+    if patch:
+        merged = _apply_json_patch(merged, patch)
 
     _resolve_mesh_paths(merged, source_path.parent)
     _normalize_solver_fallbacks(merged)
     _normalize_generated_mesh_payloads(merged)
     return merged
+
+
+def _expected_config_from_source(source_path: Path) -> dict[str, Any]:
+    config = _load_source_config(source_path)
+    try:
+        return polyfem.config(**copy.deepcopy(config)).as_dict()
+    except TypeError:
+        return config
+
+
+def _apply_json_patch(config: dict[str, Any], patch: list[dict[str, Any]]) -> dict[str, Any]:
+    patched = copy.deepcopy(config)
+    for item in patch:
+        assert item.get("op") == "replace"
+        _replace_json_pointer(patched, item["path"], item.get("value"))
+    return patched
+
+
+def _replace_json_pointer(config: Any, pointer: str, value: Any) -> None:
+    target = config
+    tokens = _json_pointer_tokens(pointer)
+    for token in tokens[:-1]:
+        target = target[int(token)] if isinstance(target, list) else target[token]
+
+    last = tokens[-1]
+    if isinstance(target, list):
+        target[int(last)] = copy.deepcopy(value)
+    else:
+        target[last] = copy.deepcopy(value)
+
+
+def _json_pointer_tokens(pointer: str) -> list[str]:
+    assert pointer.startswith("/")
+    return [
+        token.replace("~1", "/").replace("~0", "~")
+        for token in pointer[1:].split("/")
+    ]
 
 
 def _resolve_mesh_paths(value: Any, source_dir: Path) -> None:
@@ -215,7 +480,47 @@ def test_classic_generated_example_matches_polyfem_data_source(case: tuple[Path,
     example_path, source_path = case
     example = _import_example(example_path)
 
-    assert example.polyfem_config.as_dict() == _load_source_config(source_path)
+    assert example.polyfem_config.as_dict() == _expected_config_from_source(source_path)
+
+
+def test_all_classic_generated_examples_match_polyfem_data_sources():
+    mismatches = []
+    for example_path, source_path in _all_example_cases():
+        example = _import_example(example_path)
+        if example.polyfem_config.as_dict() != _expected_config_from_source(source_path):
+            mismatches.append(example_path.relative_to(ROOT).as_posix())
+
+    assert mismatches == []
+
+
+@pytest.mark.parametrize("case", DOLPHIN_MATERIAL_SHAPE_CASES, ids=_case_id)
+def test_dolphin_generated_backend_payload_keeps_source_materials_shape(
+    case: tuple[Path, Path],
+):
+    example_path, source_path = case
+    source_config = _load_source_config(source_path)
+    example = _import_example(example_path)
+
+    canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=example.polyfem_config,
+        dtype=None,
+    )
+
+    assert isinstance(source_config["materials"], dict)
+    assert canonical.backend_settings["materials"] == source_config["materials"]
+
+
+def test_classic_generated_api_fallbacks_are_limited_to_known_schema_gaps():
+    actual = set()
+    for _example_path, source_path in _all_example_cases():
+        example = _import_example(_example_path)
+        fallback_reason = getattr(example.polyfem_config, "fallback_reason", None)
+        if fallback_reason:
+            actual.add(source_path.relative_to(POLYFEM_DATA_EXAMPLES).as_posix())
+
+    assert actual == EXPECTED_GENERATED_API_FALLBACK_SOURCES
 
 
 @pytest.mark.parametrize("case", EXAMPLE_CASES, ids=_case_id)
@@ -233,3 +538,19 @@ def test_classic_generated_example_uses_generated_solve_path(case: tuple[Path, P
     assert canonical.metadata == {"mesh_source": "json", "config_source": "generated"}
     assert canonical.mesh_source.mode == "json"
     assert "geometry" in canonical.backend_settings
+
+
+def test_all_classic_generated_examples_use_generated_solve_path():
+    failures = []
+    for example_path, _source_path in _all_example_cases():
+        example = _import_example(example_path)
+        canonical = prepare_canonical_solve_input(
+            vertices=None,
+            cells=None,
+            cfg=example.polyfem_config,
+            dtype=None,
+        )
+        if canonical.metadata != {"mesh_source": "json", "config_source": "generated"}:
+            failures.append(example_path.relative_to(ROOT).as_posix())
+
+    assert failures == []

@@ -121,6 +121,85 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
             run_mock.call_args_list[0].args[0],
         )
 
+    def test_resolved_schema_file_skips_polysolve_cache_resolution(self):
+        workflow = import_workflow()
+        resolved_schema_file = ROOT / "build" / "polyfem-resolved-spec.json"
+
+        with (
+            mock.patch.object(workflow, "resolve_include_spec_dirs") as resolve_mock,
+            mock.patch.object(workflow, "missing_required_paths", return_value=[]) as missing_mock,
+            mock.patch.object(workflow.subprocess, "run") as run_mock,
+        ):
+            run_mock.return_value = mock.Mock(returncode=0)
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = workflow.main([
+                    "--resolved-schema-file",
+                    str(resolved_schema_file),
+                ])
+
+        self.assertEqual(0, result)
+        resolve_mock.assert_not_called()
+        missing_mock.assert_called_once_with(
+            resolved_schema_file,
+            [],
+            require_linked_specs=False,
+        )
+        generator_command = run_mock.call_args_list[0].args[0]
+        self.assertIn(str(resolved_schema_file), generator_command)
+        self.assertNotIn(str(POLYFEM_SCHEMA_FILE), generator_command)
+        self.assertNotIn("--include-spec-dir", generator_command)
+
+    def test_resolved_schema_file_keeps_explicit_include_dirs_without_cache_resolution(self):
+        workflow = import_workflow()
+        resolved_schema_file = ROOT / "build" / "polyfem-resolved-spec.json"
+        include_dir = ROOT / "custom-linked-specs"
+
+        with (
+            mock.patch.object(workflow, "resolve_include_spec_dirs") as resolve_mock,
+            mock.patch.object(workflow, "missing_required_paths", return_value=[]),
+            mock.patch.object(workflow.subprocess, "run") as run_mock,
+        ):
+            run_mock.return_value = mock.Mock(returncode=0)
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = workflow.main([
+                    "--resolved-schema-file",
+                    str(resolved_schema_file),
+                    "--include-spec-dir",
+                    str(include_dir),
+                ])
+
+        self.assertEqual(0, result)
+        resolve_mock.assert_not_called()
+        generator_command = run_mock.call_args_list[0].args[0]
+        self.assertIn(str(resolved_schema_file), generator_command)
+        self.assertIn("--include-spec-dir", generator_command)
+        self.assertIn(str(include_dir), generator_command)
+
+    def test_missing_resolved_schema_file_points_to_build_dump(self):
+        workflow = import_workflow()
+        resolved_schema_file = ROOT / "build" / "polyfem-resolved-spec.json"
+
+        def fake_exists(path: Path) -> bool:
+            return path != resolved_schema_file
+
+        with (
+            mock.patch.object(workflow.Path, "exists", fake_exists),
+            mock.patch.object(workflow.subprocess, "run") as run_mock,
+        ):
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                result = workflow.main([
+                    "--resolved-schema-file",
+                    str(resolved_schema_file),
+                ])
+
+        self.assertEqual(1, result)
+        self.assertIn("--resolved-schema-file", stderr.getvalue())
+        self.assertIn("embedded/resolved spec", stderr.getvalue())
+        run_mock.assert_not_called()
+
     def test_missing_linked_solver_specs_are_cached_from_polysolve_pin(self):
         workflow = import_workflow()
 
