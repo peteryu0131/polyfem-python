@@ -129,20 +129,56 @@ def _is_builder_safe_config(config: dict[str, Any]) -> bool:
     geometry = config.get("geometry")
     if not isinstance(geometry, list):
         return False
-    if any(not isinstance(item, dict) or item.get("type") != "mesh" for item in geometry):
+    if any(
+        not isinstance(item, dict)
+        or item.get("type") not in ("mesh", "mesh_array", "mesh_sequence")
+        for item in geometry
+    ):
+        return False
+
+    normal_geometry = [item for item in geometry if not item.get("is_obstacle")]
+    if any(
+        "volume_selection" in item
+        and (
+            not isinstance(item.get("volume_selection"), int)
+            or item.get("volume_selection") <= 0
+        )
+        for item in normal_geometry
+    ):
+        return False
+    volume_geometry = [
+        item for item in normal_geometry
+        if isinstance(item.get("volume_selection"), int)
+        and item.get("volume_selection") > 0
+    ]
+    obstacle_surface_ids = {
+        item.get("surface_selection")
+        for item in geometry
+        if item.get("is_obstacle")
+        and isinstance(item.get("surface_selection"), int)
+        and item.get("surface_selection") > 0
+    }
+    if any(
+        item.get("is_obstacle")
+        and item.get("point_selection") not in (None, 0)
+        for item in geometry
+    ):
         return False
 
     volume_ids = {
         item.get("volume_selection")
-        for item in geometry
+        for item in volume_geometry
         if isinstance(item.get("volume_selection"), int)
         and item.get("volume_selection") > 0
     }
-    if len(volume_ids) != len(geometry):
+    if not all(item.get("volume_selection") in volume_ids for item in volume_geometry):
         return False
 
     materials = _optional_items(config.get("materials"))
-    if any(not isinstance(item, dict) or item.get("id") not in volume_ids for item in materials):
+    if any(not isinstance(item, dict) for item in materials):
+        return False
+    id_materials = [item for item in materials if "id" in item]
+    if any(item.get("id") not in volume_ids for item in id_materials):
         return False
 
     selection_ids = _builder_selection_ids(geometry)
@@ -151,6 +187,7 @@ def _is_builder_safe_config(config: dict[str, Any]) -> bool:
     if not _builder_safe_boundary_conditions(
         config.get("boundary_conditions"),
         selection_ids,
+        obstacle_surface_ids,
     ):
         return False
     return _builder_safe_initial_conditions(
@@ -171,10 +208,12 @@ def _builder_selection_ids(geometry: list[dict[str, Any]]) -> set[int] | None:
                     selection_ids.add(value)
                 continue
             if isinstance(value, dict):
+                items = [value]
+            elif isinstance(value, list):
+                items = value
+            else:
                 return None
-            if not isinstance(value, list):
-                return None
-            for selection in value:
+            for selection in items:
                 if not isinstance(selection, dict):
                     return None
                 selection_id = selection.get("id")
@@ -187,6 +226,7 @@ def _builder_selection_ids(geometry: list[dict[str, Any]]) -> set[int] | None:
 def _builder_safe_boundary_conditions(
     boundary_conditions: Any,
     selection_ids: set[int],
+    obstacle_surface_ids: set[int],
 ) -> bool:
     if boundary_conditions is None:
         return True
@@ -199,13 +239,21 @@ def _builder_safe_boundary_conditions(
         "normal_aligned_neumann_boundary",
         "pressure_boundary",
         "pressure_cavity",
+        "obstacle_displacements",
     }
     if any(key not in {"rhs", *bindable} for key in boundary_conditions):
         return False
 
     for section in bindable:
         for item in _optional_items(boundary_conditions.get(section)):
-            if not isinstance(item, dict) or item.get("id") not in selection_ids:
+            if not isinstance(item, dict):
+                return False
+            expected_ids = (
+                obstacle_surface_ids
+                if section == "obstacle_displacements"
+                else selection_ids
+            )
+            if item.get("id") not in expected_ids:
                 return False
     return True
 
@@ -300,6 +348,227 @@ def test_builder_safe_classic_examples_use_model_builder():
             offenders.append(example_path.relative_to(ROOT).as_posix())
 
     assert offenders == []
+
+
+def test_obstacle_mesh_classic_example_uses_model_builder():
+    example_path = (
+        CLASSIC_EXAMPLES
+        / "2D"
+        / "contact_2d_unit_tests_erleben_spikes_generated_api.py"
+    )
+    source_path = (
+        POLYFEM_DATA_EXAMPLES
+        / "2D"
+        / "unit-tests"
+        / "erleben"
+        / "spikes.json"
+    )
+
+    assert source_path.resolve() in _builder_safe_source_paths()
+
+    text = example_path.read_text(encoding="utf-8")
+    assert "model = polyfem.model()" in text
+    assert "polyfem_config = model.config(" in text
+
+
+def test_model_builder_obstacle_mesh_does_not_create_volume_selection():
+    model = polyfem.model()
+
+    obstacle = model.obstacle_mesh(
+        mesh="obstacle.obj",
+        surface_selection=0,
+    )
+    config = model.config()
+
+    assert obstacle is None
+    assert config.as_dict()["geometry"] == [
+        {
+            "mesh": "obstacle.obj",
+            "surface_selection": 0,
+            "is_obstacle": True,
+            "type": "mesh",
+        }
+    ]
+
+
+def test_global_material_geometry_example_uses_model_builder():
+    example_path = (
+        CLASSIC_EXAMPLES
+        / "2D"
+        / "contact_2d_static_friction_slope_generated_api.py"
+    )
+    source_path = POLYFEM_DATA_EXAMPLES / "2D" / "static" / "friction-slope.json"
+
+    assert source_path.resolve() in _builder_safe_source_paths()
+
+    text = example_path.read_text(encoding="utf-8")
+    assert "model = polyfem.model()" in text
+    assert "model.geometry_mesh(" in text
+    assert "polyfem_config = model.config(" in text
+
+
+def test_model_builder_geometry_mesh_does_not_create_volume_selection():
+    model = polyfem.model()
+
+    geometry = model.geometry_mesh(
+        mesh="static-wall.obj",
+    )
+    surface = geometry.surface_all(id=1)
+    surface.dirichlet(value=[0, 0])
+    config = model.config()
+
+    assert config.as_dict()["geometry"] == [
+        {
+            "mesh": "static-wall.obj",
+            "surface_selection": 1,
+            "type": "mesh",
+        }
+    ]
+    assert config.as_dict()["boundary_conditions"]["dirichlet_boundary"] == [
+        {
+            "id": 1,
+            "value": [0, 0],
+        }
+    ]
+
+
+def test_single_dict_selection_example_uses_model_builder():
+    example_path = (
+        CLASSIC_EXAMPLES
+        / "3D"
+        / "contact_3d_unit_tests_2_cubes_generated_api.py"
+    )
+    source_path = POLYFEM_DATA_EXAMPLES / "3D" / "unit-tests" / "2-cubes.json"
+
+    assert source_path.resolve() in _builder_safe_source_paths()
+
+    text = example_path.read_text(encoding="utf-8")
+    assert "model = polyfem.model()" in text
+    assert ".surface_axis(" in text
+    assert "polyfem_config = model.config(" in text
+
+
+def test_mesh_sequence_example_uses_model_builder():
+    example_path = (
+        CLASSIC_EXAMPLES
+        / "3D"
+        / "contact_3d_mesh_sequence_kick_generated_api.py"
+    )
+    source_path = POLYFEM_DATA_EXAMPLES / "3D" / "mesh-sequence" / "kick.json"
+
+    assert source_path.resolve() in _builder_safe_source_paths()
+
+    text = example_path.read_text(encoding="utf-8")
+    assert "model = polyfem.model()" in text
+    assert "model.obstacle_mesh_sequence(" in text
+    assert "polyfem_config = model.config(" in text
+
+
+def test_model_builder_mesh_sequence_preserves_payload():
+    model = polyfem.model()
+
+    obstacle = model.obstacle_mesh_sequence(
+        mesh_sequence="kick-sequence/",
+        fps=24,
+    )
+    config = model.config()
+
+    assert obstacle is None
+    assert config.as_dict()["geometry"] == [
+        {
+            "mesh_sequence": "kick-sequence/",
+            "fps": 24,
+            "is_obstacle": True,
+            "type": "mesh_sequence",
+        }
+    ]
+
+
+def test_mesh_array_pile_example_uses_model_builder():
+    example_path = (
+        CLASSIC_EXAMPLES
+        / "3D"
+        / "contact_3d_pile_cubes_generated_api.py"
+    )
+    source_path = POLYFEM_DATA_EXAMPLES / "3D" / "pile" / "cubes.json"
+
+    assert source_path.resolve() in _builder_safe_source_paths()
+
+    text = example_path.read_text(encoding="utf-8")
+    assert "model = polyfem.model()" in text
+    assert "model.mesh_array(" in text
+    assert "polyfem_config = model.config(" in text
+
+
+def test_model_builder_mesh_array_without_volume_selection_preserves_payload():
+    model = polyfem.model()
+
+    mesh_array = model.mesh_array(
+        mesh="cube.msh",
+        array=polyfem.array(
+            size=[2, 3, 4],
+            offset=1.25,
+        ),
+    )
+    config = model.config()
+
+    assert mesh_array is None
+    assert config.as_dict()["geometry"] == [
+        {
+            "mesh": "cube.msh",
+            "array": {
+                "size": [2, 3, 4],
+                "offset": 1.25,
+            },
+            "type": "mesh_array",
+        }
+    ]
+
+
+def test_obstacle_displacement_example_uses_model_builder():
+    example_path = (
+        CLASSIC_EXAMPLES
+        / "3D"
+        / "contact_3d_friction_ball_rollers_generated_api.py"
+    )
+    source_path = (
+        POLYFEM_DATA_EXAMPLES
+        / "3D"
+        / "friction"
+        / "ball-rollers.json"
+    )
+
+    assert source_path.resolve() in _builder_safe_source_paths()
+
+    text = example_path.read_text(encoding="utf-8")
+    assert "model = polyfem.model()" in text
+    assert ".obstacle_displacement(" in text
+
+
+def test_model_builder_can_bind_obstacle_surface_displacement():
+    model = polyfem.model()
+
+    surface = model.obstacle_mesh(
+        mesh="roller.obj",
+        surface_selection=1000,
+    )
+    surface.obstacle_displacement(value=[1, 0, 0])
+    config = model.config()
+
+    assert config.as_dict()["geometry"] == [
+        {
+            "mesh": "roller.obj",
+            "surface_selection": 1000,
+            "is_obstacle": True,
+            "type": "mesh",
+        }
+    ]
+    assert config.as_dict()["boundary_conditions"]["obstacle_displacements"] == [
+        {
+            "id": 1000,
+            "value": [1, 0, 0],
+        }
+    ]
 
 
 def _import_example(example_path: Path) -> Any:
@@ -402,9 +671,10 @@ def _resolve_mesh_paths(value: Any, source_dir: Path) -> None:
         for item in value:
             _resolve_mesh_paths(item, source_dir)
     elif isinstance(value, dict):
-        mesh = value.get("mesh")
-        if isinstance(mesh, str):
-            value["mesh"] = str((source_dir / mesh).resolve())
+        for key in ("mesh", "linear_map"):
+            path_value = value.get(key)
+            if isinstance(path_value, str):
+                value[key] = str((source_dir / path_value).resolve())
         for child in value.values():
             _resolve_mesh_paths(child, source_dir)
 

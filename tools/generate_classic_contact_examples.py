@@ -64,6 +64,10 @@ BOUNDARY_ITEM_CLASSES = {
         "pressure_cavity",
         polyfem.Root.Boundary_conditions.Pressure_cavity.Item,
     ),
+    "obstacle_displacements": (
+        "obstacle_displacement",
+        polyfem.Root.Boundary_conditions.Obstacle_displacements.Item,
+    ),
 }
 
 PREFERRED_FACTORY_NAMES = {
@@ -213,22 +217,36 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
     geometry = payload.get("geometry")
     if not isinstance(geometry, list):
         return None
-    if any(not isinstance(item, dict) or item.get("type") != "mesh" for item in geometry):
+    if any(
+        not isinstance(item, dict)
+        or item.get("type") not in ("mesh", "mesh_array", "mesh_sequence")
+        for item in geometry
+    ):
         return None
-    if any("volume_selection" not in item for item in geometry):
+    if any(
+        not item.get("is_obstacle")
+        and "volume_selection" in item
+        and (
+            not isinstance(item.get("volume_selection"), int)
+            or item.get("volume_selection") <= 0
+        )
+        for item in geometry
+    ):
         return None
 
     materials = normalize_optional_items(payload.get("materials"))
-    if any(not isinstance(item, dict) or "id" not in item for item in materials):
+    if any(not isinstance(item, dict) for item in materials):
         return None
 
     volume_body_by_id: dict[int, str] = {}
-    material_by_id = {item["id"]: item for item in materials}
+    material_by_id = {item["id"]: item for item in materials if "id" in item}
     selection_handle_by_id: dict[int, str] = {}
-    consumed_top_sections = {"geometry", "materials"}
+    consumed_top_sections = {"geometry"}
+    if len(material_by_id) == len(materials):
+        consumed_top_sections.add("materials")
     lines = ["model = polyfem.model()", ""]
 
-    for index, material in enumerate(materials, start=1):
+    for index, material in enumerate(material_by_id.values(), start=1):
         material_id = material["id"]
         material_values = without_key(material, "id")
         lines.extend(
@@ -246,45 +264,115 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
 
     for index, item in enumerate(geometry, start=1):
         body_var = f"body_{index}"
+        item_type = item.get("type", "mesh")
+        item_cls = (
+            polyfem.Root.Geometry.Mesh_array
+            if item_type == "mesh_array"
+            else polyfem.Root.Geometry.Mesh_sequence
+            if item_type == "mesh_sequence"
+            else polyfem.Root.Geometry.Mesh
+        )
         mesh_values = dict(item)
         mesh_values.pop("type", None)
         surface_selection = mesh_values.pop("surface_selection", None)
         point_selection = mesh_values.pop("point_selection", None)
+        is_obstacle = bool(mesh_values.pop("is_obstacle", False))
         volume_id = mesh_values.get("volume_selection")
-        if not isinstance(volume_id, int) or volume_id < 1:
-            return None
-
-        lines.extend(
-            assign_code(
-                body_var,
-                render_method_call(
-                    "model",
-                    "mesh",
-                    [],
-                    render_kwargs(polyfem.Root.Geometry.Mesh, mesh_values, 4),
-                    0,
-                ),
-            )
-        )
-        volume_body_by_id[volume_id] = body_var
-
-        if volume_id in material_by_id:
-            material_var = material_by_id[volume_id]["variable"]
-            lines.extend(render_method_call(body_var, "material", [material_var], [], 0).splitlines())
-
-        for selection_kind, selection_value in (
-            ("surface", surface_selection),
-            ("point", point_selection),
-        ):
-            selection_lines = render_selection_setup(
-                body_var,
-                selection_kind,
-                selection_value,
-                selection_handle_by_id,
-            )
-            if selection_lines is None:
+        has_volume_handle = isinstance(volume_id, int) and volume_id > 0
+        if is_obstacle:
+            if point_selection not in (None, 0):
                 return None
-            lines.extend(selection_lines)
+            if surface_selection is not None:
+                mesh_values["surface_selection"] = surface_selection
+            if point_selection is not None:
+                mesh_values["point_selection"] = point_selection
+        else:
+            if surface_selection == 0:
+                mesh_values["surface_selection"] = surface_selection
+            if point_selection == 0:
+                mesh_values["point_selection"] = point_selection
+
+        needs_geometry_handle = any(
+            value not in (None, 0)
+            for value in (surface_selection, point_selection)
+        )
+        if item_type == "mesh_array":
+            if is_obstacle:
+                method = "obstacle_mesh_array"
+            elif has_volume_handle:
+                method = "mesh_array"
+            elif needs_geometry_handle:
+                method = "geometry_mesh_array"
+            else:
+                method = "mesh_array"
+        elif item_type == "mesh_sequence":
+            if is_obstacle:
+                method = "obstacle_mesh_sequence"
+            elif has_volume_handle:
+                return None
+            else:
+                method = "geometry_mesh_sequence"
+        else:
+            if is_obstacle:
+                method = "obstacle_mesh"
+            elif has_volume_handle:
+                method = "mesh"
+            else:
+                method = "geometry_mesh"
+        mesh_kwargs = render_kwargs(item_cls, mesh_values, 4)
+        if is_obstacle or not has_volume_handle:
+            call = render_method_call(
+                "model",
+                method,
+                [],
+                mesh_kwargs,
+                0,
+            )
+            if is_obstacle and isinstance(surface_selection, int) and surface_selection > 0:
+                handle_var = f"{body_var}_surface_{surface_selection}"
+                selection_handle_by_id.setdefault(surface_selection, handle_var)
+                lines.extend(assign_code(handle_var, call))
+            elif not is_obstacle and needs_geometry_handle:
+                lines.extend(assign_code(body_var, call))
+            else:
+                lines.extend(call.splitlines())
+        else:
+            lines.extend(
+                assign_code(
+                    body_var,
+                    render_method_call(
+                        "model",
+                        method,
+                        [],
+                        mesh_kwargs,
+                        0,
+                    ),
+                )
+            )
+            volume_body_by_id[volume_id] = body_var
+
+            if volume_id in material_by_id:
+                material_var = material_by_id[volume_id]["variable"]
+                lines.extend(render_method_call(body_var, "material", [material_var], [], 0).splitlines())
+
+        selection_owner = body_var
+        if is_obstacle:
+            selection_owner = None
+
+        if selection_owner is not None:
+            for selection_kind, selection_value in (
+                ("surface", surface_selection),
+                ("point", point_selection),
+            ):
+                selection_lines = render_selection_setup(
+                    selection_owner,
+                    selection_kind,
+                    selection_value,
+                    selection_handle_by_id,
+                )
+                if selection_lines is None:
+                    return None
+                lines.extend(selection_lines)
 
         lines.append("")
 
@@ -478,9 +566,7 @@ def render_selection_setup(
             ),
         )
 
-    if isinstance(selection_value, dict):
-        return None
-
+    is_single_object = isinstance(selection_value, dict)
     items = selection_value if isinstance(selection_value, list) else [selection_value]
     lines: list[str] = []
     for item in items:
@@ -494,6 +580,12 @@ def render_selection_setup(
             return None
         handle_var = f"{body_var}_{selection_kind}_{selection_id}"
         selection_handle_by_id.setdefault(selection_id, handle_var)
+        kwargs = [
+            (keyword_name(key), render_literal(value, 4))
+            for key, value in item.items()
+        ]
+        if is_single_object:
+            kwargs.append(("append", "False"))
         lines.extend(
             assign_code(
                 handle_var,
@@ -501,7 +593,7 @@ def render_selection_setup(
                     body_var,
                     method,
                     [],
-                    [(keyword_name(key), render_literal(value, 4)) for key, value in item.items()],
+                    kwargs,
                     0,
                 ),
             )

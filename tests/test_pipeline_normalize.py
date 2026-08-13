@@ -366,10 +366,12 @@ class ConfigureSolverContractTests(unittest.TestCase):
         class FakeSolver:
             def __init__(self):
                 self.settings_json = None
+                self.strict_validation = None
                 self.mesh_args = None
 
             def set_settings(self, settings_json, strict_validation=False):
                 self.settings_json = settings_json
+                self.strict_validation = strict_validation
 
             def set_mesh(self, vertices, cells):
                 self.mesh_args = (vertices, cells)
@@ -398,6 +400,7 @@ class ConfigureSolverContractTests(unittest.TestCase):
         )
 
         self.assertNotIn("__array_body__", solver.settings_json)
+        self.assertIs(solver.strict_validation, True)
         self.assertEqual(solver.mesh_args[1].dtype, np.int32)
 
     def test_array_configure_rejects_python_side_mesh_ids_for_varform_runtime(self):

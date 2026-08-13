@@ -74,6 +74,7 @@ def prepare_generated_backend_payload(
     resolved_root_path = root_path or backend.get("root_path")
     if resolved_root_path:
         _resolve_geometry_mesh_paths_in_place(backend, str(resolved_root_path))
+        _resolve_collision_mesh_paths_in_place(backend, str(resolved_root_path))
     _restore_backend_payload_semantics(backend)
     return _drop_none(backend)
 
@@ -258,6 +259,34 @@ def _resolve_geometry_mesh_paths_in_place(payload: Dict[str, Any], root_path: st
         sibling = root_dir.parent / "meshes" / mesh_file.name
         if sibling.exists():
             entry["mesh"] = str(sibling)
+
+
+def _resolve_existing_path_from_root(root_path: str, path_value: str) -> str:
+    path = Path(path_value)
+    if path.is_absolute():
+        return path_value
+
+    root = Path(root_path).resolve()
+    root_dir = root if root.is_dir() else root.parent
+    resolved = root_dir / path
+    if resolved.exists():
+        return str(resolved)
+    return path_value
+
+
+def _resolve_collision_mesh_paths_in_place(payload: Dict[str, Any], root_path: str) -> None:
+    contact = payload.get("contact")
+    if not isinstance(contact, dict):
+        return
+
+    collision_mesh = contact.get("collision_mesh")
+    if not isinstance(collision_mesh, dict):
+        return
+
+    for key in ("mesh", "linear_map"):
+        value = collision_mesh.get(key)
+        if isinstance(value, str) and value.strip():
+            collision_mesh[key] = _resolve_existing_path_from_root(root_path, value)
 
 
 def cfg_array_mesh_payload(cfg: Any) -> Optional[Dict[str, Any]]:

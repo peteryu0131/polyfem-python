@@ -108,6 +108,33 @@ class GeneratedPayloadTests(unittest.TestCase):
 
         self.assertEqual(prepared["geometry"][0]["mesh"], str(mesh_file))
 
+    def test_prepare_payload_resolves_relative_collision_mesh_files_from_root_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case_dir = Path(tmp) / "case"
+            case_dir.mkdir()
+            mesh_file = case_dir / "proxy.ply"
+            map_file = case_dir / "coarse-to-proxy.hdf5"
+            mesh_file.write_text("placeholder", encoding="utf-8")
+            map_file.write_text("placeholder", encoding="utf-8")
+
+            payload = {
+                "root_path": str(case_dir / "config.json"),
+                "contact": {
+                    "collision_mesh": {
+                        "mesh": "proxy.ply",
+                        "linear_map": "coarse-to-proxy.hdf5",
+                    }
+                },
+            }
+
+            prepared = prepare_generated_backend_payload(payload)
+
+        self.assertEqual(prepared["contact"]["collision_mesh"]["mesh"], str(mesh_file))
+        self.assertEqual(
+            prepared["contact"]["collision_mesh"]["linear_map"],
+            str(map_file),
+        )
+
     def test_prepare_payload_restores_uniform_scale_scalar_for_backend(self):
         payload = {
             "geometry": [

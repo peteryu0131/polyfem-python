@@ -8,12 +8,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL_PATH = ROOT / "tools" / "check_generated_example_backend.py"
+BATCH_TOOL_PATH = ROOT / "tools" / "run_generated_contact_backend_checks.py"
 
 
 def _load_tool_module():
     spec = importlib.util.spec_from_file_location(
         "check_generated_example_backend_for_test",
         TOOL_PATH,
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.modules.pop(spec.name, None)
+
+
+def _load_batch_tool_module():
+    spec = importlib.util.spec_from_file_location(
+        "run_generated_contact_backend_checks_for_test",
+        BATCH_TOOL_PATH,
     )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -216,3 +232,20 @@ def test_backend_workflow_exposes_optional_generated_example_diagnostic():
     assert "run_generated_example_diagnostic" in workflow
     assert "tools/check_generated_example_backend.py" in workflow
     assert "contact_2d_golf_ball_deformable_wall_generated_api.py" in workflow
+
+
+def test_batch_backend_tool_reads_polyfem_active_contact_lists():
+    tool = _load_batch_tool_module()
+
+    cases = tool.iter_active_contact_cases(tool.CONTACT_LISTS)
+    by_source = {case.source_rel: case for case in cases}
+
+    assert len(cases) == 67
+    assert "contact/examples/3D/pile/cubes.json" in by_source
+    assert "contact/examples/3D/rigid/proxy/screw.json" in by_source
+    assert "contact/examples/3D/static/two-cubes.json" not in by_source
+    assert by_source[
+        "contact/examples/3D/friction/high-school-physics-slopetest-mu=0.50.json"
+    ].generated_example.endswith(
+        "contact_3d_friction_high_school_slopetest_generated_api.py"
+    )

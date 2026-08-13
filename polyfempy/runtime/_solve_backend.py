@@ -55,7 +55,7 @@ def build_solver():
 def _apply_settings_json(solver, settings_json: str) -> None:
     if not hasattr(solver, "set_settings"):
         raise RuntimeError("Compiled VarForm Solver is missing set_settings(...).")
-    solver.set_settings(settings_json, strict_validation=False)
+    solver.set_settings(settings_json, strict_validation=True)
 
 
 def _configure_json_mode(
