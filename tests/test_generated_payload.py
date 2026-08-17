@@ -23,6 +23,10 @@ from polyfempy.runtime._solve_contract import (  # noqa: E402
 )
 
 
+def _canonical_path_text(path: Path) -> str:
+    return str(path.resolve())
+
+
 class GeneratedPayloadTests(unittest.TestCase):
     def test_generated_payload_helpers_live_in_solve_contract(self):
         self.assertFalse((_REPO / "polyfempy" / "api" / "_generated_payload.py").exists())
@@ -106,7 +110,10 @@ class GeneratedPayloadTests(unittest.TestCase):
 
             prepared = prepare_generated_backend_payload(payload)
 
-        self.assertEqual(prepared["geometry"][0]["mesh"], str(mesh_file))
+        self.assertEqual(
+            prepared["geometry"][0]["mesh"],
+            _canonical_path_text(mesh_file),
+        )
 
     def test_prepare_payload_resolves_relative_collision_mesh_files_from_root_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -129,10 +136,13 @@ class GeneratedPayloadTests(unittest.TestCase):
 
             prepared = prepare_generated_backend_payload(payload)
 
-        self.assertEqual(prepared["contact"]["collision_mesh"]["mesh"], str(mesh_file))
+        self.assertEqual(
+            prepared["contact"]["collision_mesh"]["mesh"],
+            _canonical_path_text(mesh_file),
+        )
         self.assertEqual(
             prepared["contact"]["collision_mesh"]["linear_map"],
-            str(map_file),
+            _canonical_path_text(map_file),
         )
 
     def test_prepare_payload_restores_uniform_scale_scalar_for_backend(self):

@@ -26,6 +26,10 @@ from polyfempy.runtime._solve_contract import (  # noqa: E402
 )
 
 
+def _canonical_path_text(path: Path) -> str:
+    return str(path.resolve())
+
+
 class CleanJsonForCppTests(unittest.TestCase):
     def test_drops_top_level_none_values(self):
         self.assertEqual(
@@ -148,7 +152,10 @@ class ProcessJsonConfigTests(unittest.TestCase):
             d["root_path"] = str(cfg_dir / "config.json")
 
             processed = process_json_config(d)
-            self.assertEqual(processed["geometry"][0]["mesh"], str(mesh_file))
+            self.assertEqual(
+                processed["geometry"][0]["mesh"],
+                _canonical_path_text(mesh_file),
+            )
 
     def test_resolves_relative_mesh_against_sibling_meshes_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -166,7 +173,10 @@ class ProcessJsonConfigTests(unittest.TestCase):
 
             processed = process_json_config(d)
             # Not under case_dir directly, so falls back to ../meshes/beam.msh.
-            self.assertEqual(processed["geometry"][0]["mesh"], str(mesh_file))
+            self.assertEqual(
+                processed["geometry"][0]["mesh"],
+                _canonical_path_text(mesh_file),
+            )
 
     def test_leaves_unresolvable_relative_mesh_alone(self):
         d = self._base()

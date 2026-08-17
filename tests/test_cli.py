@@ -219,4 +219,19 @@ def test_generated_contact_backend_workflow_runs_manual_full_sweep():
     assert "tools/run_generated_contact_backend_checks.py" in workflow
     assert "--require-tests-match" in workflow
     assert "tools/generated_contact_expected_failures.json" in workflow
-    assert "actions/upload-artifact@v4" in workflow
+    assert "actions/upload-artifact@v7" in workflow
+
+
+def test_github_actions_use_node24_compatible_action_versions():
+    workflow_dir = ROOT / ".github" / "workflows"
+    workflows = {
+        path.name: path.read_text(encoding="utf-8")
+        for path in workflow_dir.glob("*.yml")
+    }
+
+    assert workflows
+    for workflow in workflows.values():
+        assert "actions/checkout@v4" not in workflow
+        assert "actions/setup-python@v5" not in workflow
+        assert "actions/checkout@v7" in workflow
+        assert "actions/setup-python@v7" in workflow
