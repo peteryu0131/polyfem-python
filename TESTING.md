@@ -216,6 +216,76 @@ contact examples 比 units/neohookean 慢很多
 polyfem-data/contact/examples/... 的 tests 是否需要按新 VarForm backend 更新
 ```
 
+### 6.1 Active contact full sweep
+
+老师要求的 contact example 范围来自：
+
+```text
+polyfem/tests/contact_2d.txt
+polyfem/tests/contact_3d.txt
+```
+
+只跑没有 `#` 注释的 `contact/examples/...` 行。当前 active set 是：
+
+```text
+2D active cases: 25
+3D active cases: 42
+Total active:    67
+```
+
+本地 backend build 完成后，用这个命令跑完整 active sweep：
+
+```powershell
+conda activate polyfem
+python tools\run_generated_contact_backend_checks.py `
+  --output-root build\generated-contact-backend-check-release-candidate `
+  --require-tests-match
+```
+
+GitHub Actions 里也有同样用途的手动 heavy gate：
+
+```text
+.github/workflows/generated-contact-backend.yml
+```
+
+在 GitHub Actions 页面手动运行 `Generated Contact Backend`。它会：
+
+```text
+checkout submodules
+generate packaged API
+build editable backend
+run backend-info --require
+run all active generated contact cases
+upload summary.txt / summary.json / logs
+```
+
+这个 batch tool 默认读取：
+
+```text
+tools/generated_contact_expected_failures.json
+```
+
+当前 expected ignored case 只有：
+
+```text
+contact/examples/3D/rigid/proxy/screw.json
+```
+
+原因是当前 Windows Python backend build 读取 `screw-coarse-to-screw.hdf5` 时出现 `h5pp` type-size mismatch；老师已经说这个可以先 ignore。
+
+发布前应该看 `summary.txt` / `summary.json` 的这个口径：
+
+```text
+PASS: 66
+IGNORED: 1
+FAIL: 0
+Unexpected pass: 0
+Unexpected fail: 0
+```
+
+如果出现 `FAIL > 0`，说明有新的、没有被老师批准忽略的问题，需要修。
+如果出现 `UNEXPECTED_PASS > 0`，说明某个 ignore case 已经通过了，应该从 `tools/generated_contact_expected_failures.json` 移除。
+
 ## 7. 哪些测试暂时保留
 
 现在不要删除这些看起来像 cleanup guard 的测试：

@@ -1,0 +1,9 @@
+{
+  "ignored": [
+    {
+      "source": "contact/examples/3D/rigid/proxy/screw.json",
+      "reason": "HDF5/h5pp type-size mismatch on the current Windows Python backend build; teacher approved ignoring this case for now.",
+      "approved": true
+    }
+  ]
+}

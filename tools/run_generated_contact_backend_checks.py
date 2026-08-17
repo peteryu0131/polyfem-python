@@ -14,10 +14,10 @@ import argparse
 import json
 import subprocess
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +26,7 @@ CONTACT_LISTS = [
     ROOT / "polyfem" / "tests" / "contact_3d.txt",
 ]
 DEFAULT_OUTPUT_ROOT = ROOT / "build" / "generated-contact-backend-check"
+DEFAULT_EXPECTED_FAILURES = ROOT / "tools" / "generated_contact_expected_failures.json"
 
 TARGET_NAME_OVERRIDES = {
     "2D/golf-ball-doformable-wall.json": (
@@ -53,6 +54,15 @@ class CaseResult:
     status: str
     returncode: int
     log_file: str
+    raw_status: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class ExpectedFailure:
+    source: str
+    reason: str
+    approved: bool = False
 
 
 def slugify(value: str) -> str:
@@ -103,6 +113,52 @@ def iter_active_contact_cases(list_paths: Sequence[Path]) -> list[ContactCase]:
 
 def safe_case_name(source_rel: str) -> str:
     return slugify(source_rel.removeprefix("contact/examples/").removesuffix(".json"))
+
+
+def load_expected_failures(config_path: Path | None) -> dict[str, ExpectedFailure]:
+    if config_path is None or not config_path.exists():
+        return {}
+
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    expected_failures: dict[str, ExpectedFailure] = {}
+    for item in payload.get("ignored", []):
+        source = str(item["source"]).replace("\\", "/")
+        expected_failures[source] = ExpectedFailure(
+            source=source,
+            reason=str(item.get("reason", "")),
+            approved=bool(item.get("approved", False)),
+        )
+    return expected_failures
+
+
+def apply_expected_failures(
+    results: Sequence[CaseResult],
+    expected_failures: Mapping[str, ExpectedFailure],
+) -> list[CaseResult]:
+    classified: list[CaseResult] = []
+    for result in results:
+        raw_status = result.raw_status or result.status
+        expected_failure = expected_failures.get(result.source_rel)
+        if expected_failure is None:
+            classified.append(replace(result, raw_status=raw_status))
+            continue
+
+        if raw_status == "FAIL":
+            status = "IGNORED"
+        elif raw_status == "PASS":
+            status = "UNEXPECTED_PASS"
+        else:
+            status = result.status
+
+        classified.append(
+            replace(
+                result,
+                status=status,
+                raw_status=raw_status,
+                reason=expected_failure.reason,
+            )
+        )
+    return classified
 
 
 def run_case(
@@ -164,12 +220,14 @@ def run_case(
         encoding="utf-8",
     )
 
+    status = "PASS" if result.returncode == 0 else "FAIL"
     return CaseResult(
         source_rel=case.source_rel,
         generated_example=str(Path(case.generated_example).relative_to(ROOT)),
-        status="PASS" if result.returncode == 0 else "FAIL",
+        status=status,
         returncode=result.returncode,
         log_file=str(log_file.relative_to(ROOT)),
+        raw_status=status,
     )
 
 
@@ -179,11 +237,17 @@ def write_summaries(
     results: Sequence[CaseResult],
 ) -> None:
     passed = sum(1 for result in results if result.status == "PASS")
-    failed = len(results) - passed
+    ignored = sum(1 for result in results if result.status == "IGNORED")
+    failed = sum(1 for result in results if result.status == "FAIL")
+    unexpected_pass = sum(1 for result in results if result.status == "UNEXPECTED_PASS")
+    unexpected_fail = failed
     summary = {
         "total": len(results),
         "passed": passed,
+        "ignored": ignored,
         "failed": failed,
+        "unexpected_pass": unexpected_pass,
+        "unexpected_fail": unexpected_fail,
         "cases": [asdict(result) for result in results],
     }
     (output_root / "summary.json").write_text(
@@ -193,17 +257,20 @@ def write_summaries(
 
     lines = [
         "Generated contact backend check summary",
-        f"Total:  {len(results)}",
-        f"PASS:   {passed}",
-        f"FAIL:   {failed}",
+        f"Total active:     {len(results)}",
+        f"PASS:            {passed}",
+        f"IGNORED:         {ignored}",
+        f"FAIL:            {failed}",
+        f"Unexpected pass: {unexpected_pass}",
+        f"Unexpected fail: {unexpected_fail}",
         "",
-        "| Status | Source JSON | Generated example | Log |",
-        "| --- | --- | --- | --- |",
+        "| Status | Source JSON | Generated example | Log | Reason |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for result in results:
         lines.append(
             f"| {result.status} | `{result.source_rel}` | "
-            f"`{result.generated_example}` | `{result.log_file}` |"
+            f"`{result.generated_example}` | `{result.log_file}` | {result.reason} |"
         )
 
     if len(cases) != len(results):
@@ -229,6 +296,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep-visual-output", action="store_true")
     parser.add_argument("--log-level", type=int, default=2)
     parser.add_argument("--max-threads", type=int, default=1)
+    parser.add_argument(
+        "--expected-failures",
+        type=Path,
+        default=DEFAULT_EXPECTED_FAILURES,
+        help="JSON config listing teacher-approved generated contact failures.",
+    )
+    parser.add_argument(
+        "--no-expected-failures",
+        action="store_true",
+        help="disable expected-failure classification.",
+    )
     return parser
 
 
@@ -236,6 +314,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     output_root = args.output_root.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
+    expected_failures = (
+        {}
+        if args.no_expected_failures
+        else load_expected_failures(args.expected_failures)
+    )
 
     cases = iter_active_contact_cases(CONTACT_LISTS)
     if args.match:
@@ -256,10 +339,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_threads=args.max_threads,
         )
         results.append(result)
-        print(f"  {result.status} log={result.log_file}")
-        write_summaries(output_root, cases, results)
+        classified_results = apply_expected_failures(results, expected_failures)
+        displayed_result = classified_results[-1]
+        print(f"  {displayed_result.status} log={displayed_result.log_file}")
+        write_summaries(output_root, cases, classified_results)
 
-    return 0 if all(result.status == "PASS" for result in results) else 1
+    classified_results = apply_expected_failures(results, expected_failures)
+    allowed_statuses = {"PASS", "IGNORED"}
+    return 0 if all(result.status in allowed_statuses for result in classified_results) else 1
 
 
 if __name__ == "__main__":

@@ -224,6 +224,25 @@ def test_backend_tool_prunes_visual_output_files(tmp_path):
     assert not any(tmp_path.glob("*.pvd"))
 
 
+def test_backend_tool_uses_short_backend_workspace_names(tmp_path):
+    tool = _load_tool_module()
+
+    example_path = (
+        tmp_path
+        / "contact_2d_friction_high_school_physics_slopetest_mu_0_49_generated_api.py"
+    )
+    source_json = tmp_path / "high-school-physics-slopetest-mu=0.49.json"
+    output_root = tmp_path / "generated-contact-backend-check-20260813-model-full"
+
+    generated_workspace = tool._generated_workspace(output_root, example_path)
+    source_workspace = tool._source_json_workspace(output_root, source_json)
+
+    assert generated_workspace == output_root / "generated" / "run"
+    assert source_workspace == output_root / "source-json" / "run"
+    assert example_path.stem not in str(generated_workspace)
+    assert source_json.stem not in str(source_workspace)
+
+
 def test_backend_workflow_exposes_optional_generated_example_diagnostic():
     workflow = (ROOT / ".github" / "workflows" / "backend.yml").read_text(
         encoding="utf-8"
@@ -249,3 +268,108 @@ def test_batch_backend_tool_reads_polyfem_active_contact_lists():
     ].generated_example.endswith(
         "contact_3d_friction_high_school_slopetest_generated_api.py"
     )
+
+
+def test_batch_backend_tool_loads_expected_failure_config(tmp_path):
+    tool = _load_batch_tool_module()
+
+    config_path = tmp_path / "expected_failures.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "ignored": [
+                    {
+                        "source": "contact/examples/3D/rigid/proxy/screw.json",
+                        "reason": "teacher-approved HDF5 issue",
+                        "approved": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    expected_failures = tool.load_expected_failures(config_path)
+
+    assert set(expected_failures) == {
+        "contact/examples/3D/rigid/proxy/screw.json"
+    }
+    ignored = expected_failures["contact/examples/3D/rigid/proxy/screw.json"]
+    assert ignored.source == "contact/examples/3D/rigid/proxy/screw.json"
+    assert ignored.reason == "teacher-approved HDF5 issue"
+    assert ignored.approved is True
+
+
+def test_batch_backend_tool_classifies_expected_failures_in_summary(tmp_path):
+    tool = _load_batch_tool_module()
+    expected_failures = {
+        "contact/examples/3D/rigid/proxy/screw.json": tool.ExpectedFailure(
+            source="contact/examples/3D/rigid/proxy/screw.json",
+            reason="teacher-approved HDF5 issue",
+            approved=True,
+        ),
+        "contact/examples/3D/expected/pass-now.json": tool.ExpectedFailure(
+            source="contact/examples/3D/expected/pass-now.json",
+            reason="old expected failure",
+            approved=True,
+        ),
+    }
+    raw_results = [
+        tool.CaseResult(
+            source_rel="contact/examples/2D/friction/card-house.json",
+            generated_example="examples/card-house.py",
+            status="PASS",
+            returncode=0,
+            log_file="logs/card-house.log",
+        ),
+        tool.CaseResult(
+            source_rel="contact/examples/3D/rigid/proxy/screw.json",
+            generated_example="examples/screw.py",
+            status="FAIL",
+            returncode=1,
+            log_file="logs/screw.log",
+        ),
+        tool.CaseResult(
+            source_rel="contact/examples/3D/expected/pass-now.json",
+            generated_example="examples/pass-now.py",
+            status="PASS",
+            returncode=0,
+            log_file="logs/pass-now.log",
+        ),
+        tool.CaseResult(
+            source_rel="contact/examples/3D/pile/cubes.json",
+            generated_example="examples/cubes.py",
+            status="FAIL",
+            returncode=1,
+            log_file="logs/cubes.log",
+        ),
+    ]
+
+    results = tool.apply_expected_failures(raw_results, expected_failures)
+
+    assert [result.status for result in results] == [
+        "PASS",
+        "IGNORED",
+        "UNEXPECTED_PASS",
+        "FAIL",
+    ]
+    assert results[1].raw_status == "FAIL"
+    assert results[1].reason == "teacher-approved HDF5 issue"
+    assert results[2].raw_status == "PASS"
+    assert results[2].reason == "old expected failure"
+
+    tool.write_summaries(tmp_path, [], results)
+
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert summary["passed"] == 1
+    assert summary["ignored"] == 1
+    assert summary["failed"] == 1
+    assert summary["unexpected_pass"] == 1
+    assert summary["unexpected_fail"] == 1
+
+    summary_text = (tmp_path / "summary.txt").read_text(encoding="utf-8")
+    assert "PASS:            1" in summary_text
+    assert "IGNORED:         1" in summary_text
+    assert "FAIL:            1" in summary_text
+    assert "Unexpected pass: 1" in summary_text
+    assert "Unexpected fail: 1" in summary_text

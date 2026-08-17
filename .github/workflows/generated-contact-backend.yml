@@ -1,0 +1,66 @@
+name: Generated Contact Backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      generated_source_tolerance:
+        description: Numeric tolerance for generated vs source JSON metric comparison
+        required: false
+        default: "1e-5"
+        type: string
+      max_threads:
+        description: Max backend threads per case
+        required: false
+        default: "1"
+        type: string
+
+jobs:
+  generated-contact-backend:
+    runs-on: ubuntu-latest
+    name: ubuntu-latest (py3.11 generated contact backend)
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install setuptools wheel cmake nanobind numpy pytest
+
+      - name: Generate packaged API
+        run: python tools/generate_polyfem_api.py
+
+      - name: Build editable backend
+        run: python -m pip install -e . --no-build-isolation -vv
+
+      - name: Check compiled backend
+        run: python -m polyfempy backend-info --require
+
+      - name: Run active generated contact backend sweep
+        run: |
+          python tools/run_generated_contact_backend_checks.py \
+            --output-root build/generated-contact-backend-check-release-candidate \
+            --generated-source-tolerance "${{ inputs.generated_source_tolerance }}" \
+            --max-threads "${{ inputs.max_threads }}" \
+            --require-tests-match
+
+      - name: Upload generated contact backend results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-contact-backend-results
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/generated-contact-backend-check-release-candidate/summary.txt
+            build/generated-contact-backend-check-release-candidate/summary.json
+            build/generated-contact-backend-check-release-candidate/logs
+            tools/generated_contact_expected_failures.json

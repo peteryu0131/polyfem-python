@@ -204,3 +204,19 @@ def test_backend_github_actions_builds_compiled_backend_manually():
     assert "python -m pip install -e . --no-build-isolation -vv" in workflow
     assert "python -m polyfempy backend-info --require" in workflow
     assert "python -m pytest tests/test_backend_smoke.py -q -rs" in workflow
+
+
+def test_generated_contact_backend_workflow_runs_manual_full_sweep():
+    workflow = (
+        ROOT / ".github" / "workflows" / "generated-contact-backend.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "submodules: recursive" in workflow
+    assert "python tools/generate_polyfem_api.py" in workflow
+    assert "python -m pip install -e . --no-build-isolation -vv" in workflow
+    assert "python -m polyfempy backend-info --require" in workflow
+    assert "tools/run_generated_contact_backend_checks.py" in workflow
+    assert "--require-tests-match" in workflow
+    assert "tools/generated_contact_expected_failures.json" in workflow
+    assert "actions/upload-artifact@v4" in workflow

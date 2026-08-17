@@ -345,6 +345,14 @@ def _import_example(example_path: Path):
     return module
 
 
+def _generated_workspace(output_root: Path, example_path: Path) -> Path:
+    return output_root / "generated" / "run"
+
+
+def _source_json_workspace(output_root: Path, source_json: Path) -> Path:
+    return output_root / "source-json" / "run"
+
+
 def run_generated_example(
     example_path: Path,
     source_json: Path,
@@ -362,7 +370,7 @@ def run_generated_example(
             f"{example_path} must expose config_for_workspace(workspace)"
         )
 
-    workspace = output_root / "generated" / example_path.stem
+    workspace = _generated_workspace(output_root, example_path)
     workspace.mkdir(parents=True, exist_ok=True)
     cfg = config_for_workspace(workspace)
     payload = _config_payload_for_backend_run(cfg)
@@ -385,7 +393,7 @@ def run_source_json(
     max_threads: int,
     keep_visual_output: bool,
 ) -> Path:
-    workspace = output_root / "source-json" / source_json.stem
+    workspace = _source_json_workspace(output_root, source_json)
     workspace.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
