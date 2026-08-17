@@ -33,6 +33,7 @@ htmlcov/
 /python-from-jse/generated/
 
 # Local architecture/discussion notes
+/doc/
 /docs/
 /polyfempy/runtime/README.md
 
