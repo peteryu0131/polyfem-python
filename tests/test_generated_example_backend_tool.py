@@ -300,6 +300,14 @@ def test_batch_backend_tool_loads_expected_failure_config(tmp_path):
     assert ignored.approved is True
 
 
+def test_default_expected_failure_config_does_not_ignore_passing_screw_case():
+    tool = _load_batch_tool_module()
+
+    expected_failures = tool.load_expected_failures(tool.DEFAULT_EXPECTED_FAILURES)
+
+    assert "contact/examples/3D/rigid/proxy/screw.json" not in expected_failures
+
+
 def test_batch_backend_tool_classifies_expected_failures_in_summary(tmp_path):
     tool = _load_batch_tool_module()
     expected_failures = {
