@@ -206,12 +206,21 @@ def test_backend_github_actions_builds_compiled_backend_manually():
     assert "python -m pytest tests/test_backend_smoke.py -q -rs" in workflow
 
 
-def test_generated_contact_backend_workflow_runs_manual_full_sweep():
+def test_generated_contact_backend_workflow_runs_push_full_sweep_without_pr_trigger():
     workflow = (
         ROOT / ".github" / "workflows" / "generated-contact-backend.yml"
     ).read_text(encoding="utf-8")
 
+    assert "push:" in workflow
+    assert "branches:" in workflow
+    assert "- main" in workflow
+    assert "- jingyao" in workflow
+    assert "pull_request:" not in workflow
     assert "workflow_dispatch:" in workflow
+    assert "GENERATED_SOURCE_TOLERANCE" in workflow
+    assert "github.event.inputs.generated_source_tolerance || '1e-5'" in workflow
+    assert "MAX_THREADS" in workflow
+    assert "github.event.inputs.max_threads || '1'" in workflow
     assert "submodules: recursive" in workflow
     assert "python tools/generate_polyfem_api.py" in workflow
     assert "python -m pip install -e . --no-build-isolation -vv" in workflow

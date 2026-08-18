@@ -1,6 +1,10 @@
 name: Generated Contact Backend
 
 on:
+  push:
+    branches:
+      - main
+      - jingyao
   workflow_dispatch:
     inputs:
       generated_source_tolerance:
@@ -13,6 +17,10 @@ on:
         required: false
         default: "1"
         type: string
+
+env:
+  GENERATED_SOURCE_TOLERANCE: ${{ github.event.inputs.generated_source_tolerance || '1e-5' }}
+  MAX_THREADS: ${{ github.event.inputs.max_threads || '1' }}
 
 jobs:
   generated-contact-backend:
@@ -48,8 +56,8 @@ jobs:
         run: |
           python tools/run_generated_contact_backend_checks.py \
             --output-root build/generated-contact-backend-check-release-candidate \
-            --generated-source-tolerance "${{ inputs.generated_source_tolerance }}" \
-            --max-threads "${{ inputs.max_threads }}" \
+            --generated-source-tolerance "$GENERATED_SOURCE_TOLERANCE" \
+            --max-threads "$MAX_THREADS" \
             --require-tests-match
 
       - name: Upload generated contact backend results
