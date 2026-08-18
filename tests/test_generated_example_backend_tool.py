@@ -243,14 +243,16 @@ def test_backend_tool_uses_short_backend_workspace_names(tmp_path):
     assert source_json.stem not in str(source_workspace)
 
 
-def test_backend_workflow_exposes_optional_generated_example_diagnostic():
-    workflow = (ROOT / ".github" / "workflows" / "backend.yml").read_text(
+def test_generated_contact_workflow_runs_batch_backend_checker():
+    workflow = (
+        ROOT / ".github" / "workflows" / "generated-contact-backend.yml"
+    ).read_text(
         encoding="utf-8"
     )
 
-    assert "run_generated_example_diagnostic" in workflow
-    assert "tools/check_generated_example_backend.py" in workflow
-    assert "contact_2d_golf_ball_deformable_wall_generated_api.py" in workflow
+    assert "tools/run_generated_contact_backend_checks.py" in workflow
+    assert "--require-tests-match" in workflow
+    assert "tools/generated_contact_expected_failures.json" in workflow
 
 
 def test_batch_backend_tool_reads_polyfem_active_contact_lists():

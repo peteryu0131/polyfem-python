@@ -193,17 +193,14 @@ def test_github_actions_generates_ignored_api_before_tests():
     assert "python -m pytest tests -q" in workflow
 
 
-def test_backend_github_actions_builds_compiled_backend_manually():
-    workflow = (ROOT / ".github" / "workflows" / "backend.yml").read_text(
-        encoding="utf-8"
-    )
+def test_github_actions_keep_backend_validation_in_two_workflows():
+    workflow_dir = ROOT / ".github" / "workflows"
+    workflow_names = {path.name for path in workflow_dir.glob("*.yml")}
 
-    assert "workflow_dispatch:" in workflow
-    assert "submodules: recursive" in workflow
-    assert "python tools/generate_polyfem_api.py" in workflow
-    assert "python -m pip install -e . --no-build-isolation -vv" in workflow
-    assert "python -m polyfempy backend-info --require" in workflow
-    assert "python -m pytest tests/test_backend_smoke.py -q -rs" in workflow
+    assert workflow_names == {
+        "generated-contact-backend.yml",
+        "test.yml",
+    }
 
 
 def test_generated_contact_backend_workflow_runs_push_full_sweep_without_pr_trigger():
