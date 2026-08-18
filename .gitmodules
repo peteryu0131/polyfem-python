@@ -4,6 +4,7 @@
 [submodule "examples"]
 	path = examples
 	url = https://github.com/polyfem/python_data.git
+	branch = main
 [submodule "polyfem-data"]
 	path = polyfem-data
 	url = https://github.com/polyfem/polyfem-data.git
