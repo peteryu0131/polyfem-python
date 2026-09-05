@@ -237,7 +237,15 @@ def load_reduced_backend_payload(source_json: Path) -> tuple[dict[str, Any], int
     backend_payload["root_path"] = str(source_json)
     _resolve_mesh_paths(backend_payload, source_json.parent)
     apply_verify_run_linear_solver(backend_payload, source_json)
+    ensure_json_output(backend_payload)
     return apply_test_time_steps(backend_payload, time_steps), time_steps
+
+
+def ensure_json_output(payload: dict[str, Any]) -> None:
+    output = payload.setdefault("output", {})
+    if not isinstance(output, dict):
+        raise TypeError("output block must be an object")
+    output.setdefault("json", "sim.json")
 
 
 def _config_payload_for_backend_run(cfg: Any) -> dict[str, Any]:

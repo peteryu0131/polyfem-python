@@ -116,7 +116,6 @@ def is_auxiliary_source(source_json: Path) -> bool:
     return (
         source_json.name == "common.json"
         or source_json.name.endswith("-common.json")
-        or source_json.name == "params.json"
     )
 
 
