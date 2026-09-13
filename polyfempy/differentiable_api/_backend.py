@@ -32,6 +32,12 @@ class BackendContractError(RuntimeError):
     """Raised when the compiled backend does not expose the D4-B MVP surface."""
 
 
+def declared_opt_parameter_kinds() -> tuple[str, ...]:
+    """Return native opt parameter kinds classified by this MVP policy."""
+
+    return SUPPORTED_PARAMETER_KINDS + UNSUPPORTED_OPT_PARAMETER_KINDS
+
+
 def require_shape_mvp_backend(backend: Any) -> type:
     """Return the backend DifferentiableSession type if it satisfies D4-B."""
 
@@ -63,6 +69,6 @@ __all__ = [
     "REQUIRED_SESSION_METHODS",
     "SUPPORTED_PARAMETER_KINDS",
     "UNSUPPORTED_OPT_PARAMETER_KINDS",
+    "declared_opt_parameter_kinds",
     "require_shape_mvp_backend",
 ]
-

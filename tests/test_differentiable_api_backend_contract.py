@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class _CompleteSession:
@@ -19,6 +25,15 @@ class _CompleteSession:
 
 class _CompleteBackend:
     DifferentiableSession = _CompleteSession
+
+
+def _spec_variable_to_simulation_options() -> tuple[str, ...]:
+    spec_path = ROOT / "polyfem" / "json-specs" / "opt-input-spec.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    for entry in spec:
+        if entry.get("pointer") == "/variable_to_simulation/*/type":
+            return tuple(entry["options"])
+    raise AssertionError("opt-input-spec.json is missing /variable_to_simulation/*/type")
 
 
 def test_backend_contract_is_shape_mvp_only():
@@ -42,6 +57,20 @@ def test_backend_contract_is_shape_mvp_only():
         "dirichlet-nodes",
         "pressure",
     )
+
+
+def test_backend_parameter_policy_tracks_opt_input_spec():
+    from polyfempy.differentiable_api import _backend
+
+    spec_options = _spec_variable_to_simulation_options()
+
+    assert _backend.declared_opt_parameter_kinds() == spec_options
+    assert set(_backend.SUPPORTED_PARAMETER_KINDS).isdisjoint(
+        _backend.UNSUPPORTED_OPT_PARAMETER_KINDS
+    )
+    assert set(_backend.SUPPORTED_PARAMETER_KINDS) | set(
+        _backend.UNSUPPORTED_OPT_PARAMETER_KINDS
+    ) == set(spec_options)
 
 
 def test_backend_contract_accepts_complete_shape_session():
@@ -71,4 +100,3 @@ def test_backend_contract_rejects_missing_session_method():
 
     with pytest.raises(_backend.BackendContractError, match="backward_shape"):
         _backend.require_shape_mvp_backend(IncompleteBackend())
-
