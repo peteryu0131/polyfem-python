@@ -23,6 +23,26 @@ def shape_solve(
     contract and backend call shape first.
     """
 
+    payload = _single_shape_payload(
+        model=model,
+        selection=selection,
+        tensor=tensor,
+    )
+    solution, _session = _run_shape_session(
+        payload=payload,
+        selection=selection,
+        tensor=tensor,
+        backend=backend,
+    )
+    return solution
+
+
+def _single_shape_payload(
+    *,
+    model: DifferentiableModel,
+    selection: Any,
+    tensor: Any,
+) -> dict[str, Any]:
     if not isinstance(model, DifferentiableModel):
         raise TypeError("model must be a polyfempy.differentiable_api.DifferentiableModel")
     if selection is None:
@@ -33,14 +53,23 @@ def shape_solve(
     payloads = model.as_dicts()
     if len(payloads) != 1:
         raise ValueError("shape_solve MVP supports exactly one model")
+    return payloads[0]
 
+
+def _run_shape_session(
+    *,
+    payload: dict[str, Any],
+    selection: Any,
+    tensor: Any,
+    backend: Any | None = None,
+) -> tuple[Any, Any]:
     backend_module = backend if backend is not None else _load_default_backend()
     session_type = _backend.require_shape_solve_backend(backend_module)
     session = session_type()
 
-    session.set_settings(payloads[0])
+    session.set_settings(payload)
     session.set_shape_vertices(tensor, selection=selection)
-    return session.solve()
+    return session.solve(), session
 
 
 def _load_default_backend() -> Any:
@@ -54,4 +83,3 @@ def _load_default_backend() -> Any:
 
 
 __all__ = ["shape_solve"]
-

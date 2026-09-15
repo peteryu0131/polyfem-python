@@ -10,6 +10,7 @@ def test_differentiable_api_import_surface_is_small():
     assert D.__all__ == [
         "DifferentiableModel",
         "DifferentiableResult",
+        "ShapeOpt",
         "State",
         "model",
         "parameter",
