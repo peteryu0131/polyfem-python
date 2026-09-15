@@ -13,10 +13,12 @@ def test_differentiable_api_import_surface_is_small():
         "State",
         "model",
         "parameter",
+        "shape_solve",
         "solve",
         "state",
     ]
     assert callable(D.model)
+    assert callable(D.shape_solve)
     assert callable(D.state)
     assert hasattr(D.parameter, "shape")
     assert callable(D.parameter.shape)

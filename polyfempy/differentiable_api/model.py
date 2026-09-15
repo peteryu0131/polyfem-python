@@ -22,6 +22,24 @@ class DifferentiableModel:
 
         return [copy.deepcopy(payload) for payload in self._payloads]
 
+    def shape(
+        self,
+        *,
+        selection: Any,
+        tensor: Any,
+        backend: Any | None = None,
+    ) -> Any:
+        """Run a shape differentiable solve for this differentiable model."""
+
+        from .shape import shape_solve
+
+        return shape_solve(
+            model=self,
+            selection=selection,
+            tensor=tensor,
+            backend=backend,
+        )
+
 
 def model(models: Any) -> DifferentiableModel:
     """Wrap forward model builders, generated configs, or backend-shaped dicts."""
@@ -119,4 +137,3 @@ def _payload_from_config_result(config: Any) -> dict[str, Any]:
 
 
 __all__ = ["DifferentiableModel", "model"]
-
