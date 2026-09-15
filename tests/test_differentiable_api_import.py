@@ -8,12 +8,15 @@ def test_differentiable_api_import_surface_is_small():
     from polyfempy import differentiable_api as D
 
     assert D.__all__ == [
+        "DifferentiableModel",
         "DifferentiableResult",
         "State",
+        "model",
         "parameter",
         "solve",
         "state",
     ]
+    assert callable(D.model)
     assert callable(D.state)
     assert hasattr(D.parameter, "shape")
     assert callable(D.parameter.shape)
@@ -29,4 +32,3 @@ def test_differentiable_api_import_does_not_load_torch_or_old_reference_package(
     assert "polyfempy.differentiable" not in sys.modules
     if not torch_was_loaded:
         assert "torch" not in sys.modules
-
