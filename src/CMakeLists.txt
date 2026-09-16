@@ -12,3 +12,4 @@ target_sources(polyfempy PRIVATE ${SOURCES})
 
 add_subdirectory(mesh)
 add_subdirectory(state)
+add_subdirectory(differentiable_api)

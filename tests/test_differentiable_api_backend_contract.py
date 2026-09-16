@@ -81,6 +81,17 @@ def test_backend_contract_accepts_complete_shape_session():
     assert session_type is _CompleteSession
 
 
+def test_compiled_backend_exports_differentiable_session_skeleton():
+    backend = pytest.importorskip("polyfempy.polyfempy")
+    from polyfempy.differentiable_api import _backend
+
+    session_type = _backend.require_shape_solve_backend(backend)
+    session = session_type()
+
+    for method in _backend.REQUIRED_SHAPE_SOLVE_SESSION_METHODS:
+        assert callable(getattr(session, method))
+
+
 def test_backend_contract_rejects_missing_session_type():
     from polyfempy.differentiable_api import _backend
 

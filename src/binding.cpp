@@ -5,6 +5,7 @@
 
 #include "binding_wrapper.hpp"
 
+#include "differentiable_api/binding.hpp"
 #include "mesh/binding.hpp"
 #include "state/binding.hpp"
 
@@ -16,6 +17,7 @@ PY_MODULE(polyfempy, m)
   define_solve(m);
 
   define_mesh(m);
+  define_differentiable_session(m);
 
   m.def("version", []() { return "polyfempy nanobind backend"; }, "Get version information");
 }

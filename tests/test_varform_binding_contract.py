@@ -27,14 +27,17 @@ def test_forward_solver_binding_targets_varform_state_only():
     assert 'bundle["cells"]' not in source
 
 
-def test_default_cpp_module_does_not_register_differentiable_bindings():
+def test_default_cpp_module_registers_new_differentiable_session_only():
     src_cmake = (ROOT / "src" / "CMakeLists.txt").read_text()
     binding_cpp = (ROOT / "src" / "binding.cpp").read_text()
 
+    assert "add_subdirectory(differentiable_api)" in src_cmake
     assert "add_subdirectory(differentiable)" not in src_cmake
     assert "add_subdirectory(solver)" not in src_cmake
+    assert "differentiable_api/binding.hpp" in binding_cpp
     assert "differentiable/binding.hpp" not in binding_cpp
     assert "solver/binding.hpp" not in binding_cpp
+    assert "define_differentiable_session" in binding_cpp
     assert "define_differentiable_cache" not in binding_cpp
     assert "define_adjoint" not in binding_cpp
     assert "define_objective" not in binding_cpp
