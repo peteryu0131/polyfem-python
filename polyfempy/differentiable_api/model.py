@@ -29,7 +29,7 @@ class DifferentiableModel:
         tensor: Any,
         backend: Any | None = None,
     ) -> Any:
-        """Run a shape differentiable solve for this differentiable model."""
+        """Convenience wrapper for the shape differentiable operation."""
 
         from .shape import shape_solve
 

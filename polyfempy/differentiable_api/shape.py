@@ -16,11 +16,11 @@ def shape_solve(
     tensor: Any,
     backend: Any | None = None,
 ) -> Any:
-    """Run the shape differentiable solve wrapper for one model.
+    """Run the shape differentiable solve convenience wrapper for one model.
 
-    This is the user-facing wrapper behind ``diff_model.shape(...)``. The real
-    torch autograd operation is added later; this function fixes the Python
-    contract and backend call shape first.
+    ``ShapeOpt.apply(...)`` is the explicit PyTorch autograd API. This wrapper
+    keeps the older Python call shape available without making it the primary
+    public proposal.
     """
 
     payload = _single_shape_payload(
