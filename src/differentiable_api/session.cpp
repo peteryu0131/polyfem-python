@@ -2,6 +2,7 @@
 
 #include <polyfem/optimization/BuildFromJson.hpp>
 #include <polyfem/optimization/DiffCache.hpp>
+#include <polyfem/optimization/VarFormDiff.hpp>
 #include <polyfem/optimization/parametrization/Parametrization.hpp>
 #include <polyfem/optimization/var2sims/ShapeVariableToSimulation.hpp>
 #include <polyfem/varforms/diff/DifferentiableVarForm.hpp>
@@ -43,6 +44,48 @@ Eigen::VectorXd flatten_vertices_node_major(const Eigen::MatrixXd &vertices)
     }
   }
   return x;
+}
+
+Eigen::MatrixXd unflatten_vertices_node_major(
+    const Eigen::VectorXd &x,
+    const int dimension)
+{
+  if (dimension <= 0 || x.size() % dimension != 0)
+  {
+    throw std::runtime_error(
+        "Shape gradient size must be divisible by the input dimension.");
+  }
+
+  Eigen::MatrixXd vertices(x.size() / dimension, dimension);
+  int index = 0;
+  for (int vertex = 0; vertex < vertices.rows(); ++vertex)
+  {
+    for (int dim = 0; dim < vertices.cols(); ++dim)
+    {
+      vertices(vertex, dim) = x(index++);
+    }
+  }
+  return vertices;
+}
+
+void validate_solution_gradient_shape(
+    const Eigen::MatrixXd &grad_solution,
+    const Eigen::MatrixXd &solution)
+{
+  if (grad_solution.rows() != solution.rows()
+      || grad_solution.cols() != solution.cols())
+  {
+    throw std::runtime_error(
+        "Shape backward grad_solution must have shape ("
+        + std::to_string(solution.rows())
+        + ", "
+        + std::to_string(solution.cols())
+        + "); got ("
+        + std::to_string(grad_solution.rows())
+        + ", "
+        + std::to_string(grad_solution.cols())
+        + ").");
+  }
 }
 
 class DifferentiableSession
@@ -119,13 +162,24 @@ public:
     return last_solution_;
   }
 
-  py::object backward_shape(const py::object &grad_u)
+  Eigen::MatrixXd backward_shape(const py::object &grad_u)
   {
-    (void)grad_u;
     ensure_ready_for_shape_solve();
-    throw std::runtime_error(
-        "DifferentiableSession.backward_shape is registered, but the real "
-        "shape adjoint backend is not implemented yet.");
+    if (!has_solution_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires solve() before backward_shape(...).");
+    }
+
+    const Eigen::MatrixXd grad_solution = nb::cast<Eigen::MatrixXd>(grad_u);
+    validate_solution_gradient_shape(grad_solution, last_solution_);
+
+    Eigen::MatrixXd adjoint_rhs = grad_solution;
+    polyfem::solve_adjoint_cached(*varform_, *diff_cache_, adjoint_rhs);
+
+    const Eigen::VectorXd grad_shape =
+        shape_var2sim_->compute_adjoint_term(current_shape_x_);
+    return unflatten_vertices_node_major(grad_shape, input_dimension_);
   }
 
 private:

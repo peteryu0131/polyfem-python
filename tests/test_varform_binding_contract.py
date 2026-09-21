@@ -95,3 +95,19 @@ def test_differentiable_session_solve_uses_current_forward_cache_path():
     assert "last_solution_" in source
     assert "has_solution_" in source
     assert "DifferentiableSession.solve is registered" not in source
+
+
+def test_differentiable_session_backward_shape_uses_current_adjoint_path():
+    source = (ROOT / "src" / "differentiable_api" / "session.cpp").read_text(
+        encoding="utf-8",
+        errors="ignore",
+    )
+
+    assert "#include <polyfem/optimization/VarFormDiff.hpp>" in source
+    assert "Eigen::MatrixXd backward_shape" in source
+    assert "nb::cast<Eigen::MatrixXd>(grad_u)" in source
+    assert "validate_solution_gradient_shape" in source
+    assert "polyfem::solve_adjoint_cached(*varform_, *diff_cache_, adjoint_rhs)" in source
+    assert "shape_var2sim_->compute_adjoint_term(current_shape_x_)" in source
+    assert "unflatten_vertices_node_major" in source
+    assert "DifferentiableSession.backward_shape is registered" not in source
