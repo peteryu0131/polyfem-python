@@ -1,10 +1,35 @@
 #include "binding.hpp"
 
+#include <polyfem/optimization/BuildFromJson.hpp>
+#include <polyfem/optimization/DiffCache.hpp>
+#include <polyfem/optimization/parametrization/Parametrization.hpp>
+#include <polyfem/optimization/var2sims/ShapeVariableToSimulation.hpp>
+#include <polyfem/varforms/diff/DifferentiableVarForm.hpp>
+
+#include <Eigen/Core>
+
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace
 {
+
+polyfem::json settings_from_python(const py::object &settings)
+{
+  if (py::isinstance<py::str>(settings))
+  {
+    const std::string json_string = nb::cast<std::string>(settings);
+    return polyfem::json::parse(json_string);
+  }
+
+  py::module_ json_module = py::module_::import_("json");
+  const std::string json_string =
+      nb::cast<std::string>(json_module.attr("dumps")(settings));
+  return polyfem::json::parse(json_string);
+}
 
 class DifferentiableSession
 {
@@ -13,14 +38,20 @@ public:
 
   void set_settings(const py::object &settings)
   {
-    settings_repr_ = nb::cast<std::string>(py::str(settings));
+    settings_ = settings_from_python(settings);
+    varform_ = polyfem::from_json::build_differentiable_varform(
+        settings_,
+        max_threads_);
+    diff_cache_ = std::make_shared<polyfem::DiffCache>();
+    shape_var2sim_ = build_direct_shape_variable_to_simulation();
+
     has_settings_ = true;
   }
 
   void set_shape_vertices(const py::object &vertices, const py::object &selection)
   {
-    vertices_repr_ = nb::cast<std::string>(py::str(vertices));
-    selection_repr_ = nb::cast<std::string>(py::str(selection));
+    (void)vertices;
+    (void)selection;
     has_shape_vertices_ = true;
   }
 
@@ -58,9 +89,30 @@ private:
 
   bool has_settings_ = false;
   bool has_shape_vertices_ = false;
-  std::string settings_repr_;
-  std::string vertices_repr_;
-  std::string selection_repr_;
+  size_t max_threads_ = 1;
+  polyfem::json settings_;
+  std::shared_ptr<polyfem::varform::DifferentiableVarForm> varform_;
+  std::shared_ptr<polyfem::DiffCache> diff_cache_;
+  std::shared_ptr<polyfem::solver::ShapeVariableToSimulation> shape_var2sim_;
+
+  std::shared_ptr<polyfem::solver::ShapeVariableToSimulation>
+  build_direct_shape_variable_to_simulation() const
+  {
+    std::vector<std::shared_ptr<polyfem::varform::DifferentiableVarForm>> varforms{
+        varform_};
+    std::vector<std::shared_ptr<polyfem::DiffCache>> diff_caches{
+        diff_cache_};
+    polyfem::solver::CompositeParametrization parametrization;
+    Eigen::VectorXi active_dimensions;
+    Eigen::VectorXi active_geometry_nodes;
+
+    return std::make_shared<polyfem::solver::ShapeVariableToSimulation>(
+        std::move(varforms),
+        std::move(diff_caches),
+        std::move(parametrization),
+        std::move(active_dimensions),
+        std::move(active_geometry_nodes));
+  }
 };
 
 } // namespace

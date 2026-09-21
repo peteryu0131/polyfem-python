@@ -46,3 +46,21 @@ def test_default_cpp_module_registers_new_differentiable_session_only():
     assert not (ROOT / "src" / "solver" / "binding.hpp").exists()
     assert not (ROOT / "src" / "solver" / "nl_problem.cpp").exists()
     assert not (ROOT / "src" / "solver" / "CMakeLists.txt").exists()
+
+
+def test_differentiable_session_uses_current_shape_backend_setup():
+    source = (ROOT / "src" / "differentiable_api" / "session.cpp").read_text(
+        encoding="utf-8",
+        errors="ignore",
+    )
+
+    assert "#include <polyfem/optimization/BuildFromJson.hpp>" in source
+    assert "#include <polyfem/optimization/DiffCache.hpp>" in source
+    assert "#include <polyfem/optimization/var2sims/ShapeVariableToSimulation.hpp>" in source
+    assert "#include <polyfem/varforms/diff/DifferentiableVarForm.hpp>" in source
+    assert "from_json::build_differentiable_varform" in source
+    assert "std::shared_ptr<polyfem::DiffCache>" in source
+    assert "std::shared_ptr<polyfem::varform::DifferentiableVarForm>" in source
+    assert "std::shared_ptr<polyfem::solver::ShapeVariableToSimulation>" in source
+    assert "settings_repr_" not in source
+    assert "vertices_repr_" not in source

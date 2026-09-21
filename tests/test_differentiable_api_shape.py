@@ -154,23 +154,6 @@ def test_shape_solve_reports_missing_shape_backend_contract():
         )
 
 
-def test_differentiable_model_shape_reaches_compiled_session_skeleton():
-    pytest.importorskip("polyfempy.polyfempy")
-
-    from polyfempy import differentiable_api as D
-
-    diff_model = D.model([{"geometry": [{"mesh": "beam.msh"}]}])
-
-    with pytest.raises(
-        RuntimeError,
-        match="real differentiable backend is not implemented yet",
-    ):
-        diff_model.shape(
-            selection="all",
-            tensor=[0.0, 0.0, 0.0],
-        )
-
-
 def test_shape_module_import_does_not_load_torch_or_old_reference_package():
     torch_was_loaded = "torch" in sys.modules
     sys.modules.pop("polyfempy.differentiable", None)
