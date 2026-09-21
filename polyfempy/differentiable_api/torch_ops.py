@@ -19,6 +19,20 @@ except Exception as exc:  # pragma: no cover - exercised only without torch
 
 if _TORCH_IMPORT_ERROR is None:
 
+    def _is_torch_tensor(value: Any) -> bool:
+        tensor_type = getattr(torch, "Tensor", None)
+        return tensor_type is not None and isinstance(value, tensor_type)
+
+    def _to_backend_array(value: Any) -> Any:
+        if not _is_torch_tensor(value):
+            return value
+        return value.detach().cpu().numpy()
+
+    def _to_torch_tensor(value: Any, *, like: Any) -> Any:
+        if _is_torch_tensor(value) or not _is_torch_tensor(like):
+            return value
+        return torch.as_tensor(value, dtype=like.dtype, device=like.device)
+
     class ShapeOpt(Function):
         """Low-level autograd operation for shape differentiable solves."""
 
@@ -35,20 +49,23 @@ if _TORCH_IMPORT_ERROR is None:
                 selection=selection,
                 tensor=tensor,
             )
+            backend_tensor = _to_backend_array(tensor)
             solution, session = _run_shape_session(
                 payload=payload,
                 selection=selection,
-                tensor=tensor,
+                tensor=backend_tensor,
                 backend=backend,
             )
             ctx.session = session
-            return solution
+            ctx.input_tensor = tensor
+            return _to_torch_tensor(solution, like=tensor)
 
         @staticmethod
         @torch.autograd.function.once_differentiable  # type: ignore[union-attr]
         def backward(ctx: Any, grad_output: Any) -> tuple[Any, ...]:
-            grad_tensor = ctx.session.backward_shape(grad_output)
-            return None, None, grad_tensor, None
+            backend_grad_output = _to_backend_array(grad_output)
+            grad_tensor = ctx.session.backward_shape(backend_grad_output)
+            return None, None, _to_torch_tensor(grad_tensor, like=ctx.input_tensor), None
 
 else:
 
@@ -64,4 +81,3 @@ else:
 
 
 __all__ = ["ShapeOpt"]
-

@@ -31,6 +31,43 @@ class _FakeTensor:
         return f"_FakeTensor(name={self.name!r}, shape={self.shape!r})"
 
 
+class _FakeTorchTensor:
+    def __init__(
+        self,
+        name: str,
+        array,
+        *,
+        dtype: str = "float64",
+        device: str = "cuda:0",
+    ):
+        self.name = name
+        self.array = array
+        self.dtype = dtype
+        self.device = device
+        self.calls: list[str] = []
+
+    def detach(self):
+        self.calls.append("detach")
+        return self
+
+    def cpu(self):
+        self.calls.append("cpu")
+        return self
+
+    def numpy(self):
+        self.calls.append("numpy")
+        return self.array
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, _FakeTorchTensor)
+            and self.name == other.name
+            and self.array == other.array
+            and self.dtype == other.dtype
+            and self.device == other.device
+        )
+
+
 class _TorchShapeSession:
     calls: list[tuple] = []
 
@@ -58,7 +95,7 @@ class _TorchShapeBackend:
     DifferentiableSession = _TorchShapeSession
 
 
-def _install_fake_torch(monkeypatch):
+def _install_fake_torch(monkeypatch, *, tensor_type=None):
     torch_module = types.ModuleType("torch")
     autograd_module = types.ModuleType("torch.autograd")
     autograd_module.Function = _FakeFunction
@@ -66,6 +103,20 @@ def _install_fake_torch(monkeypatch):
         once_differentiable=lambda fn: fn,
     )
     torch_module.autograd = autograd_module
+    torch_module._as_tensor_calls = []
+    if tensor_type is not None:
+        torch_module.Tensor = tensor_type
+
+        def as_tensor(value, *, dtype=None, device=None):
+            torch_module._as_tensor_calls.append((value, dtype, device))
+            return tensor_type(
+                "as_tensor",
+                value,
+                dtype=dtype,
+                device=device,
+            )
+
+        torch_module.as_tensor = as_tensor
 
     monkeypatch.setitem(sys.modules, "torch", torch_module)
     monkeypatch.setitem(sys.modules, "torch.autograd", autograd_module)
@@ -101,6 +152,76 @@ def test_shapeopt_forward_backward_uses_shape_backend_contract(monkeypatch):
         ("set_shape_vertices", vertices, "all"),
         ("solve",),
         ("backward_shape", grad_solution),
+    ]
+
+
+def test_shapeopt_converts_torch_tensors_at_backend_boundary(monkeypatch):
+    torch_module = _install_fake_torch(monkeypatch, tensor_type=_FakeTorchTensor)
+
+    from polyfempy import differentiable_api as D
+
+    class ArraySession:
+        calls: list[tuple] = []
+
+        def __init__(self):
+            self.calls.append(("init",))
+
+        def set_settings(self, settings):
+            self.calls.append(("set_settings", settings))
+
+        def set_shape_vertices(self, vertices, *, selection=None):
+            self.calls.append(("set_shape_vertices", vertices, selection))
+
+        def solve(self):
+            self.calls.append(("solve",))
+            return "backend-solution"
+
+        def backward_shape(self, grad_solution):
+            self.calls.append(("backward_shape", grad_solution))
+            return "backend-gradient"
+
+    class ArrayBackend:
+        DifferentiableSession = ArraySession
+
+    ArraySession.calls = []
+    payload = {"geometry": [{"mesh": "beam.msh"}]}
+    diff_model = D.model([payload])
+    vertices = _FakeTorchTensor("vertices", "backend-vertices")
+
+    solution = D.ShapeOpt.apply(diff_model, "all", vertices, ArrayBackend)
+
+    assert vertices.calls == ["detach", "cpu", "numpy"]
+    assert solution == _FakeTorchTensor("as_tensor", "backend-solution")
+    assert torch_module._as_tensor_calls == [
+        ("backend-solution", "float64", "cuda:0"),
+    ]
+    assert ArraySession.calls == [
+        ("init",),
+        ("set_settings", payload),
+        ("set_shape_vertices", "backend-vertices", "all"),
+        ("solve",),
+    ]
+
+    grad_solution = _FakeTorchTensor("grad_solution", "backend-grad-solution")
+    grads = D.ShapeOpt.backward(D.ShapeOpt._last_ctx, grad_solution)
+
+    assert grad_solution.calls == ["detach", "cpu", "numpy"]
+    assert grads == (
+        None,
+        None,
+        _FakeTorchTensor("as_tensor", "backend-gradient"),
+        None,
+    )
+    assert torch_module._as_tensor_calls == [
+        ("backend-solution", "float64", "cuda:0"),
+        ("backend-gradient", "float64", "cuda:0"),
+    ]
+    assert ArraySession.calls == [
+        ("init",),
+        ("set_settings", payload),
+        ("set_shape_vertices", "backend-vertices", "all"),
+        ("solve",),
+        ("backward_shape", "backend-grad-solution"),
     ]
 
 
@@ -158,4 +279,3 @@ def test_torch_ops_module_import_does_not_load_old_reference_package(monkeypatch
     importlib.import_module("polyfempy.differentiable_api.torch_ops")
 
     assert "polyfempy.differentiable" not in sys.modules
-
