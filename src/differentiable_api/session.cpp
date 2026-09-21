@@ -31,6 +31,20 @@ polyfem::json settings_from_python(const py::object &settings)
   return polyfem::json::parse(json_string);
 }
 
+Eigen::VectorXd flatten_vertices_node_major(const Eigen::MatrixXd &vertices)
+{
+  Eigen::VectorXd x(vertices.rows() * vertices.cols());
+  int index = 0;
+  for (int vertex = 0; vertex < vertices.rows(); ++vertex)
+  {
+    for (int dim = 0; dim < vertices.cols(); ++dim)
+    {
+      x(index++) = vertices(vertex, dim);
+    }
+  }
+  return x;
+}
+
 class DifferentiableSession
 {
 public:
@@ -50,17 +64,59 @@ public:
 
   void set_shape_vertices(const py::object &vertices, const py::object &selection)
   {
-    (void)vertices;
     (void)selection;
+    if (!has_settings_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_settings(...) before "
+          "set_shape_vertices(...).");
+    }
+
+    const Eigen::MatrixXd vertices_matrix = nb::cast<Eigen::MatrixXd>(vertices);
+    input_vertex_count_ = static_cast<int>(vertices_matrix.rows());
+    input_dimension_ = static_cast<int>(vertices_matrix.cols());
+
+    const int expected_vertex_count = varform_->get_mesh().n_vertices();
+    const int expected_dimension = varform_->get_mesh().dimension();
+    if (input_vertex_count_ != expected_vertex_count
+        || input_dimension_ != expected_dimension)
+    {
+      throw std::runtime_error(
+          "Shape vertices must have shape ("
+          + std::to_string(expected_vertex_count)
+          + ", "
+          + std::to_string(expected_dimension)
+          + "); got ("
+          + std::to_string(input_vertex_count_)
+          + ", "
+          + std::to_string(input_dimension_)
+          + ").");
+    }
+
+    current_shape_x_ = flatten_vertices_node_major(vertices_matrix);
+    shape_var2sim_->update(current_shape_x_);
     has_shape_vertices_ = true;
   }
 
-  py::object solve()
+  Eigen::MatrixXd solve()
   {
     ensure_ready_for_shape_solve();
-    throw std::runtime_error(
-        "DifferentiableSession.solve is registered, but the real "
-        "differentiable backend is not implemented yet.");
+    shape_var2sim_->update(current_shape_x_);
+
+    const auto *initial_conditions =
+        diff_cache_->initial_condition_override
+            ? &*diff_cache_->initial_condition_override
+            : nullptr;
+    const polyfem::varform::ForwardStepCallback post_step =
+        [varform = varform_, diff_cache = diff_cache_](
+            const int step,
+            const Eigen::MatrixXd &solution) {
+          diff_cache->cache_transient(step, *varform, solution, nullptr);
+        };
+
+    varform_->solve(last_solution_, initial_conditions, post_step, true);
+    has_solution_ = true;
+    return last_solution_;
   }
 
   py::object backward_shape(const py::object &grad_u)
@@ -89,8 +145,13 @@ private:
 
   bool has_settings_ = false;
   bool has_shape_vertices_ = false;
+  bool has_solution_ = false;
   size_t max_threads_ = 1;
+  int input_vertex_count_ = 0;
+  int input_dimension_ = 0;
   polyfem::json settings_;
+  Eigen::VectorXd current_shape_x_;
+  Eigen::MatrixXd last_solution_;
   std::shared_ptr<polyfem::varform::DifferentiableVarForm> varform_;
   std::shared_ptr<polyfem::DiffCache> diff_cache_;
   std::shared_ptr<polyfem::solver::ShapeVariableToSimulation> shape_var2sim_;
