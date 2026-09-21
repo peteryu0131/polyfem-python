@@ -63,9 +63,15 @@ if _TORCH_IMPORT_ERROR is None:
         @staticmethod
         @torch.autograd.function.once_differentiable  # type: ignore[union-attr]
         def backward(ctx: Any, grad_output: Any) -> tuple[Any, ...]:
-            backend_grad_output = _to_backend_array(grad_output)
-            grad_tensor = ctx.session.backward_shape(backend_grad_output)
-            return None, None, _to_torch_tensor(grad_tensor, like=ctx.input_tensor), None
+            session = ctx.session
+            input_tensor = ctx.input_tensor
+            try:
+                backend_grad_output = _to_backend_array(grad_output)
+                grad_tensor = session.backward_shape(backend_grad_output)
+                return None, None, _to_torch_tensor(grad_tensor, like=input_tensor), None
+            finally:
+                ctx.session = None
+                ctx.input_tensor = None
 
 else:
 

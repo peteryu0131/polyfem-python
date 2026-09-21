@@ -95,6 +95,15 @@ class _TorchShapeBackend:
     DifferentiableSession = _TorchShapeSession
 
 
+@pytest.fixture(autouse=True)
+def _clear_lazy_shapeopt_export_after_test():
+    yield
+    sys.modules.pop("polyfempy.differentiable_api.torch_ops", None)
+    module = sys.modules.get("polyfempy.differentiable_api")
+    if module is not None:
+        module.__dict__.pop("ShapeOpt", None)
+
+
 def _install_fake_torch(monkeypatch, *, tensor_type=None):
     torch_module = types.ModuleType("torch")
     autograd_module = types.ModuleType("torch.autograd")
@@ -146,6 +155,8 @@ def test_shapeopt_forward_backward_uses_shape_backend_contract(monkeypatch):
     grads = D.ShapeOpt.backward(D.ShapeOpt._last_ctx, grad_solution)
 
     assert grads == (None, None, _FakeTensor("gradient"), None)
+    assert D.ShapeOpt._last_ctx.session is None
+    assert D.ShapeOpt._last_ctx.input_tensor is None
     assert _TorchShapeSession.calls == [
         ("init",),
         ("set_settings", payload),
@@ -212,6 +223,8 @@ def test_shapeopt_converts_torch_tensors_at_backend_boundary(monkeypatch):
         _FakeTorchTensor("as_tensor", "backend-gradient"),
         None,
     )
+    assert D.ShapeOpt._last_ctx.session is None
+    assert D.ShapeOpt._last_ctx.input_tensor is None
     assert torch_module._as_tensor_calls == [
         ("backend-solution", "float64", "cuda:0"),
         ("backend-gradient", "float64", "cuda:0"),
