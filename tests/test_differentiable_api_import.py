@@ -10,9 +10,11 @@ def test_differentiable_api_import_surface_is_small():
     assert D.__all__ == [
         "DifferentiableModel",
         "DifferentiableResult",
+        "ObjectiveSpec",
         "ShapeOpt",
         "State",
         "model",
+        "objectives",
         "parameter",
         "shape_solve",
         "solve",
@@ -21,6 +23,7 @@ def test_differentiable_api_import_surface_is_small():
     assert callable(D.model)
     assert callable(D.shape_solve)
     assert callable(D.state)
+    assert callable(D.objectives.stress_norm)
     assert hasattr(D.parameter, "shape")
     assert callable(D.parameter.shape)
     assert callable(D.solve)

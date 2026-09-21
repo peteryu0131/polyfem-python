@@ -3,6 +3,7 @@
 from importlib import import_module
 
 from .model import DifferentiableModel, model
+from .objectives import ObjectiveSpec, objectives
 from .parameter import parameter
 from .result import DifferentiableResult
 from .shape import shape_solve
@@ -12,9 +13,11 @@ from .state import State, state
 __all__ = [
     "DifferentiableModel",
     "DifferentiableResult",
+    "ObjectiveSpec",
     "ShapeOpt",
     "State",
     "model",
+    "objectives",
     "parameter",
     "shape_solve",
     "solve",
