@@ -66,12 +66,19 @@ if _TORCH_IMPORT_ERROR is None:
                     "ShapeOpt.apply keyword API requires model, selection, and tensor"
                 ) from exc
 
+            if "objective" in kwargs:
+                return super().apply(
+                    model,
+                    selection,
+                    tensor,
+                    kwargs.get("backend"),
+                    kwargs["objective"],
+                )
             return super().apply(
                 model,
                 selection,
                 tensor,
                 kwargs.get("backend"),
-                kwargs.get("objective"),
             )
 
         @staticmethod

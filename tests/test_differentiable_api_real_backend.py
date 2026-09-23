@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib.util
 
 import pytest
 
@@ -95,3 +96,25 @@ def test_shapeopt_real_backend_forward_backward_smoke(tmp_path):
     assert x.grad is not None
     assert tuple(x.grad.shape) == tuple(x.shape)
     assert torch.isfinite(x.grad).all()
+
+
+def test_shapeopt_laplacian_smoke_example_runs_without_persistent_outputs(tmp_path):
+    pytest.importorskip("polyfempy.polyfempy")
+    pytest.importorskip("torch")
+
+    example_path = ROOT / "differentiable_example" / "shapeopt_laplacian_smoke.py"
+    spec = importlib.util.spec_from_file_location(
+        "shapeopt_laplacian_smoke",
+        example_path,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    summary = module.run_smoke(tmp_path)
+
+    assert summary["solution_shape"] == [67, 1]
+    assert summary["gradient_shape"] == [242, 2]
+    assert summary["gradient_norm"] > 0
+    assert not list(tmp_path.rglob("*.vtu"))
+    assert not list(tmp_path.rglob("*.pvd"))

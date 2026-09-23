@@ -7,14 +7,28 @@ ROOT = Path(__file__).resolve().parents[1]
 DIFF_EXAMPLES = ROOT / "differentiable_example"
 
 
-def test_differentiable_example_directory_contains_only_ideal_api_doc():
+def test_differentiable_example_directory_contains_expected_files():
     files = sorted(
         path.name
         for path in DIFF_EXAMPLES.iterdir()
         if path.is_file()
     )
 
-    assert files == ["ideal_api.md"]
+    assert files == ["ideal_api.md", "shapeopt_laplacian_smoke.py"]
+
+
+def test_shapeopt_laplacian_smoke_example_is_output_safe():
+    text = (DIFF_EXAMPLES / "shapeopt_laplacian_smoke.py").read_text(encoding="utf-8")
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    assert "TemporaryDirectory" in text
+    assert "differentiable_example/runs/" in gitignore
+    assert '"json": ""' in text
+    assert '"paraview": {"file_name": ""}' in text
+    assert '"save_time_sequence": False' in text
+    assert "--keep-output" in text
+    assert "loss.backward()" in text
+    assert "gradient_norm" in text
 
 
 def test_ideal_differentiable_api_matches_forward_example_style():

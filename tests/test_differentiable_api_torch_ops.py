@@ -11,6 +11,7 @@ class _FakeFunction:
     @classmethod
     def apply(cls, *args):
         ctx = types.SimpleNamespace()
+        ctx.arg_count = len(args)
         cls._last_ctx = ctx
         return cls.forward(ctx, *args)
 
@@ -208,6 +209,39 @@ def test_shapeopt_accepts_objective_aware_keyword_api(monkeypatch):
         }),
         ("set_shape_vertices", vertices, "all"),
         ("solve_objective",),
+        ("backward_shape", grad_solution),
+    ]
+
+
+def test_shapeopt_keyword_api_without_objective_uses_solution_signature(monkeypatch):
+    _install_fake_torch(monkeypatch)
+
+    from polyfempy import differentiable_api as D
+
+    _TorchShapeSession.calls = []
+    payload = {"geometry": [{"mesh": "beam.msh"}]}
+    diff_model = D.model([payload])
+    vertices = _FakeTensor("vertices")
+
+    solution = D.ShapeOpt.apply(
+        model=diff_model,
+        selection="all",
+        tensor=vertices,
+        backend=_TorchShapeBackend,
+    )
+
+    assert solution == _FakeTensor("solution")
+    assert D.ShapeOpt._last_ctx.arg_count == 4
+
+    grad_solution = _FakeTensor("grad_solution")
+    grads = D.ShapeOpt.backward(D.ShapeOpt._last_ctx, grad_solution)
+
+    assert grads == (None, None, _FakeTensor("gradient"), None)
+    assert _TorchShapeSession.calls == [
+        ("init",),
+        ("set_settings", payload),
+        ("set_shape_vertices", vertices, "all"),
+        ("solve",),
         ("backward_shape", grad_solution),
     ]
 
