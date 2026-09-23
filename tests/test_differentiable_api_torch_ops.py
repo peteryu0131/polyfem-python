@@ -206,6 +206,8 @@ def test_shapeopt_accepts_objective_aware_keyword_api(monkeypatch):
             "type": "max_stress",
             "state": 0,
             "volume_selection": [7],
+            "weight": 1.0,
+            "print_energy": "",
         }),
         ("set_shape_vertices", vertices, "all"),
         ("solve_objective",),

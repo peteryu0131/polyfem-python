@@ -98,6 +98,45 @@ def test_shapeopt_real_backend_forward_backward_smoke(tmp_path):
     assert torch.isfinite(x.grad).all()
 
 
+def test_shapeopt_real_backend_objective_backward_smoke(tmp_path):
+    backend = pytest.importorskip("polyfempy.polyfempy")
+    torch = pytest.importorskip("torch")
+
+    mesh_path = ROOT / "polyfem-data" / "contact" / "meshes" / "3D" / "simple" / "cube.msh"
+    if not mesh_path.exists():
+        pytest.skip(
+            "polyfem-data submodule is not initialized; run "
+            "`git submodule update --init polyfem-data`"
+        )
+
+    from polyfempy import differentiable_api as diff
+
+    diff_model = diff.model([
+        _laplacian_shape_smoke_settings(mesh_path, tmp_path),
+    ])
+    x = _cube_vertices(torch)
+    objective = diff.StressNorm(selection=1, power=8)
+
+    loss = diff.ShapeOpt.apply(
+        model=diff_model,
+        selection="all",
+        tensor=x,
+        objective=objective,
+        backend=backend,
+    )
+    loss.backward()
+
+    assert tuple(loss.shape) == ()
+    assert loss.dtype is torch.float64
+    assert loss.device == x.device
+    assert torch.isfinite(loss)
+    assert x.grad is not None
+    assert tuple(x.grad.shape) == tuple(x.shape)
+    assert torch.isfinite(x.grad).all()
+    assert not list(tmp_path.rglob("*.vtu"))
+    assert not list(tmp_path.rglob("*.pvd"))
+
+
 def test_shapeopt_laplacian_smoke_example_runs_without_persistent_outputs(tmp_path):
     pytest.importorskip("polyfempy.polyfempy")
     pytest.importorskip("torch")

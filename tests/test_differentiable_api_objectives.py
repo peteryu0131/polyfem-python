@@ -31,6 +31,7 @@ def test_objective_namespace_builds_stress_norm_spec_from_body_selection():
         "volume_selection": [3],
         "power": 8,
         "weight": 2.5,
+        "print_energy": "",
     }
 
 
@@ -41,16 +42,21 @@ def test_objective_namespace_builds_common_backend_objective_specs():
         "type": "max_stress",
         "state": 0,
         "volume_selection": [2],
+        "weight": 1.0,
+        "print_energy": "",
     }
     assert D.objectives.compliance(selection=[1, 4], state=0).as_dict() == {
         "type": "compliance",
         "state": 0,
         "volume_selection": [1, 4],
+        "weight": 1.0,
+        "print_energy": "",
     }
     assert D.objectives.volume(selection=None, weight=0.1).as_dict() == {
         "type": "volume",
         "state": 0,
         "weight": 0.1,
+        "print_energy": "",
     }
 
 
@@ -64,6 +70,7 @@ def test_top_level_max_stress_helper_matches_meeting_api_shape():
         "state": 0,
         "volume_selection": [5],
         "weight": 3.0,
+        "print_energy": "",
     }
 
 
@@ -78,13 +85,14 @@ def test_top_level_stress_norm_helper_matches_first_differentiable_objective_sha
         "volume_selection": [6],
         "power": 8,
         "weight": 2.0,
+        "print_energy": "",
     }
 
 
 def test_objective_specs_are_immutable_and_json_copy_safe():
     from polyfempy import differentiable_api as D
 
-    objective = D.objectives.stress_norm(selection=1, print_energy=True)
+    objective = D.objectives.stress_norm(selection=1, print_energy="stress.csv")
     payload = objective.as_dict()
     payload["volume_selection"].append(9)
 
@@ -92,7 +100,9 @@ def test_objective_specs_are_immutable_and_json_copy_safe():
         "type": "stress_norm",
         "state": 0,
         "volume_selection": [1],
-        "print_energy": True,
+        "power": 2,
+        "weight": 1.0,
+        "print_energy": "stress.csv",
     }
 
 

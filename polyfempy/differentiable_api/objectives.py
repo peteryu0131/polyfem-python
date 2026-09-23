@@ -16,6 +16,10 @@ _RESERVED_EXTRA_KEYS = {
     "print_energy",
 }
 
+_DEFAULT_WEIGHT = 1.0
+_DEFAULT_PRINT_ENERGY = ""
+_DEFAULT_STRESS_NORM_POWER = 2
+
 
 @dataclass(frozen=True)
 class ObjectiveSpec:
@@ -25,8 +29,8 @@ class ObjectiveSpec:
     state: Any = 0
     volume_selection: tuple[int, ...] | None = None
     power: Any = None
-    weight: Any = None
-    print_energy: Any = None
+    weight: Any = _DEFAULT_WEIGHT
+    print_energy: Any = _DEFAULT_PRINT_ENERGY
     extra: tuple[tuple[str, Any], ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
@@ -57,7 +61,7 @@ class ObjectiveNamespace:
         *,
         selection: Any = None,
         state: Any = 0,
-        power: Any = None,
+        power: Any = _DEFAULT_STRESS_NORM_POWER,
         weight: Any = None,
         print_energy: Any = None,
         extra: Mapping[str, Any] | None = None,
@@ -150,8 +154,8 @@ def _objective_spec(
         state=copy.deepcopy(state),
         volume_selection=_volume_selection(selection),
         power=copy.deepcopy(power),
-        weight=copy.deepcopy(weight),
-        print_energy=copy.deepcopy(print_energy),
+        weight=_defaulted(weight, _DEFAULT_WEIGHT),
+        print_energy=_defaulted(print_energy, _DEFAULT_PRINT_ENERGY),
         extra=_extra_items(extra),
     )
 
@@ -213,6 +217,12 @@ def _extra_items(extra: Mapping[str, Any] | None) -> tuple[tuple[str, Any], ...]
     return tuple((str(key), copy.deepcopy(value)) for key, value in extra.items())
 
 
+def _defaulted(value: Any, default: Any) -> Any:
+    if value is None:
+        return copy.deepcopy(default)
+    return copy.deepcopy(value)
+
+
 objectives = ObjectiveNamespace()
 
 
@@ -239,7 +249,7 @@ def StressNorm(
     *,
     selection: Any = None,
     state: Any = 0,
-    power: Any = None,
+    power: Any = _DEFAULT_STRESS_NORM_POWER,
     weight: Any = None,
     print_energy: Any = None,
     extra: Mapping[str, Any] | None = None,
