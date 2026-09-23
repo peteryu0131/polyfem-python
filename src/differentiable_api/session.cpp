@@ -105,6 +105,12 @@ public:
     has_settings_ = true;
   }
 
+  void set_objective(const py::object &objective)
+  {
+    objective_ = settings_from_python(objective);
+    has_objective_ = true;
+  }
+
   void set_shape_vertices(const py::object &vertices, const py::object &selection)
   {
     (void)selection;
@@ -198,12 +204,14 @@ private:
   }
 
   bool has_settings_ = false;
+  bool has_objective_ = false;
   bool has_shape_vertices_ = false;
   bool has_solution_ = false;
   size_t max_threads_ = 1;
   int input_vertex_count_ = 0;
   int input_dimension_ = 0;
   polyfem::json settings_;
+  polyfem::json objective_;
   Eigen::VectorXd current_shape_x_;
   Eigen::MatrixXd last_solution_;
   std::shared_ptr<polyfem::varform::DifferentiableVarForm> varform_;
@@ -241,6 +249,11 @@ void define_differentiable_session(py::module_ &m)
           &DifferentiableSession::set_settings,
           "Store differentiable solve settings.",
           py::arg("settings"))
+      .def(
+          "set_objective",
+          &DifferentiableSession::set_objective,
+          "Store the objective payload for a future objective-aware solve.",
+          py::arg("objective"))
       .def(
           "set_shape_vertices",
           &DifferentiableSession::set_shape_vertices,

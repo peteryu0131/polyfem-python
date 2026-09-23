@@ -9,6 +9,7 @@ REQUIRED_BACKEND_SYMBOLS = ("DifferentiableSession",)
 
 REQUIRED_SESSION_METHODS = (
     "set_settings",
+    "set_objective",
     "set_shape_parameter",
     "solve",
     "backward_shape",
@@ -16,6 +17,7 @@ REQUIRED_SESSION_METHODS = (
 
 REQUIRED_SHAPE_SOLVE_SESSION_METHODS = (
     "set_settings",
+    "set_objective",
     "set_shape_vertices",
     "solve",
     "backward_shape",

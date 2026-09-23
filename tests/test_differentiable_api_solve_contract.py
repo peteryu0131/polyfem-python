@@ -15,6 +15,9 @@ class _FakeSession:
     def set_settings(self, settings):
         self.calls.append(("set_settings", settings))
 
+    def set_objective(self, objective):
+        self.calls.append(("set_objective", objective))
+
     def set_shape_parameter(self, value, *, selection=None):
         self.calls.append(("set_shape_parameter", value, selection))
 

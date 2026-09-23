@@ -111,3 +111,18 @@ def test_differentiable_session_backward_shape_uses_current_adjoint_path():
     assert "shape_var2sim_->compute_adjoint_term(current_shape_x_)" in source
     assert "unflatten_vertices_node_major" in source
     assert "DifferentiableSession.backward_shape is registered" not in source
+
+
+def test_differentiable_session_registers_objective_payload_contract():
+    source = (ROOT / "src" / "differentiable_api" / "session.cpp").read_text(
+        encoding="utf-8",
+        errors="ignore",
+    )
+
+    assert "void set_objective(const py::object &objective)" in source
+    assert "objective_ = settings_from_python(objective)" in source
+    assert "has_objective_ = true" in source
+    assert "polyfem::json objective_" in source
+    assert "bool has_objective_ = false" in source
+    assert '.def(\n          "set_objective"' in source
+    assert "&DifferentiableSession::set_objective" in source

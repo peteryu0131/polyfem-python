@@ -13,6 +13,9 @@ class _CompleteSession:
     def set_settings(self, settings):
         return None
 
+    def set_objective(self, objective):
+        return None
+
     def set_shape_parameter(self, value, *, selection=None):
         return None
 
@@ -42,7 +45,15 @@ def test_backend_contract_is_shape_mvp_only():
     assert _backend.REQUIRED_BACKEND_SYMBOLS == ("DifferentiableSession",)
     assert _backend.REQUIRED_SESSION_METHODS == (
         "set_settings",
+        "set_objective",
         "set_shape_parameter",
+        "solve",
+        "backward_shape",
+    )
+    assert _backend.REQUIRED_SHAPE_SOLVE_SESSION_METHODS == (
+        "set_settings",
+        "set_objective",
+        "set_shape_vertices",
         "solve",
         "backward_shape",
     )

@@ -15,6 +15,9 @@ class _ShapeSession:
     def set_settings(self, settings):
         self.calls.append(("set_settings", settings))
 
+    def set_objective(self, objective):
+        self.calls.append(("set_objective", objective))
+
     def set_shape_vertices(self, vertices, *, selection=None):
         self.calls.append(("set_shape_vertices", vertices, selection))
 
@@ -135,6 +138,9 @@ def test_shape_solve_reports_missing_shape_backend_contract():
 
     class IncompleteSession:
         def set_settings(self, settings):
+            return None
+
+        def set_objective(self, objective):
             return None
 
         def solve(self):
