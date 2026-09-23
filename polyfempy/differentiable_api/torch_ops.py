@@ -26,7 +26,10 @@ if _TORCH_IMPORT_ERROR is None:
     def _to_backend_array(value: Any) -> Any:
         if not _is_torch_tensor(value):
             return value
-        return value.detach().cpu().numpy()
+        array = value.detach().cpu().numpy()
+        if getattr(array, "shape", None) == ():
+            return float(array)
+        return array
 
     def _to_torch_tensor(value: Any, *, like: Any) -> Any:
         if _is_torch_tensor(value) or not _is_torch_tensor(like):

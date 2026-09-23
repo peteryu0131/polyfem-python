@@ -89,6 +89,10 @@ class _TorchShapeSession:
         self.calls.append(("solve",))
         return _FakeTensor("solution", self.vertices.shape)
 
+    def solve_objective(self):
+        self.calls.append(("solve_objective",))
+        return _FakeTensor("objective", ())
+
     def backward_shape(self, grad_solution):
         self.calls.append(("backward_shape", grad_solution))
         return _FakeTensor("gradient", self.vertices.shape)
@@ -180,7 +184,7 @@ def test_shapeopt_accepts_objective_aware_keyword_api(monkeypatch):
     vertices = _FakeTensor("vertices")
     objective = D.MaxStress(selection=7)
 
-    solution = D.ShapeOpt.apply(
+    objective_value = D.ShapeOpt.apply(
         model=diff_model,
         selection="all",
         tensor=vertices,
@@ -188,7 +192,7 @@ def test_shapeopt_accepts_objective_aware_keyword_api(monkeypatch):
         backend=_TorchShapeBackend,
     )
 
-    assert solution == _FakeTensor("solution")
+    assert objective_value == _FakeTensor("objective", ())
 
     grad_solution = _FakeTensor("grad_solution")
     grads = D.ShapeOpt.backward(D.ShapeOpt._last_ctx, grad_solution)
@@ -199,11 +203,11 @@ def test_shapeopt_accepts_objective_aware_keyword_api(monkeypatch):
         ("set_settings", payload),
         ("set_objective", {
             "type": "max_stress",
-            "state": "last",
+            "state": 0,
             "volume_selection": [7],
         }),
         ("set_shape_vertices", vertices, "all"),
-        ("solve",),
+        ("solve_objective",),
         ("backward_shape", grad_solution),
     ]
 

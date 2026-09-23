@@ -68,6 +68,24 @@ Eigen::MatrixXd unflatten_vertices_node_major(
   return vertices;
 }
 
+double scalar_from_python(const py::object &value)
+{
+  try
+  {
+    return nb::cast<double>(value);
+  }
+  catch (const std::exception &)
+  {
+    const Eigen::MatrixXd matrix = nb::cast<Eigen::MatrixXd>(value);
+    if (matrix.size() != 1)
+    {
+      throw std::runtime_error(
+          "Objective backward grad_output must be scalar.");
+    }
+    return matrix(0, 0);
+  }
+}
+
 void validate_solution_gradient_shape(
     const Eigen::MatrixXd &grad_solution,
     const Eigen::MatrixXd &solution)
@@ -103,11 +121,29 @@ public:
     shape_var2sim_ = build_direct_shape_variable_to_simulation();
 
     has_settings_ = true;
+    has_objective_ = false;
+    objective_form_.reset();
   }
 
   void set_objective(const py::object &objective)
   {
+    if (!has_settings_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_settings(...) before "
+          "set_objective(...).");
+    }
+
     objective_ = settings_from_python(objective);
+    std::vector<std::shared_ptr<polyfem::varform::DifferentiableVarForm>> varforms{
+        varform_};
+    std::vector<std::shared_ptr<polyfem::DiffCache>> diff_caches{
+        diff_cache_};
+    objective_form_ = polyfem::from_json::build_form(
+        objective_,
+        build_direct_shape_variable_to_simulation_group(),
+        varforms,
+        diff_caches);
     has_objective_ = true;
   }
 
@@ -152,20 +188,24 @@ public:
     ensure_ready_for_shape_solve();
     shape_var2sim_->update(current_shape_x_);
 
-    const auto *initial_conditions =
-        diff_cache_->initial_condition_override
-            ? &*diff_cache_->initial_condition_override
-            : nullptr;
-    const polyfem::varform::ForwardStepCallback post_step =
-        [varform = varform_, diff_cache = diff_cache_](
-            const int step,
-            const Eigen::MatrixXd &solution) {
-          diff_cache->cache_transient(step, *varform, solution, nullptr);
-        };
-
-    varform_->solve(last_solution_, initial_conditions, post_step, true);
-    has_solution_ = true;
+    run_forward_solve();
     return last_solution_;
+  }
+
+  double solve_objective()
+  {
+    ensure_ready_for_shape_solve();
+    if (!has_objective_ || !objective_form_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_objective(...) before "
+          "solve_objective().");
+    }
+
+    shape_var2sim_->update(current_shape_x_);
+    run_forward_solve();
+    objective_form_->solution_changed(current_shape_x_);
+    return objective_form_->value(current_shape_x_);
   }
 
   Eigen::MatrixXd backward_shape(const py::object &grad_u)
@@ -175,6 +215,23 @@ public:
     {
       throw std::runtime_error(
           "DifferentiableSession requires solve() before backward_shape(...).");
+    }
+
+    if (has_objective_ && objective_form_)
+    {
+      const double grad_objective = scalar_from_python(grad_u);
+      polyfem::solve_adjoint_cached(
+          *varform_,
+          *diff_cache_,
+          objective_form_->compute_reduced_adjoint_rhs(
+              current_shape_x_,
+              *varform_,
+              *diff_cache_));
+
+      Eigen::VectorXd grad_shape;
+      objective_form_->first_derivative(current_shape_x_, grad_shape);
+      grad_shape *= grad_objective;
+      return unflatten_vertices_node_major(grad_shape, input_dimension_);
     }
 
     const Eigen::MatrixXd grad_solution = nb::cast<Eigen::MatrixXd>(grad_u);
@@ -189,6 +246,23 @@ public:
   }
 
 private:
+  void run_forward_solve()
+  {
+    const auto *initial_conditions =
+        diff_cache_->initial_condition_override
+            ? &*diff_cache_->initial_condition_override
+            : nullptr;
+    const polyfem::varform::ForwardStepCallback post_step =
+        [varform = varform_, diff_cache = diff_cache_](
+            const int step,
+            const Eigen::MatrixXd &solution) {
+          diff_cache->cache_transient(step, *varform, solution, nullptr);
+        };
+
+    varform_->solve(last_solution_, initial_conditions, post_step, true);
+    has_solution_ = true;
+  }
+
   void ensure_ready_for_shape_solve() const
   {
     if (!has_settings_)
@@ -217,6 +291,7 @@ private:
   std::shared_ptr<polyfem::varform::DifferentiableVarForm> varform_;
   std::shared_ptr<polyfem::DiffCache> diff_cache_;
   std::shared_ptr<polyfem::solver::ShapeVariableToSimulation> shape_var2sim_;
+  std::shared_ptr<polyfem::solver::AdjointForm> objective_form_;
 
   std::shared_ptr<polyfem::solver::ShapeVariableToSimulation>
   build_direct_shape_variable_to_simulation() const
@@ -235,6 +310,14 @@ private:
         std::move(parametrization),
         std::move(active_dimensions),
         std::move(active_geometry_nodes));
+  }
+
+  polyfem::solver::VariableToSimulationGroup
+  build_direct_shape_variable_to_simulation_group() const
+  {
+    polyfem::solver::VariableToSimulationGroup group;
+    group.data.push_back(shape_var2sim_);
+    return group;
   }
 };
 
@@ -265,6 +348,10 @@ void define_differentiable_session(py::module_ &m)
           "solve",
           &DifferentiableSession::solve,
           "Run the differentiable forward solve.")
+      .def(
+          "solve_objective",
+          &DifferentiableSession::solve_objective,
+          "Run the differentiable forward solve and return objective value.")
       .def(
           "backward_shape",
           &DifferentiableSession::backward_shape,

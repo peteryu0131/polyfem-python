@@ -81,6 +81,14 @@ def _run_shape_session(
             )
         set_objective(objective_payload)
     session.set_shape_vertices(tensor, selection=selection)
+    if objective_payload is not None:
+        solve_objective = getattr(session, "solve_objective", None)
+        if not callable(solve_objective):
+            raise _backend.BackendContractError(
+                "Objective-aware shape solves require "
+                "DifferentiableSession.solve_objective."
+            )
+        return solve_objective(), session
     return session.solve(), session
 
 

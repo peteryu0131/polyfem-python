@@ -22,7 +22,7 @@ class ObjectiveSpec:
     """JSON-shaped objective description for future backend objective losses."""
 
     type_name: str
-    state: Any = "last"
+    state: Any = 0
     volume_selection: tuple[int, ...] | None = None
     power: Any = None
     weight: Any = None
@@ -56,7 +56,7 @@ class ObjectiveNamespace:
         self,
         *,
         selection: Any = None,
-        state: Any = "last",
+        state: Any = 0,
         power: Any = None,
         weight: Any = None,
         print_energy: Any = None,
@@ -78,7 +78,7 @@ class ObjectiveNamespace:
         self,
         *,
         selection: Any = None,
-        state: Any = "last",
+        state: Any = 0,
         weight: Any = None,
         print_energy: Any = None,
         extra: Mapping[str, Any] | None = None,
@@ -98,7 +98,7 @@ class ObjectiveNamespace:
         self,
         *,
         selection: Any = None,
-        state: Any = "last",
+        state: Any = 0,
         weight: Any = None,
         print_energy: Any = None,
         extra: Mapping[str, Any] | None = None,
@@ -118,7 +118,7 @@ class ObjectiveNamespace:
         self,
         *,
         selection: Any = None,
-        state: Any = "last",
+        state: Any = 0,
         weight: Any = None,
         print_energy: Any = None,
         extra: Mapping[str, Any] | None = None,
@@ -219,7 +219,7 @@ objectives = ObjectiveNamespace()
 def MaxStress(
     *,
     selection: Any = None,
-    state: Any = "last",
+    state: Any = 0,
     weight: Any = None,
     print_energy: Any = None,
     extra: Mapping[str, Any] | None = None,
@@ -235,4 +235,31 @@ def MaxStress(
     )
 
 
-__all__ = ["MaxStress", "ObjectiveNamespace", "ObjectiveSpec", "objectives"]
+def StressNorm(
+    *,
+    selection: Any = None,
+    state: Any = 0,
+    power: Any = None,
+    weight: Any = None,
+    print_energy: Any = None,
+    extra: Mapping[str, Any] | None = None,
+) -> ObjectiveSpec:
+    """Create a stress_norm objective using the meeting-facing API name."""
+
+    return objectives.stress_norm(
+        selection=selection,
+        state=state,
+        power=power,
+        weight=weight,
+        print_energy=print_energy,
+        extra=extra,
+    )
+
+
+__all__ = [
+    "MaxStress",
+    "ObjectiveNamespace",
+    "ObjectiveSpec",
+    "StressNorm",
+    "objectives",
+]

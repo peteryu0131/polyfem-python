@@ -29,7 +29,8 @@ def test_ideal_differentiable_api_matches_forward_example_style():
     assert "model.config(" in text
     assert "diff_model = diff.model([model])" in text
     assert "diff_model = diff.model([polyfem_config])" not in text
-    assert "objective = diff.MaxStress(selection=body)" in text
+    assert "objective = diff.StressNorm(selection=body, power=8)" in text
+    assert "MaxStress is the intuitive meeting example" in text
     assert "objective=objective" in text
     assert "tensor=vertices" in text
     assert "def shape_loss" in text

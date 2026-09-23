@@ -126,3 +126,19 @@ def test_differentiable_session_registers_objective_payload_contract():
     assert "bool has_objective_ = false" in source
     assert '.def(\n          "set_objective"' in source
     assert "&DifferentiableSession::set_objective" in source
+
+
+def test_differentiable_session_objective_path_uses_adjoint_form_contract():
+    source = (ROOT / "src" / "differentiable_api" / "session.cpp").read_text(
+        encoding="utf-8",
+        errors="ignore",
+    )
+
+    assert "std::shared_ptr<polyfem::solver::AdjointForm> objective_form_" in source
+    assert "polyfem::from_json::build_form(" in source
+    assert "double solve_objective()" in source
+    assert "objective_form_->value(current_shape_x_)" in source
+    assert "objective_form_->compute_reduced_adjoint_rhs(" in source
+    assert "objective_form_->first_derivative(current_shape_x_, grad_shape)" in source
+    assert '.def(\n          "solve_objective"' in source
+    assert "&DifferentiableSession::solve_objective" in source

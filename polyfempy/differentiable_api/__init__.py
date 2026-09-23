@@ -3,7 +3,7 @@
 from importlib import import_module
 
 from .model import DifferentiableModel, model
-from .objectives import MaxStress, ObjectiveSpec, objectives
+from .objectives import MaxStress, ObjectiveSpec, StressNorm, objectives
 from .parameter import parameter
 from .result import DifferentiableResult
 from .shape import shape_solve
@@ -17,6 +17,7 @@ __all__ = [
     "ObjectiveSpec",
     "ShapeOpt",
     "State",
+    "StressNorm",
     "model",
     "objectives",
     "parameter",
