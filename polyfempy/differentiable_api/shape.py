@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import copy
+from collections.abc import Mapping
 from typing import Any
 
 from . import _backend
@@ -61,6 +63,7 @@ def _run_shape_session(
     payload: dict[str, Any],
     selection: Any,
     tensor: Any,
+    objective: Any | None = None,
     backend: Any | None = None,
 ) -> tuple[Any, Any]:
     backend_module = backend if backend is not None else _load_default_backend()
@@ -68,8 +71,38 @@ def _run_shape_session(
     session = session_type()
 
     session.set_settings(payload)
+    objective_payload = _objective_payload(objective)
+    if objective_payload is not None:
+        set_objective = getattr(session, "set_objective", None)
+        if not callable(set_objective):
+            raise _backend.BackendContractError(
+                "Objective-aware shape solves require "
+                "DifferentiableSession.set_objective."
+            )
+        set_objective(objective_payload)
     session.set_shape_vertices(tensor, selection=selection)
     return session.solve(), session
+
+
+def _objective_payload(objective: Any | None) -> dict[str, Any] | None:
+    if objective is None:
+        return None
+    if isinstance(objective, Mapping):
+        return copy.deepcopy(dict(objective))
+
+    as_dict = getattr(objective, "as_dict", None)
+    if callable(as_dict):
+        payload = as_dict()
+        if not isinstance(payload, dict):
+            raise TypeError(
+                f"objective.as_dict() must return dict, got {type(payload).__name__}"
+            )
+        return copy.deepcopy(payload)
+
+    raise TypeError(
+        "objective must be an ObjectiveSpec-like object with as_dict() "
+        "or a backend objective dict"
+    )
 
 
 def _load_default_backend() -> Any:

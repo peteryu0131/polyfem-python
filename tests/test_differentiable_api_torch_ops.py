@@ -82,6 +82,9 @@ class _TorchShapeSession:
         self.vertices = vertices
         self.calls.append(("set_shape_vertices", vertices, selection))
 
+    def set_objective(self, objective):
+        self.calls.append(("set_objective", objective))
+
     def solve(self):
         self.calls.append(("solve",))
         return _FakeTensor("solution", self.vertices.shape)
@@ -160,6 +163,45 @@ def test_shapeopt_forward_backward_uses_shape_backend_contract(monkeypatch):
     assert _TorchShapeSession.calls == [
         ("init",),
         ("set_settings", payload),
+        ("set_shape_vertices", vertices, "all"),
+        ("solve",),
+        ("backward_shape", grad_solution),
+    ]
+
+
+def test_shapeopt_accepts_objective_aware_keyword_api(monkeypatch):
+    _install_fake_torch(monkeypatch)
+
+    from polyfempy import differentiable_api as D
+
+    _TorchShapeSession.calls = []
+    payload = {"geometry": [{"mesh": "beam.msh"}]}
+    diff_model = D.model([payload])
+    vertices = _FakeTensor("vertices")
+    objective = D.MaxStress(selection=7)
+
+    solution = D.ShapeOpt.apply(
+        model=diff_model,
+        selection="all",
+        tensor=vertices,
+        objective=objective,
+        backend=_TorchShapeBackend,
+    )
+
+    assert solution == _FakeTensor("solution")
+
+    grad_solution = _FakeTensor("grad_solution")
+    grads = D.ShapeOpt.backward(D.ShapeOpt._last_ctx, grad_solution)
+
+    assert grads == (None, None, _FakeTensor("gradient"), None, None)
+    assert _TorchShapeSession.calls == [
+        ("init",),
+        ("set_settings", payload),
+        ("set_objective", {
+            "type": "max_stress",
+            "state": "last",
+            "volume_selection": [7],
+        }),
         ("set_shape_vertices", vertices, "all"),
         ("solve",),
         ("backward_shape", grad_solution),

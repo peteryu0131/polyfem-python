@@ -54,6 +54,19 @@ def test_objective_namespace_builds_common_backend_objective_specs():
     }
 
 
+def test_top_level_max_stress_helper_matches_meeting_api_shape():
+    from polyfempy import differentiable_api as D
+
+    objective = D.MaxStress(selection=_BodyHandle(5), weight=3.0)
+
+    assert objective.as_dict() == {
+        "type": "max_stress",
+        "state": "last",
+        "volume_selection": [5],
+        "weight": 3.0,
+    }
+
+
 def test_objective_specs_are_immutable_and_json_copy_safe():
     from polyfempy import differentiable_api as D
 

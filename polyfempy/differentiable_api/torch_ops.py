@@ -36,6 +36,41 @@ if _TORCH_IMPORT_ERROR is None:
     class ShapeOpt(Function):
         """Low-level autograd operation for shape differentiable solves."""
 
+        @classmethod
+        def apply(cls, *args: Any, **kwargs: Any) -> Any:
+            """Accept the meeting-facing keyword API and call torch positionally."""
+
+            if not kwargs:
+                return super().apply(*args)
+            if args:
+                raise TypeError(
+                    "ShapeOpt.apply accepts either positional arguments or "
+                    "keyword arguments, not both"
+                )
+
+            allowed = {"model", "selection", "tensor", "backend", "objective"}
+            unknown = sorted(set(kwargs) - allowed)
+            if unknown:
+                joined = ", ".join(unknown)
+                raise TypeError(f"unexpected ShapeOpt.apply keyword(s): {joined}")
+
+            try:
+                model = kwargs["model"]
+                selection = kwargs["selection"]
+                tensor = kwargs["tensor"]
+            except KeyError as exc:
+                raise TypeError(
+                    "ShapeOpt.apply keyword API requires model, selection, and tensor"
+                ) from exc
+
+            return super().apply(
+                model,
+                selection,
+                tensor,
+                kwargs.get("backend"),
+                kwargs.get("objective"),
+            )
+
         @staticmethod
         def forward(
             ctx: Any,
@@ -43,6 +78,7 @@ if _TORCH_IMPORT_ERROR is None:
             selection: Any,
             tensor: Any,
             backend: Any | None = None,
+            objective: Any | None = None,
         ) -> Any:
             payload = _single_shape_payload(
                 model=model,
@@ -54,10 +90,12 @@ if _TORCH_IMPORT_ERROR is None:
                 payload=payload,
                 selection=selection,
                 tensor=backend_tensor,
+                objective=objective,
                 backend=backend,
             )
             ctx.session = session
             ctx.input_tensor = tensor
+            ctx.gradient_count = 5 if objective is not None else 4
             return _to_torch_tensor(solution, like=tensor)
 
         @staticmethod
@@ -68,10 +106,19 @@ if _TORCH_IMPORT_ERROR is None:
             try:
                 backend_grad_output = _to_backend_array(grad_output)
                 grad_tensor = session.backward_shape(backend_grad_output)
-                return None, None, _to_torch_tensor(grad_tensor, like=input_tensor), None
+                gradients = (
+                    None,
+                    None,
+                    _to_torch_tensor(grad_tensor, like=input_tensor),
+                    None,
+                )
+                if getattr(ctx, "gradient_count", 4) == 5:
+                    return (*gradients, None)
+                return gradients
             finally:
                 ctx.session = None
                 ctx.input_tensor = None
+                ctx.gradient_count = None
 
 else:
 

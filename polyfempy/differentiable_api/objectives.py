@@ -216,4 +216,23 @@ def _extra_items(extra: Mapping[str, Any] | None) -> tuple[tuple[str, Any], ...]
 objectives = ObjectiveNamespace()
 
 
-__all__ = ["ObjectiveNamespace", "ObjectiveSpec", "objectives"]
+def MaxStress(
+    *,
+    selection: Any = None,
+    state: Any = "last",
+    weight: Any = None,
+    print_energy: Any = None,
+    extra: Mapping[str, Any] | None = None,
+) -> ObjectiveSpec:
+    """Create a max_stress objective using the meeting-facing API name."""
+
+    return objectives.max_stress(
+        selection=selection,
+        state=state,
+        weight=weight,
+        print_energy=print_energy,
+        extra=extra,
+    )
+
+
+__all__ = ["MaxStress", "ObjectiveNamespace", "ObjectiveSpec", "objectives"]
