@@ -94,6 +94,7 @@ class CMakeBuild(build_ext):
                       '-DPOLYSOLVE_WITH_AMGCL=OFF',
                       '-DPOLYSOLVE_WITH_UMFPACK=OFF',
                       '-DPOLYSOLVE_WITH_HYPRE=OFF',
+                      '-DPOLYFEM_WITH_MISO=OFF',
                       '-DCMAKE_POLICY_VERSION_MINIMUM=3.5']
         
         # Use nanobind for Python bindings (pybind11 support removed)
