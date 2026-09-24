@@ -260,6 +260,44 @@ def test_shapeopt_accepts_objective_enum_keyword_api(monkeypatch):
     ]
 
 
+def test_shapeopt_objective_enum_defaults_all_selection_to_backend_empty_list(
+    monkeypatch,
+):
+    _install_fake_torch(monkeypatch)
+
+    from polyfempy import differentiable_api as D
+
+    _TorchShapeSession.calls = []
+    payload = {"geometry": [{"mesh": "beam.msh"}]}
+    diff_model = D.model([payload])
+    vertices = _FakeTensor("vertices")
+
+    objective_value = D.ShapeOpt.apply(
+        model=diff_model,
+        selection="all",
+        tensor=vertices,
+        objective=D.Objective.STRESS_NORM,
+        backend=_TorchShapeBackend,
+    )
+
+    assert objective_value == _FakeTensor("objective", ())
+    grad_solution = _FakeTensor("grad_solution")
+    grads = D.ShapeOpt.backward(D.ShapeOpt._last_ctx, grad_solution)
+
+    assert grads == (None, None, _FakeTensor("gradient"), None, None)
+    assert _TorchShapeSession.calls[2] == (
+        "set_objective",
+        {
+            "type": "stress_norm",
+            "state": 0,
+            "volume_selection": [],
+            "power": 2,
+            "weight": 1.0,
+            "print_energy": "",
+        },
+    )
+
+
 def test_shapeopt_keyword_api_without_objective_uses_solution_signature(monkeypatch):
     _install_fake_torch(monkeypatch)
 

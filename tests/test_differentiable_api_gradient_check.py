@@ -159,7 +159,6 @@ def _loss_with_backend_shape_objective(diff, backend, settings, vertices):
         selection="all",
         tensor=vertices,
         objective=diff.Objective.STRESS_NORM,
-        objective_params={"selection": []},
         backend=backend,
     )
     detach = getattr(loss, "detach", None)
@@ -250,7 +249,6 @@ def test_shapeopt_objective_gradient_matches_differentiability_data_finite_diffe
         selection="all",
         tensor=vertices,
         objective=diff.Objective.STRESS_NORM,
-        objective_params={"selection": []},
         backend=backend,
     )
     direction = _finite_difference_prefix_direction(torch, vertices, row_count=20)

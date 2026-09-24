@@ -272,12 +272,11 @@ def _objective_params(
     else:
         raise TypeError("objective_params must be a mapping")
 
-    if (
-        "selection" not in objective_params
-        and default_selection is not None
-        and not isinstance(default_selection, (str, bytes))
-    ):
-        objective_params["selection"] = default_selection
+    if "selection" not in objective_params and default_selection is not None:
+        if default_selection == "all":
+            objective_params["selection"] = []
+        elif not isinstance(default_selection, (str, bytes)):
+            objective_params["selection"] = default_selection
     return objective_params
 
 
