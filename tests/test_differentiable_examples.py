@@ -18,6 +18,7 @@ def test_differentiable_example_directory_contains_expected_files():
         "ideal_api.md",
         "shapeopt_laplacian_smoke.py",
         "shapeopt_objective_smoke.py",
+        "shapeopt_stress_norm_optimization.py",
     ]
 
 
@@ -46,10 +47,31 @@ def test_shapeopt_objective_smoke_example_is_output_safe():
     assert '"save_time_sequence": False' in text
     assert "--keep-output" in text
     assert "objective=diff.Objective.STRESS_NORM" in text
-    assert "objective_params=objective_params" in text
+    assert "objective_params=objective_params" not in text
     assert "loss.backward()" in text
     assert "objective_value" in text
     assert "gradient_norm" in text
+
+
+def test_shapeopt_stress_norm_optimization_example_is_output_safe():
+    text = (DIFF_EXAMPLES / "shapeopt_stress_norm_optimization.py").read_text(
+        encoding="utf-8"
+    )
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    assert "TemporaryDirectory" in text
+    assert "differentiable_example/runs/" in gitignore
+    assert '"json": ""' in text
+    assert '"paraview": {"file_name": ""}' in text
+    assert '"save_time_sequence": False' in text
+    assert "--keep-output" in text
+    assert "torch.optim.Adam([vertices]" in text
+    assert "optimizer.zero_grad()" in text
+    assert "objective=diff.Objective.STRESS_NORM" in text
+    assert "objective_params" not in text
+    assert "loss.backward()" in text
+    assert "optimizer.step()" in text
+    assert "loss_history" in text
 
 
 def test_ideal_differentiable_api_matches_forward_example_style():

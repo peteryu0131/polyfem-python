@@ -183,3 +183,30 @@ def test_shapeopt_objective_smoke_example_runs_without_persistent_outputs(tmp_pa
     assert "objective_value" in summary
     assert not list(tmp_path.rglob("*.vtu"))
     assert not list(tmp_path.rglob("*.pvd"))
+
+
+def test_shapeopt_stress_norm_optimization_example_runs_without_persistent_outputs(
+    tmp_path,
+):
+    pytest.importorskip("polyfempy.polyfempy")
+    pytest.importorskip("torch")
+
+    example_path = ROOT / "differentiable_example" / "shapeopt_stress_norm_optimization.py"
+    spec = importlib.util.spec_from_file_location(
+        "shapeopt_stress_norm_optimization",
+        example_path,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    summary = module.run_optimization(tmp_path, steps=2)
+
+    assert summary["objective"]["type"] == "stress_norm"
+    assert summary["objective"]["selection"] == "all"
+    assert summary["steps"] == 2
+    assert len(summary["loss_history"]) == 2
+    assert len(summary["gradient_norm_history"]) == 2
+    assert summary["vertex_shape"] == [8, 3]
+    assert not list(tmp_path.rglob("*.vtu"))
+    assert not list(tmp_path.rglob("*.pvd"))
