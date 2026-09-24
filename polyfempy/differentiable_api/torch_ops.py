@@ -51,7 +51,14 @@ if _TORCH_IMPORT_ERROR is None:
                     "keyword arguments, not both"
                 )
 
-            allowed = {"model", "selection", "tensor", "backend", "objective"}
+            allowed = {
+                "model",
+                "selection",
+                "tensor",
+                "backend",
+                "objective",
+                "objective_params",
+            }
             unknown = sorted(set(kwargs) - allowed)
             if unknown:
                 joined = ", ".join(unknown)
@@ -67,6 +74,15 @@ if _TORCH_IMPORT_ERROR is None:
                 ) from exc
 
             if "objective" in kwargs:
+                if "objective_params" in kwargs:
+                    return super().apply(
+                        model,
+                        selection,
+                        tensor,
+                        kwargs.get("backend"),
+                        kwargs["objective"],
+                        kwargs["objective_params"],
+                    )
                 return super().apply(
                     model,
                     selection,
@@ -74,6 +90,8 @@ if _TORCH_IMPORT_ERROR is None:
                     kwargs.get("backend"),
                     kwargs["objective"],
                 )
+            if "objective_params" in kwargs:
+                raise TypeError("objective_params requires objective")
             return super().apply(
                 model,
                 selection,
@@ -89,6 +107,7 @@ if _TORCH_IMPORT_ERROR is None:
             tensor: Any,
             backend: Any | None = None,
             objective: Any | None = None,
+            objective_params: Any | None = None,
         ) -> Any:
             payload = _single_shape_payload(
                 model=model,
@@ -101,11 +120,14 @@ if _TORCH_IMPORT_ERROR is None:
                 selection=selection,
                 tensor=backend_tensor,
                 objective=objective,
+                objective_params=objective_params,
                 backend=backend,
             )
             ctx.session = session
             ctx.input_tensor = tensor
-            ctx.gradient_count = 5 if objective is not None else 4
+            ctx.gradient_count = 6 if objective_params is not None else (
+                5 if objective is not None else 4
+            )
             return _to_torch_tensor(solution, like=tensor)
 
         @staticmethod
@@ -124,6 +146,8 @@ if _TORCH_IMPORT_ERROR is None:
                 )
                 if getattr(ctx, "gradient_count", 4) == 5:
                     return (*gradients, None)
+                if getattr(ctx, "gradient_count", 4) == 6:
+                    return (*gradients, None, None)
                 return gradients
             finally:
                 ctx.session = None

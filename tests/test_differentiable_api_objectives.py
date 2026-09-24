@@ -60,6 +60,15 @@ def test_objective_namespace_builds_common_backend_objective_specs():
     }
 
 
+def test_objective_enum_exposes_fixed_backend_objective_types():
+    from polyfempy import differentiable_api as D
+
+    assert D.Objective.MAX_STRESS.value == "max_stress"
+    assert D.Objective.STRESS_NORM.value == "stress_norm"
+    assert D.Objective.COMPLIANCE.value == "compliance"
+    assert D.Objective.VOLUME.value == "volume"
+
+
 def test_top_level_max_stress_helper_matches_meeting_api_shape():
     from polyfempy import differentiable_api as D
 

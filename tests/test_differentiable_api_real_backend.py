@@ -115,13 +115,16 @@ def test_shapeopt_real_backend_objective_backward_smoke(tmp_path):
         _laplacian_shape_smoke_settings(mesh_path, tmp_path),
     ])
     x = _cube_vertices(torch)
-    objective = diff.StressNorm(selection=1, power=8)
 
     loss = diff.ShapeOpt.apply(
         model=diff_model,
         selection="all",
         tensor=x,
-        objective=objective,
+        objective=diff.Objective.STRESS_NORM,
+        objective_params={
+            "selection": 1,
+            "power": 8,
+        },
         backend=backend,
     )
     loss.backward()
@@ -155,5 +158,28 @@ def test_shapeopt_laplacian_smoke_example_runs_without_persistent_outputs(tmp_pa
     assert summary["solution_shape"] == [67, 1]
     assert summary["gradient_shape"] == [242, 2]
     assert summary["gradient_norm"] > 0
+    assert not list(tmp_path.rglob("*.vtu"))
+    assert not list(tmp_path.rglob("*.pvd"))
+
+
+def test_shapeopt_objective_smoke_example_runs_without_persistent_outputs(tmp_path):
+    pytest.importorskip("polyfempy.polyfempy")
+    pytest.importorskip("torch")
+
+    example_path = ROOT / "differentiable_example" / "shapeopt_objective_smoke.py"
+    spec = importlib.util.spec_from_file_location(
+        "shapeopt_objective_smoke",
+        example_path,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    summary = module.run_smoke(tmp_path)
+
+    assert summary["objective"]["type"] == "stress_norm"
+    assert summary["gradient_shape"] == [8, 3]
+    assert summary["gradient_norm"] >= 0
+    assert "objective_value" in summary
     assert not list(tmp_path.rglob("*.vtu"))
     assert not list(tmp_path.rglob("*.pvd"))

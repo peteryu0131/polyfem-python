@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Mapping
 
 
@@ -19,6 +20,15 @@ _RESERVED_EXTRA_KEYS = {
 _DEFAULT_WEIGHT = 1.0
 _DEFAULT_PRINT_ENERGY = ""
 _DEFAULT_STRESS_NORM_POWER = 2
+
+
+class Objective(str, Enum):
+    """Supported differentiable backend objective types."""
+
+    MAX_STRESS = "max_stress"
+    STRESS_NORM = "stress_norm"
+    COMPLIANCE = "compliance"
+    VOLUME = "volume"
 
 
 @dataclass(frozen=True)
@@ -226,6 +236,51 @@ def _defaulted(value: Any, default: Any) -> Any:
 objectives = ObjectiveNamespace()
 
 
+def _build_objective(
+    objective: Objective,
+    *,
+    params: Mapping[str, Any] | None = None,
+    default_selection: Any = None,
+) -> ObjectiveSpec:
+    """Build a backend objective spec from the public objective enum."""
+
+    kind = _objective_kind(objective)
+    objective_params = _objective_params(params, default_selection)
+    builders = {
+        Objective.MAX_STRESS: objectives.max_stress,
+        Objective.STRESS_NORM: objectives.stress_norm,
+        Objective.COMPLIANCE: objectives.compliance,
+        Objective.VOLUME: objectives.volume,
+    }
+    return builders[kind](**objective_params)
+
+
+def _objective_kind(objective: Objective) -> Objective:
+    if isinstance(objective, Objective):
+        return objective
+    raise TypeError("objective must be a diff.Objective enum value")
+
+
+def _objective_params(
+    params: Mapping[str, Any] | None,
+    default_selection: Any,
+) -> dict[str, Any]:
+    if params is None:
+        objective_params: dict[str, Any] = {}
+    elif isinstance(params, Mapping):
+        objective_params = copy.deepcopy(dict(params))
+    else:
+        raise TypeError("objective_params must be a mapping")
+
+    if (
+        "selection" not in objective_params
+        and default_selection is not None
+        and not isinstance(default_selection, (str, bytes))
+    ):
+        objective_params["selection"] = default_selection
+    return objective_params
+
+
 def MaxStress(
     *,
     selection: Any = None,
@@ -267,6 +322,7 @@ def StressNorm(
 
 
 __all__ = [
+    "Objective",
     "MaxStress",
     "ObjectiveNamespace",
     "ObjectiveSpec",

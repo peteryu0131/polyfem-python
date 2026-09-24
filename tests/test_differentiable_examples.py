@@ -14,7 +14,11 @@ def test_differentiable_example_directory_contains_expected_files():
         if path.is_file()
     )
 
-    assert files == ["ideal_api.md", "shapeopt_laplacian_smoke.py"]
+    assert files == [
+        "ideal_api.md",
+        "shapeopt_laplacian_smoke.py",
+        "shapeopt_objective_smoke.py",
+    ]
 
 
 def test_shapeopt_laplacian_smoke_example_is_output_safe():
@@ -28,6 +32,23 @@ def test_shapeopt_laplacian_smoke_example_is_output_safe():
     assert '"save_time_sequence": False' in text
     assert "--keep-output" in text
     assert "loss.backward()" in text
+    assert "gradient_norm" in text
+
+
+def test_shapeopt_objective_smoke_example_is_output_safe():
+    text = (DIFF_EXAMPLES / "shapeopt_objective_smoke.py").read_text(encoding="utf-8")
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    assert "TemporaryDirectory" in text
+    assert "differentiable_example/runs/" in gitignore
+    assert '"json": ""' in text
+    assert '"paraview": {"file_name": ""}' in text
+    assert '"save_time_sequence": False' in text
+    assert "--keep-output" in text
+    assert "objective=diff.Objective.STRESS_NORM" in text
+    assert "objective_params=objective_params" in text
+    assert "loss.backward()" in text
+    assert "objective_value" in text
     assert "gradient_norm" in text
 
 

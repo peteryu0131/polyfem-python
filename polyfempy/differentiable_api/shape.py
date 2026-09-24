@@ -9,6 +9,7 @@ from typing import Any
 
 from . import _backend
 from .model import DifferentiableModel
+from .objectives import Objective, _build_objective
 
 
 def shape_solve(
@@ -64,6 +65,7 @@ def _run_shape_session(
     selection: Any,
     tensor: Any,
     objective: Any | None = None,
+    objective_params: Mapping[str, Any] | None = None,
     backend: Any | None = None,
 ) -> tuple[Any, Any]:
     backend_module = backend if backend is not None else _load_default_backend()
@@ -71,7 +73,11 @@ def _run_shape_session(
     session = session_type()
 
     session.set_settings(payload)
-    objective_payload = _objective_payload(objective)
+    objective_payload = _objective_payload(
+        objective,
+        objective_params=objective_params,
+        default_selection=selection,
+    )
     if objective_payload is not None:
         set_objective = getattr(session, "set_objective", None)
         if not callable(set_objective):
@@ -92,14 +98,32 @@ def _run_shape_session(
     return session.solve(), session
 
 
-def _objective_payload(objective: Any | None) -> dict[str, Any] | None:
+def _objective_payload(
+    objective: Any | None,
+    *,
+    objective_params: Mapping[str, Any] | None = None,
+    default_selection: Any = None,
+) -> dict[str, Any] | None:
+    if objective is None and objective_params is not None:
+        raise TypeError("objective_params requires objective")
     if objective is None:
         return None
+    if isinstance(objective, Objective):
+        objective = _build_objective(
+            objective,
+            params=objective_params,
+            default_selection=default_selection,
+        )
+        return objective.as_dict()
     if isinstance(objective, Mapping):
+        if objective_params is not None:
+            raise TypeError("objective_params is only supported with diff.Objective")
         return copy.deepcopy(dict(objective))
 
     as_dict = getattr(objective, "as_dict", None)
     if callable(as_dict):
+        if objective_params is not None:
+            raise TypeError("objective_params is only supported with diff.Objective")
         payload = as_dict()
         if not isinstance(payload, dict):
             raise TypeError(
@@ -108,8 +132,8 @@ def _objective_payload(objective: Any | None) -> dict[str, Any] | None:
         return copy.deepcopy(payload)
 
     raise TypeError(
-        "objective must be an ObjectiveSpec-like object with as_dict() "
-        "or a backend objective dict"
+        "objective must be a diff.Objective enum value, "
+        "an ObjectiveSpec-like object with as_dict(), or a backend objective dict"
     )
 
 
