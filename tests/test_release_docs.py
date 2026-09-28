@@ -7,7 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_local_doc_folder_is_not_tracked_release_content():
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
 
-    assert "/doc/" in gitignore
+    assert "/docs/" in gitignore
+    assert "/doc/" not in gitignore
 
 
 def test_readme_documents_current_differentiable_api_boundary():
