@@ -8,6 +8,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DIFFERENTIABILITY_DATA_ROOT = ROOT / "differentiability-data"
 
 
 def _gmsh_vertices(torch, path: Path, *, dimension: int | None = None):
@@ -112,14 +113,9 @@ def _loss_with_backend_shape_solve(diff, backend, diff_model, vertices, solution
 
 
 def _differentiability_data_root() -> Path:
-    value = os.environ.get("POLYFEMPY_DIFFDATA_ROOT")
-    if not value:
-        pytest.skip(
-            "set POLYFEMPY_DIFFDATA_ROOT to a differentiability-data checkout "
-            "to run the objective gradient check"
-        )
+    override = os.environ.get("POLYFEMPY_DIFFDATA_ROOT")
+    root = _differentiability_data_root_path()
 
-    root = Path(value)
     required = [
         root / "bunny.msh",
         root / "input" / "neohookean-stress-3d.json",
@@ -127,8 +123,25 @@ def _differentiability_data_root() -> Path:
     missing = [str(path) for path in required if not path.exists()]
     if missing:
         joined = ", ".join(missing)
-        pytest.skip(f"missing differentiability-data fixture file(s): {joined}")
+        if override:
+            pytest.skip(f"missing differentiability-data fixture file(s): {joined}")
+        pytest.skip(
+            "differentiability-data submodule is not initialized; run "
+            "`git submodule update --init differentiability-data`; "
+            f"missing fixture file(s): {joined}"
+        )
     return root
+
+
+def _differentiability_data_root_path() -> Path:
+    value = os.environ.get("POLYFEMPY_DIFFDATA_ROOT")
+    return Path(value) if value else DIFFERENTIABILITY_DATA_ROOT
+
+
+def test_differentiability_data_root_defaults_to_submodule(monkeypatch):
+    monkeypatch.delenv("POLYFEMPY_DIFFDATA_ROOT", raising=False)
+
+    assert _differentiability_data_root_path() == DIFFERENTIABILITY_DATA_ROOT
 
 
 def _neohookean_stress_3d_settings(diffdata_root: Path, output_dir: Path) -> dict:

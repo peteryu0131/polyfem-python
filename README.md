@@ -24,6 +24,8 @@ checkouts for upstream source, generator, data, and examples:
 - `generator-config/`: PolyFEM-specific generator config.
 - `polyfem-data/`: `polyfem/polyfem-data` submodule for data, meshes, source
   JSON examples, and expected test data.
+- `differentiability-data/`: optional `polyfem/differentiability-data`
+  submodule for differentiable API examples and gradient regression fixtures.
 - `examples/`: `polyfem/python_data` submodule, with `classic_example/` as the
   current generated-API example collection.
 
@@ -40,6 +42,10 @@ generating, building, or running example parity tests:
 ```powershell
 git submodule update --init --recursive
 ```
+
+The heavier differentiable gradient checks also use the
+`differentiability-data/` submodule by default. If you keep that data checkout
+somewhere else, set `POLYFEMPY_DIFFDATA_ROOT` to that path instead.
 
 Generate the packaged API from the repository root:
 

@@ -12,3 +12,7 @@
 	path = python-from-jse
 	url = https://github.com/polyfem/python-from-jse.git
 	branch = main
+[submodule "differentiability-data"]
+	path = differentiability-data
+	url = https://github.com/polyfem/differentiability-data.git
+	branch = main
