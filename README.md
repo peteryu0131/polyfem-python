@@ -47,6 +47,50 @@ The heavier differentiable gradient checks also use the
 `differentiability-data/` submodule by default. If you keep that data checkout
 somewhere else, set `POLYFEMPY_DIFFDATA_ROOT` to that path instead.
 
+## Current differentiable API status
+
+The new `polyfempy.differentiable_api` is currently a shape differentiable MVP.
+The user-facing path is `diff.shape_opt(...)`:
+
+```python
+diff_model = diff.model([forward_config])
+shape_opt = diff.shape_opt(
+    diff_model,
+    vertices,
+    objective=diff.Objective.STRESS_NORM,
+)
+loss = shape_opt()
+loss.backward()
+```
+
+For optimization, configure the same shape problem with a PyTorch optimizer:
+
+```python
+result = (
+    shape_opt
+    .optimizer(torch.optim.Adam, lr=1e-7)
+    .steps(100)
+    .optimize()
+)
+```
+
+The reference regression data comes from
+`differentiability-data/input/neohookean-stress-3d-opt.json`, which maps to the
+current `shape` parameter plus `stress_norm` objective path. The matching
+forward-style examples are:
+
+- `differentiable_example/shape/neohookean_stress_3d_opt.py`: one objective
+  evaluation plus `loss.backward()`, matching the reference opt spec.
+- `differentiable_example/shape/neohookean_stress_3d_optimization.py`: a
+  standalone PyTorch `torch.optim.Adam` example with the same forward setup
+  and `diff.shape_opt(...)` call.
+
+`diff.solve(state=..., parameters=...)` is the intended generic parameter API
+shape, but it is not the completed backend-backed entry point yet. Treat it as
+contract scaffolding until its backend session methods are implemented. The
+next API expansion target is elastic material parameters from the
+`elastic-material-smoothing-2d/3d-opt.json` differentiability-data fixtures.
+
 Generate the packaged API from the repository root:
 
 ```powershell

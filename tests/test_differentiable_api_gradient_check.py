@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -145,16 +146,46 @@ def test_differentiability_data_root_defaults_to_submodule(monkeypatch):
 
 
 def _neohookean_stress_3d_settings(diffdata_root: Path, output_dir: Path) -> dict:
-    with (diffdata_root / "input" / "neohookean-stress-3d.json").open(
-        encoding="utf-8"
-    ) as handle:
+    return _neohookean_stress_3d_reference_case(diffdata_root, output_dir)["settings"]
+
+
+def _neohookean_stress_3d_reference_case(
+    diffdata_root: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    opt_spec_path = diffdata_root / "input" / "neohookean-stress-3d-opt.json"
+    with opt_spec_path.open(encoding="utf-8") as handle:
+        opt_spec = json.load(handle)
+
+    if opt_spec.get("parameters") != "auto":
+        raise ValueError("neohookean reference expects parameters='auto'")
+    if opt_spec.get("variable_to_simulation") != [
+        {
+            "type": "shape",
+            "state": 0,
+            "composition": [],
+        }
+    ]:
+        raise ValueError("neohookean reference expects direct shape")
+    if opt_spec.get("functionals") != [
+        {
+            "type": "stress_norm",
+            "state": 0,
+        }
+    ]:
+        raise ValueError("neohookean reference expects stress_norm")
+
+    state_path = diffdata_root / "input" / opt_spec["states"][0]["path"]
+    with state_path.open(encoding="utf-8") as handle:
         settings = json.load(handle)
 
     geometry = settings["geometry"]
     if isinstance(geometry, list):
-        geometry[0]["mesh"] = str(diffdata_root / "bunny.msh")
+        mesh_path = (state_path.parent / geometry[0]["mesh"]).resolve()
+        geometry[0]["mesh"] = str(mesh_path)
     else:
-        geometry["mesh"] = str(diffdata_root / "bunny.msh")
+        mesh_path = (state_path.parent / geometry["mesh"]).resolve()
+        geometry["mesh"] = str(mesh_path)
     settings.setdefault("solver", {})["max_threads"] = 1
 
     output = settings.setdefault("output", {})
@@ -162,18 +193,37 @@ def _neohookean_stress_3d_settings(diffdata_root: Path, output_dir: Path) -> dic
     output["json"] = ""
     output.setdefault("paraview", {})["file_name"] = ""
     output.setdefault("advanced", {})["save_time_sequence"] = False
-    return settings
+    return {
+        "settings": settings,
+        "mesh_path": mesh_path,
+        "objective": opt_spec["functionals"][0]["type"],
+    }
+
+
+def test_neohookean_reference_case_is_loaded_from_diffdata_opt_spec(tmp_path):
+    diffdata_root = _differentiability_data_root()
+
+    case = _neohookean_stress_3d_reference_case(
+        diffdata_root,
+        tmp_path,
+    )
+
+    assert case["objective"] == "stress_norm"
+    assert case["mesh_path"] == diffdata_root / "bunny.msh"
+    assert case["settings"]["geometry"][0]["mesh"] == str(diffdata_root / "bunny.msh")
+    assert case["settings"]["output"]["json"] == ""
+    assert case["settings"]["output"]["paraview"]["file_name"] == ""
+    assert case["settings"]["output"]["advanced"]["save_time_sequence"] is False
 
 
 def _loss_with_backend_shape_objective(diff, backend, settings, vertices):
     diff_model = diff.model([settings])
-    loss = diff.ShapeOpt.apply(
-        model=diff_model,
-        selection="all",
-        tensor=vertices,
+    loss = diff.shape_opt(
+        diff_model,
+        vertices,
         objective=diff.Objective.STRESS_NORM,
         backend=backend,
-    )
+    )()
     detach = getattr(loss, "detach", None)
     if callable(detach):
         loss = detach()
@@ -252,18 +302,19 @@ def test_shapeopt_objective_gradient_matches_differentiability_data_finite_diffe
 
     from polyfempy import differentiable_api as diff
 
-    vertices = _gmsh_vertices(torch, diffdata_root / "bunny.msh", dimension=3)
-    diff_model = diff.model(
-        [_neohookean_stress_3d_settings(diffdata_root, tmp_path / "adjoint")]
+    case = _neohookean_stress_3d_reference_case(
+        diffdata_root,
+        tmp_path / "adjoint",
     )
+    vertices = _gmsh_vertices(torch, case["mesh_path"], dimension=3)
+    diff_model = diff.model([case["settings"]])
 
-    loss = diff.ShapeOpt.apply(
-        model=diff_model,
-        selection="all",
-        tensor=vertices,
-        objective=diff.Objective.STRESS_NORM,
+    loss = diff.shape_opt(
+        diff_model,
+        vertices,
+        objective=diff.Objective(case["objective"]),
         backend=backend,
-    )
+    )()
     direction = _finite_difference_prefix_direction(torch, vertices, row_count=20)
     loss.backward()
 

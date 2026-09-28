@@ -12,7 +12,12 @@ from .objectives import (
 )
 from .parameter import parameter
 from .result import DifferentiableResult
-from .shape import shape_solve
+from .shape import (
+    ShapeOptimization,
+    ShapeOptimizationResult,
+    shape_opt,
+    shape_solve,
+)
 from .solve import solve
 from .state import State, state
 
@@ -23,11 +28,14 @@ __all__ = [
     "Objective",
     "ObjectiveSpec",
     "ShapeOpt",
+    "ShapeOptimization",
+    "ShapeOptimizationResult",
     "State",
     "StressNorm",
     "model",
     "objectives",
     "parameter",
+    "shape_opt",
     "shape_solve",
     "solve",
     "state",

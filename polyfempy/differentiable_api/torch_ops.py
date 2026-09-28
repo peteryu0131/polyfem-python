@@ -41,15 +41,10 @@ if _TORCH_IMPORT_ERROR is None:
 
         @classmethod
         def apply(cls, *args: Any, **kwargs: Any) -> Any:
-            """Accept the meeting-facing keyword API and call torch positionally."""
+            """Accept the meeting-facing API and call torch positionally."""
 
             if not kwargs:
                 return super().apply(*args)
-            if args:
-                raise TypeError(
-                    "ShapeOpt.apply accepts either positional arguments or "
-                    "keyword arguments, not both"
-                )
 
             allowed = {
                 "model",
@@ -64,14 +59,33 @@ if _TORCH_IMPORT_ERROR is None:
                 joined = ", ".join(unknown)
                 raise TypeError(f"unexpected ShapeOpt.apply keyword(s): {joined}")
 
-            try:
-                model = kwargs["model"]
-                selection = kwargs["selection"]
-                tensor = kwargs["tensor"]
-            except KeyError as exc:
-                raise TypeError(
-                    "ShapeOpt.apply keyword API requires model, selection, and tensor"
-                ) from exc
+            if args:
+                if len(args) not in (3, 4):
+                    raise TypeError(
+                        "ShapeOpt.apply positional API requires model, selection, "
+                        "tensor, and optional backend"
+                    )
+                duplicate = sorted({"model", "selection", "tensor"} & set(kwargs))
+                if duplicate:
+                    joined = ", ".join(duplicate)
+                    raise TypeError(
+                        "ShapeOpt.apply got positional and keyword value(s) "
+                        f"for: {joined}"
+                    )
+                if len(args) == 4 and "backend" in kwargs:
+                    raise TypeError("ShapeOpt.apply got multiple backend values")
+                model, selection, tensor = args[:3]
+                backend = args[3] if len(args) == 4 else kwargs.get("backend")
+            else:
+                try:
+                    model = kwargs["model"]
+                    selection = kwargs["selection"]
+                    tensor = kwargs["tensor"]
+                except KeyError as exc:
+                    raise TypeError(
+                        "ShapeOpt.apply keyword API requires model, selection, and tensor"
+                    ) from exc
+                backend = kwargs.get("backend")
 
             if "objective" in kwargs:
                 if "objective_params" in kwargs:
@@ -79,7 +93,7 @@ if _TORCH_IMPORT_ERROR is None:
                         model,
                         selection,
                         tensor,
-                        kwargs.get("backend"),
+                        backend,
                         kwargs["objective"],
                         kwargs["objective_params"],
                     )
@@ -87,7 +101,7 @@ if _TORCH_IMPORT_ERROR is None:
                     model,
                     selection,
                     tensor,
-                    kwargs.get("backend"),
+                    backend,
                     kwargs["objective"],
                 )
             if "objective_params" in kwargs:
@@ -96,7 +110,7 @@ if _TORCH_IMPORT_ERROR is None:
                 model,
                 selection,
                 tensor,
-                kwargs.get("backend"),
+                backend,
             )
 
         @staticmethod

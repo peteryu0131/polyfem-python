@@ -55,6 +55,7 @@ examples/output/*
 !examples/output/.gitkeep
 examples/runs/
 differentiable_example/runs/
+differentiable_example/shape/runs/
 examples/classic_example/2D/2D_examples_outputs/
 
 # Local solve dump at repo root only (avoid matching .../experiment/.../sim.json)

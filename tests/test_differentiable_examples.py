@@ -1,120 +1,118 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DIFF_EXAMPLES = ROOT / "differentiable_example"
+SHAPE_EXAMPLES = DIFF_EXAMPLES / "shape"
+
+
+def _example_text(name: str) -> str:
+    return (SHAPE_EXAMPLES / name).read_text(encoding="utf-8")
 
 
 def test_differentiable_example_directory_contains_expected_files():
-    files = sorted(
-        path.name
-        for path in DIFF_EXAMPLES.iterdir()
-        if path.is_file()
-    )
+    root_files = sorted(path.name for path in DIFF_EXAMPLES.iterdir() if path.is_file())
+    shape_files = sorted(path.name for path in SHAPE_EXAMPLES.iterdir() if path.is_file())
 
-    assert files == [
-        "ideal_api.md",
-        "shapeopt_laplacian_smoke.py",
-        "shapeopt_objective_smoke.py",
-        "shapeopt_stress_norm_optimization.py",
+    assert root_files == []
+    assert shape_files == [
+        "_shape_common.py",
+        "neohookean_stress_3d_opt.py",
+        "neohookean_stress_3d_optimization.py",
     ]
 
 
-def test_shapeopt_laplacian_smoke_example_is_output_safe():
-    text = (DIFF_EXAMPLES / "shapeopt_laplacian_smoke.py").read_text(encoding="utf-8")
-    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+def test_shape_examples_are_direct_user_facing_scripts():
+    for name in [
+        "neohookean_stress_3d_opt.py",
+        "neohookean_stress_3d_optimization.py",
+    ]:
+        text = _example_text(name)
 
-    assert "TemporaryDirectory" in text
-    assert "differentiable_example/runs/" in gitignore
-    assert '"json": ""' in text
-    assert '"paraview": {"file_name": ""}' in text
-    assert '"save_time_sequence": False' in text
-    assert "--keep-output" in text
+        assert "# Forward model" in text
+        assert "# Differentiable model" in text
+        assert "polyfem_config = model.config(" in text
+        assert "diff_model = diff.model([polyfem_config])" in text
+        assert "shape_opt = diff.shape_opt(" in text
+        assert "objective=diff.Objective.STRESS_NORM" in text
+
+        assert text.index("polyfem_config = model.config(") < text.index(
+            "diff_model = diff.model([polyfem_config])"
+        )
+        assert text.index("diff_model = diff.model([polyfem_config])") < text.index(
+            "shape_opt = diff.shape_opt("
+        )
+
+        assert "import argparse" not in text
+        assert 'if __name__ == "__main__":' not in text
+        assert "def " not in text
+        assert "example_output_dir" not in text
+        assert "diff.ShapeOpt.apply" not in text
+        assert "model=diff_model" not in text
+        assert "tensor=vertices" not in text
+
+
+def test_neohookean_stress_3d_opt_example_is_single_gradient_script():
+    text = _example_text("neohookean_stress_3d_opt.py")
+
+    assert "loss = shape_opt()" in text
     assert "loss.backward()" in text
+    assert "gradient_shape" in text
     assert "gradient_norm" in text
+    assert "torch.optim" not in text
+    assert "for step in range" not in text
 
 
-def test_shapeopt_objective_smoke_example_is_output_safe():
-    text = (DIFF_EXAMPLES / "shapeopt_objective_smoke.py").read_text(encoding="utf-8")
-    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+def test_neohookean_stress_3d_optimization_example_uses_plain_pytorch_loop():
+    text = _example_text("neohookean_stress_3d_optimization.py")
 
-    assert "TemporaryDirectory" in text
-    assert "differentiable_example/runs/" in gitignore
-    assert '"json": ""' in text
-    assert '"paraview": {"file_name": ""}' in text
-    assert '"save_time_sequence": False' in text
-    assert "--keep-output" in text
-    assert "objective=diff.Objective.STRESS_NORM" in text
-    assert "objective_params=objective_params" not in text
-    assert "loss.backward()" in text
-    assert "objective_value" in text
-    assert "gradient_norm" in text
-
-
-def test_shapeopt_stress_norm_optimization_example_is_output_safe():
-    text = (DIFF_EXAMPLES / "shapeopt_stress_norm_optimization.py").read_text(
-        encoding="utf-8"
-    )
-    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
-
-    assert "TemporaryDirectory" in text
-    assert "differentiable_example/runs/" in gitignore
-    assert '"json": ""' in text
-    assert '"paraview": {"file_name": ""}' in text
-    assert '"save_time_sequence": False' in text
-    assert "--keep-output" in text
-    assert "torch.optim.Adam([vertices]" in text
+    assert "# PyTorch optimization" in text
+    assert "steps = 2" in text
+    assert "lr = 1e-7" in text
+    assert "optimizer = torch.optim.Adam([vertices], lr=lr)" in text
+    assert "for step in range(steps):" in text
     assert "optimizer.zero_grad()" in text
-    assert "objective=diff.Objective.STRESS_NORM" in text
-    assert "objective_params" not in text
+    assert "loss = shape_opt()" in text
     assert "loss.backward()" in text
+    assert "history.append({" in text
     assert "optimizer.step()" in text
-    assert "loss_history" in text
+
+    assert ".optimizer(" not in text
+    assert ".steps(" not in text
+    assert ".optimize(" not in text
 
 
-def test_ideal_differentiable_api_matches_forward_example_style():
-    text = (DIFF_EXAMPLES / "ideal_api.md").read_text(encoding="utf-8")
+def test_shape_common_only_contains_mesh_loading_helpers():
+    text = _example_text("_shape_common.py")
 
-    assert "SOURCE_JSON" in text
-    assert "model = polyfem.model()" in text
-    assert "body = model.mesh(" in text
-    assert "body.material(" in text
-    assert "solver = polyfem.solver(" in text
-    assert "output = polyfem.output(" in text
-    assert "model.config(" in text
-    assert "diff_model = diff.model([model])" in text
-    assert "diff_model = diff.model([polyfem_config])" not in text
-    assert "objective = diff.StressNorm(selection=body, power=8)" in text
-    assert "MaxStress is the intuitive meeting example" in text
-    assert "objective=objective" in text
-    assert "tensor=vertices" in text
-    assert "def shape_loss" in text
-    assert "def main()" in text
-    assert "config_for_workspace" not in text
-    assert "TARGET_U_PATH" not in text
-    assert "polyfem_config" not in text
-    assert "Optional PyTorch Loss Variants" in text
-    assert "torch.linalg.norm(sol[:, -1]) * torch.linalg.norm(sol[:, -1])" in text
-    assert "torch.nn.functional.mse_loss(sol, target_u)" in text
-    assert "target_u is optional" in text
-    assert "This does not run PolyFEM yet" in text
-    assert "ShapeOpt is the torch.autograd.Function boundary" in text
-    assert "loss.backward() triggers ShapeOpt.backward" in text
-    assert "Objective-aware ShapeOpt" in text
-    assert "the first real stress example should pass an objective into ShapeOpt" in text
+    assert "MESH_PATH" in text
+    assert "OPT_SPEC_PATH" in text
+    assert "def gmsh_vertices(" in text
+    assert "TemporaryDirectory" not in text
+    assert "example_output_dir" not in text
 
 
-def test_ideal_differentiable_api_documents_spec_alignment():
-    text = (DIFF_EXAMPLES / "ideal_api.md").read_text(encoding="utf-8")
+def test_neohookean_stress_3d_opt_example_matches_diffdata_reference_spec():
+    opt_spec = json.loads(
+        (ROOT / "differentiability-data" / "input" / "neohookean-stress-3d-opt.json")
+        .read_text(encoding="utf-8")
+    )
 
-    assert "JSON Spec Alignment" in text
-    assert "input-spec.json" in text
-    assert "objective-spec.json" in text
-    assert "polyfem.model()" in text
-    assert "diff.objectives" in text
-    assert "stress_norm" in text
-    assert "max_stress" in text
-    assert "volume_selection" in text
-    assert "opt-input-spec.json" not in text
+    assert opt_spec["parameters"] == "auto"
+    assert opt_spec["variable_to_simulation"] == [
+        {
+            "type": "shape",
+            "state": 0,
+            "composition": [],
+        }
+    ]
+    assert opt_spec["functionals"] == [
+        {
+            "type": "stress_norm",
+            "state": 0,
+        }
+    ]
+    assert opt_spec["states"] == [{"path": "neohookean-stress-3d.json"}]

@@ -5,11 +5,150 @@ from __future__ import annotations
 import importlib
 import copy
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from . import _backend
 from .model import DifferentiableModel
 from .objectives import Objective, _build_objective
+
+
+@dataclass(frozen=True)
+class ShapeOptimizationResult:
+    """Result returned by ShapeOptimization.optimize()."""
+
+    history: tuple[dict[str, Any], ...]
+    vertices: Any
+    loss: Any
+
+
+class ShapeOptimization:
+    """User-facing shape optimization problem."""
+
+    def __init__(
+        self,
+        model: DifferentiableModel,
+        vertices: Any,
+        *,
+        objective: Any,
+        selection: Any = "all",
+        backend: Any | None = None,
+    ) -> None:
+        if objective is None:
+            raise ValueError("objective must not be None")
+        _single_shape_payload(
+            model=model,
+            selection=selection,
+            tensor=vertices,
+        )
+        self.model = model
+        self.vertices = vertices
+        self.objective = objective
+        self.selection = selection
+        self.backend = backend
+        self.configured_optimizer: Any | None = None
+        self.configured_steps: int | None = None
+
+    def __call__(self) -> Any:
+        """Return one differentiable objective evaluation."""
+
+        from .torch_ops import ShapeOpt
+
+        kwargs = {"objective": self.objective}
+        if self.backend is not None:
+            kwargs["backend"] = self.backend
+        return ShapeOpt.apply(
+            self.model,
+            self.selection,
+            self.vertices,
+            **kwargs,
+        )
+
+    def optimizer(self, optimizer: Any, **kwargs: Any) -> ShapeOptimization:
+        """Configure the PyTorch optimizer used by optimize()."""
+
+        if _is_optimizer_instance(optimizer):
+            if kwargs:
+                raise TypeError(
+                    "optimizer keyword arguments require an optimizer class or factory"
+                )
+            configured = optimizer
+        elif callable(optimizer):
+            configured = optimizer([self.vertices], **kwargs)
+        else:
+            raise TypeError("optimizer must be an optimizer instance, class, or factory")
+
+        if not _is_optimizer_instance(configured):
+            raise TypeError("optimizer must provide zero_grad() and step()")
+        self.configured_optimizer = configured
+        return self
+
+    def steps(self, steps: int) -> ShapeOptimization:
+        """Configure the number of optimization steps."""
+
+        if not isinstance(steps, int):
+            raise TypeError("steps must be an int")
+        if steps <= 0:
+            raise ValueError("steps must be positive")
+        self.configured_steps = steps
+        return self
+
+    def optimize(
+        self,
+        *,
+        optimizer: Any | None = None,
+        steps: int | None = None,
+    ) -> ShapeOptimizationResult:
+        """Run the configured PyTorch optimization loop."""
+
+        if optimizer is not None:
+            self.optimizer(optimizer)
+        if steps is not None:
+            self.steps(steps)
+        if self.configured_optimizer is None:
+            raise ValueError("optimizer must be configured before optimize()")
+        if self.configured_steps is None:
+            raise ValueError("steps must be configured before optimize()")
+
+        history = []
+        loss = None
+        for step in range(self.configured_steps):
+            self.configured_optimizer.zero_grad()
+            loss = self()
+            loss.backward()
+            history.append(
+                {
+                    "step": step,
+                    "loss": _as_float(loss),
+                    "gradient_norm": _gradient_norm(self.vertices),
+                }
+            )
+            self.configured_optimizer.step()
+
+        return ShapeOptimizationResult(
+            history=tuple(history),
+            vertices=self.vertices,
+            loss=loss,
+        )
+
+
+def shape_opt(
+    model: DifferentiableModel,
+    vertices: Any,
+    *,
+    objective: Any,
+    selection: Any = "all",
+    backend: Any | None = None,
+) -> ShapeOptimization:
+    """Create a user-facing shape optimization problem."""
+
+    return ShapeOptimization(
+        model=model,
+        vertices=vertices,
+        objective=objective,
+        selection=selection,
+        backend=backend,
+    )
 
 
 def shape_solve(
@@ -21,9 +160,8 @@ def shape_solve(
 ) -> Any:
     """Run the shape differentiable solve convenience wrapper for one model.
 
-    ``ShapeOpt.apply(...)`` is the explicit PyTorch autograd API. This wrapper
-    keeps the older Python call shape available without making it the primary
-    public proposal.
+    ``shape_opt(...)`` is the user-facing objective API. This wrapper keeps
+    the older direct shape solve available for solution-valued experiments.
     """
 
     payload = _single_shape_payload(
@@ -38,6 +176,37 @@ def shape_solve(
         backend=backend,
     )
     return solution
+
+
+def _is_optimizer_instance(value: Any) -> bool:
+    if isinstance(value, type):
+        return False
+    return callable(getattr(value, "zero_grad", None)) and callable(
+        getattr(value, "step", None)
+    )
+
+
+def _as_float(value: Any) -> float:
+    detach = getattr(value, "detach", None)
+    if callable(detach):
+        value = detach()
+    cpu = getattr(value, "cpu", None)
+    if callable(cpu):
+        value = cpu()
+    item = getattr(value, "item", None)
+    if callable(item):
+        value = item()
+    return float(value)
+
+
+def _gradient_norm(vertices: Any) -> float:
+    grad = getattr(vertices, "grad", None)
+    if grad is None:
+        raise RuntimeError("vertices.grad is None after loss.backward()")
+    norm = getattr(grad, "norm", None)
+    if not callable(norm):
+        raise TypeError("vertices.grad must provide norm()")
+    return _as_float(norm())
 
 
 def _single_shape_payload(
@@ -147,4 +316,9 @@ def _load_default_backend() -> Any:
         ) from exc
 
 
-__all__ = ["shape_solve"]
+__all__ = [
+    "ShapeOptimization",
+    "ShapeOptimizationResult",
+    "shape_opt",
+    "shape_solve",
+]
