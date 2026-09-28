@@ -57,7 +57,8 @@ output = polyfem.output(
     advanced=polyfem.output_advanced(save_time_sequence=False),
 )
 
-polyfem_config = model.config(
+polyfem_config = polyfem.config(
+    model=model,
     rhs=[10, 100, 0],
     space=polyfem.space(
         discr_order=1,

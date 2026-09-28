@@ -390,6 +390,46 @@ def test_model_builder_obstacle_mesh_does_not_create_volume_selection():
     ]
 
 
+def test_top_level_config_with_model_delegates_to_model_builder():
+    model = polyfem.model()
+
+    material = polyfem.neo_hookean(E=100000.0, nu=0.3)
+    body = model.mesh(mesh="beam.msh")
+    body.material(material)
+    body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
+
+    solver = polyfem.solver(max_threads=1)
+    output = polyfem.output(directory="out")
+    config_kwargs = {
+        "rhs": [10, 100, 0],
+        "space": polyfem.space(
+            discr_order=1,
+            advanced=polyfem.space_advanced(quadrature_order=4),
+        ),
+        "solver": solver,
+        "output": output,
+    }
+
+    builder_config = model.config(**config_kwargs)
+    top_level_config = polyfem.config(model=model, **config_kwargs)
+
+    assert top_level_config.as_dict() == builder_config.as_dict()
+
+    builder_canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=builder_config,
+        dtype=None,
+    )
+    top_level_canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=top_level_config,
+        dtype=None,
+    )
+    assert top_level_canonical.backend_settings == builder_canonical.backend_settings
+
+
 def test_global_material_geometry_example_uses_model_builder():
     example_path = (
         CLASSIC_EXAMPLES

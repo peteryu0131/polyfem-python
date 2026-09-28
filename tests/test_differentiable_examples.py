@@ -34,12 +34,13 @@ def test_shape_examples_are_direct_user_facing_scripts():
 
         assert "# Forward model" in text
         assert "# Differentiable model" in text
-        assert "polyfem_config = model.config(" in text
+        assert "polyfem_config = polyfem.config(" in text
+        assert "model=model" in text
         assert "diff_model = diff.model([polyfem_config])" in text
         assert "shape_opt = diff.shape_opt(" in text
         assert "objective=diff.Objective.STRESS_NORM" in text
 
-        assert text.index("polyfem_config = model.config(") < text.index(
+        assert text.index("polyfem_config = polyfem.config(") < text.index(
             "diff_model = diff.model([polyfem_config])"
         )
         assert text.index("diff_model = diff.model([polyfem_config])") < text.index(
