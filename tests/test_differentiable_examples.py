@@ -20,6 +20,7 @@ def test_differentiable_example_directory_contains_expected_files():
     assert root_files == []
     assert shape_files == [
         "_shape_common.py",
+        "neohookean_stress_3d_chain_rule.py",
         "neohookean_stress_3d_opt.py",
         "neohookean_stress_3d_optimization.py",
     ]
@@ -94,6 +95,25 @@ def test_neohookean_stress_3d_optimization_example_uses_plain_pytorch_loop():
     assert ".optimizer(" not in text
     assert ".steps(" not in text
     assert ".optimize(" not in text
+
+
+def test_neohookean_stress_3d_chain_rule_example_uses_high_level_parameter():
+    text = _example_text("neohookean_stress_3d_chain_rule.py")
+
+    assert "scale = torch.tensor(" in text
+    assert "requires_grad=True" in text
+    assert "base_vertices = gmsh_vertices(MESH_PATH, dimension=3).detach()" in text
+    assert "vertices = build_vertices(base_vertices, scale)" in text
+    assert "vertices[:, 0]" in text
+    assert "shape_opt = diff.shape_opt(" in text
+    assert "base_loss.backward()" in text
+    assert "scale.grad" in text
+    assert "finite_difference_gradient" in text
+    assert "composed_loss = composition_base_loss ** 2" in text
+    assert "composition_scale.grad" in text
+
+    assert "optimizer = torch.optim.Adam([vertices]" not in text
+    assert "vertices.requires_grad_()" not in text
 
 
 def test_shape_common_only_contains_mesh_loading_helpers():

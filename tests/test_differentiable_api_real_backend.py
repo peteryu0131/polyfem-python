@@ -235,3 +235,46 @@ def test_neohookean_stress_3d_optimization_example_runs_one_step(tmp_path):
     )
     assert not list(output_dir.rglob("*.vtu"))
     assert not list(output_dir.rglob("*.pvd"))
+
+
+def test_neohookean_stress_3d_chain_rule_example_validates_parameter_grad(tmp_path):
+    pytest.importorskip("polyfempy.polyfempy")
+    pytest.importorskip("torch")
+
+    opt_spec_path = (
+        ROOT
+        / "differentiability-data"
+        / "input"
+        / "neohookean-stress-3d-opt.json"
+    )
+    if not opt_spec_path.exists():
+        pytest.skip(
+            "differentiability-data submodule is not initialized; run "
+            "`git submodule update --init differentiability-data`"
+        )
+
+    summary = _run_shape_example("neohookean_stress_3d_chain_rule")
+    output_dir = Path(summary["output_dir"])
+
+    assert summary["objective"] == "stress_norm"
+    assert summary["parameter"] == "scale_x"
+    assert summary["mapping"] == "vertices[:, 0] = base_vertices[:, 0] * scale"
+    assert summary["scale_value"] == 1.0
+    assert summary["gradient_shape"][1] == 3
+    assert math.isfinite(summary["parameter_grad"])
+    assert math.isfinite(summary["finite_difference_gradient"])
+    assert summary["finite_difference_abs_error"] < 1e-2
+    assert summary["finite_difference_rel_error"] < 1e-5
+    assert math.isfinite(summary["composition_gradient"])
+    assert math.isfinite(summary["expected_composition_gradient"])
+    assert summary["composition_abs_error"] < 1e-6
+    assert summary["composition_rel_error"] < 1e-10
+    assert output_dir == (
+        ROOT
+        / "differentiable_example"
+        / "shape"
+        / "runs"
+        / "neohookean_stress_3d_chain_rule"
+    )
+    assert not list(output_dir.rglob("*.vtu"))
+    assert not list(output_dir.rglob("*.pvd"))
