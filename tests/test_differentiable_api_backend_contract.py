@@ -25,6 +25,15 @@ class _CompleteSession:
     def backward_shape(self, grad_u):
         return None
 
+    def set_material_lame_parameters(self, lame):
+        return None
+
+    def solve_material_objective(self):
+        return None
+
+    def backward_material(self, grad_u):
+        return None
+
 
 class _CompleteBackend:
     DifferentiableSession = _CompleteSession
@@ -39,7 +48,7 @@ def _spec_variable_to_simulation_options() -> tuple[str, ...]:
     raise AssertionError("opt-input-spec.json is missing /variable_to_simulation/*/type")
 
 
-def test_backend_contract_is_shape_mvp_only():
+def test_backend_contract_includes_shape_and_elastic_material():
     from polyfempy.differentiable_api import _backend
 
     assert _backend.REQUIRED_BACKEND_SYMBOLS == ("DifferentiableSession",)
@@ -57,10 +66,16 @@ def test_backend_contract_is_shape_mvp_only():
         "solve",
         "backward_shape",
     )
-    assert _backend.SUPPORTED_PARAMETER_KINDS == ("shape",)
+    assert _backend.REQUIRED_MATERIAL_OPT_SESSION_METHODS == (
+        "set_settings",
+        "set_objective",
+        "set_material_lame_parameters",
+        "solve_material_objective",
+        "backward_material",
+    )
+    assert _backend.SUPPORTED_PARAMETER_KINDS == ("shape", "elastic")
     assert _backend.UNSUPPORTED_OPT_PARAMETER_KINDS == (
         "periodic-shape",
-        "elastic",
         "friction",
         "damping",
         "initial",
@@ -92,6 +107,14 @@ def test_backend_contract_accepts_complete_shape_session():
     assert session_type is _CompleteSession
 
 
+def test_backend_contract_accepts_complete_material_session():
+    from polyfempy.differentiable_api import _backend
+
+    session_type = _backend.require_material_opt_backend(_CompleteBackend())
+
+    assert session_type is _CompleteSession
+
+
 def test_compiled_backend_exports_differentiable_session_skeleton():
     backend = pytest.importorskip("polyfempy.polyfempy")
     from polyfempy.differentiable_api import _backend
@@ -100,6 +123,17 @@ def test_compiled_backend_exports_differentiable_session_skeleton():
     session = session_type()
 
     for method in _backend.REQUIRED_SHAPE_SOLVE_SESSION_METHODS:
+        assert callable(getattr(session, method))
+
+
+def test_compiled_backend_exports_material_session_contract():
+    backend = pytest.importorskip("polyfempy.polyfempy")
+    from polyfempy.differentiable_api import _backend
+
+    session_type = _backend.require_material_opt_backend(backend)
+    session = session_type()
+
+    for method in _backend.REQUIRED_MATERIAL_OPT_SESSION_METHODS:
         assert callable(getattr(session, method))
 
 

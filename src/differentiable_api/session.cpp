@@ -4,6 +4,7 @@
 #include <polyfem/optimization/DiffCache.hpp>
 #include <polyfem/optimization/VarFormDiff.hpp>
 #include <polyfem/optimization/parametrization/Parametrization.hpp>
+#include <polyfem/optimization/var2sims/ElasticVariableToSimulation.hpp>
 #include <polyfem/optimization/var2sims/ShapeVariableToSimulation.hpp>
 #include <polyfem/varforms/diff/DifferentiableVarForm.hpp>
 
@@ -119,9 +120,14 @@ public:
         max_threads_);
     diff_cache_ = std::make_shared<polyfem::DiffCache>();
     shape_var2sim_ = build_direct_shape_variable_to_simulation();
+    material_var2sim_ = build_direct_material_variable_to_simulation();
 
     has_settings_ = true;
     has_objective_ = false;
+    has_shape_vertices_ = false;
+    has_material_lame_parameters_ = false;
+    has_solution_ = false;
+    active_parameter_kind_ = ActiveParameterKind::Shape;
     objective_form_.reset();
   }
 
@@ -135,16 +141,8 @@ public:
     }
 
     objective_ = settings_from_python(objective);
-    std::vector<std::shared_ptr<polyfem::varform::DifferentiableVarForm>> varforms{
-        varform_};
-    std::vector<std::shared_ptr<polyfem::DiffCache>> diff_caches{
-        diff_cache_};
-    objective_form_ = polyfem::from_json::build_form(
-        objective_,
-        build_direct_shape_variable_to_simulation_group(),
-        varforms,
-        diff_caches);
     has_objective_ = true;
+    rebuild_objective_form();
   }
 
   void set_shape_vertices(const py::object &vertices, const py::object &selection)
@@ -181,6 +179,38 @@ public:
     current_shape_x_ = flatten_vertices_node_major(vertices_matrix);
     shape_var2sim_->update(current_shape_x_);
     has_shape_vertices_ = true;
+    has_solution_ = false;
+    active_parameter_kind_ = ActiveParameterKind::Shape;
+    rebuild_objective_form();
+  }
+
+  void set_material_lame_parameters(const py::object &lame)
+  {
+    if (!has_settings_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_settings(...) before "
+          "set_material_lame_parameters(...).");
+    }
+
+    const Eigen::VectorXd lame_vector = nb::cast<Eigen::VectorXd>(lame);
+    const int expected_size = 2 * varform_->get_mesh().n_elements();
+    if (lame_vector.size() != expected_size)
+    {
+      throw std::runtime_error(
+          "Material Lamé parameters must have length "
+          + std::to_string(expected_size)
+          + "; got "
+          + std::to_string(lame_vector.size())
+          + ".");
+    }
+
+    current_material_x_ = lame_vector;
+    material_var2sim_->update(current_material_x_);
+    has_material_lame_parameters_ = true;
+    has_solution_ = false;
+    active_parameter_kind_ = ActiveParameterKind::Material;
+    rebuild_objective_form();
   }
 
   Eigen::MatrixXd solve()
@@ -206,6 +236,16 @@ public:
     run_forward_solve();
     objective_form_->solution_changed(current_shape_x_);
     return objective_form_->value(current_shape_x_);
+  }
+
+  double solve_material_objective()
+  {
+    ensure_ready_for_material_objective();
+
+    material_var2sim_->update(current_material_x_);
+    run_forward_solve();
+    objective_form_->solution_changed(current_material_x_);
+    return objective_form_->value(current_material_x_);
   }
 
   Eigen::MatrixXd backward_shape(const py::object &grad_u)
@@ -245,7 +285,38 @@ public:
     return unflatten_vertices_node_major(grad_shape, input_dimension_);
   }
 
+  Eigen::VectorXd backward_material(const py::object &grad_u)
+  {
+    ensure_ready_for_material_objective();
+    if (!has_solution_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires solve_material_objective() before "
+          "backward_material(...).");
+    }
+
+    const double grad_objective = scalar_from_python(grad_u);
+    polyfem::solve_adjoint_cached(
+        *varform_,
+        *diff_cache_,
+        objective_form_->compute_reduced_adjoint_rhs(
+            current_material_x_,
+            *varform_,
+            *diff_cache_));
+
+    Eigen::VectorXd grad_material;
+    objective_form_->first_derivative(current_material_x_, grad_material);
+    grad_material *= grad_objective;
+    return grad_material;
+  }
+
 private:
+  enum class ActiveParameterKind
+  {
+    Shape,
+    Material,
+  };
+
   void run_forward_solve()
   {
     const auto *initial_conditions =
@@ -277,20 +348,64 @@ private:
     }
   }
 
+  void ensure_ready_for_material_objective() const
+  {
+    if (!has_settings_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_settings(...) before "
+          "solve_material_objective().");
+    }
+    if (!has_material_lame_parameters_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_material_lame_parameters(...) "
+          "before solve_material_objective().");
+    }
+    if (!has_objective_ || !objective_form_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_objective(...) before "
+          "solve_material_objective().");
+    }
+  }
+
+  void rebuild_objective_form()
+  {
+    if (!has_objective_)
+    {
+      return;
+    }
+
+    std::vector<std::shared_ptr<polyfem::varform::DifferentiableVarForm>> varforms{
+        varform_};
+    std::vector<std::shared_ptr<polyfem::DiffCache>> diff_caches{
+        diff_cache_};
+    objective_form_ = polyfem::from_json::build_form(
+        objective_,
+        build_active_variable_to_simulation_group(),
+        varforms,
+        diff_caches);
+  }
+
   bool has_settings_ = false;
   bool has_objective_ = false;
   bool has_shape_vertices_ = false;
+  bool has_material_lame_parameters_ = false;
   bool has_solution_ = false;
   size_t max_threads_ = 1;
   int input_vertex_count_ = 0;
   int input_dimension_ = 0;
+  ActiveParameterKind active_parameter_kind_ = ActiveParameterKind::Shape;
   polyfem::json settings_;
   polyfem::json objective_;
   Eigen::VectorXd current_shape_x_;
+  Eigen::VectorXd current_material_x_;
   Eigen::MatrixXd last_solution_;
   std::shared_ptr<polyfem::varform::DifferentiableVarForm> varform_;
   std::shared_ptr<polyfem::DiffCache> diff_cache_;
   std::shared_ptr<polyfem::solver::ShapeVariableToSimulation> shape_var2sim_;
+  std::shared_ptr<polyfem::solver::ElasticVariableToSimulation> material_var2sim_;
   std::shared_ptr<polyfem::solver::AdjointForm> objective_form_;
 
   std::shared_ptr<polyfem::solver::ShapeVariableToSimulation>
@@ -319,6 +434,39 @@ private:
     group.data.push_back(shape_var2sim_);
     return group;
   }
+
+  std::shared_ptr<polyfem::solver::ElasticVariableToSimulation>
+  build_direct_material_variable_to_simulation() const
+  {
+    std::vector<std::shared_ptr<polyfem::varform::DifferentiableVarForm>> varforms{
+        varform_};
+    std::vector<std::shared_ptr<polyfem::DiffCache>> diff_caches{
+        diff_cache_};
+    polyfem::solver::CompositeParametrization parametrization;
+
+    return std::make_shared<polyfem::solver::ElasticVariableToSimulation>(
+        std::move(varforms),
+        std::move(diff_caches),
+        std::move(parametrization));
+  }
+
+  polyfem::solver::VariableToSimulationGroup
+  build_direct_material_variable_to_simulation_group() const
+  {
+    polyfem::solver::VariableToSimulationGroup group;
+    group.data.push_back(material_var2sim_);
+    return group;
+  }
+
+  polyfem::solver::VariableToSimulationGroup
+  build_active_variable_to_simulation_group() const
+  {
+    if (active_parameter_kind_ == ActiveParameterKind::Material)
+    {
+      return build_direct_material_variable_to_simulation_group();
+    }
+    return build_direct_shape_variable_to_simulation_group();
+  }
 };
 
 } // namespace
@@ -345,6 +493,11 @@ void define_differentiable_session(py::module_ &m)
           py::kw_only(),
           py::arg("selection") = py::none())
       .def(
+          "set_material_lame_parameters",
+          &DifferentiableSession::set_material_lame_parameters,
+          "Store direct elastic Lamé parameters for a future objective solve.",
+          py::arg("lame"))
+      .def(
           "solve",
           &DifferentiableSession::solve,
           "Run the differentiable forward solve.")
@@ -353,8 +506,17 @@ void define_differentiable_session(py::module_ &m)
           &DifferentiableSession::solve_objective,
           "Run the differentiable forward solve and return objective value.")
       .def(
+          "solve_material_objective",
+          &DifferentiableSession::solve_material_objective,
+          "Run the material differentiable forward solve and return objective value.")
+      .def(
           "backward_shape",
           &DifferentiableSession::backward_shape,
           "Run the shape adjoint backward pass.",
+          py::arg("grad_u"))
+      .def(
+          "backward_material",
+          &DifferentiableSession::backward_material,
+          "Run the material adjoint backward pass.",
           py::arg("grad_u"));
 }

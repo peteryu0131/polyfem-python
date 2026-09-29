@@ -82,6 +82,7 @@ summary = {
     "source_opt_spec": str(OPT_SPEC_PATH),
     "objective": diff.Objective.STRESS_NORM.value,
     "objective_value": float(loss.detach()),
+    "vertices_shape": list(vertices.shape),
     "gradient_shape": list(vertices.grad.shape),
     "gradient_norm": float(vertices.grad.norm()),
     "output_dir": str(output_dir),

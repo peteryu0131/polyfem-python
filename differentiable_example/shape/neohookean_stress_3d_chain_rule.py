@@ -156,7 +156,7 @@ summary = {
     "expected_composition_gradient": expected_composition_gradient,
     "composition_abs_error": composition_abs_error,
     "composition_rel_error": composition_rel_error,
-    "gradient_shape": list(vertices.shape),
+    "vertices_shape": list(vertices.shape),
     "base_vertices_requires_grad": bool(base_vertices.requires_grad),
     "vertices_requires_grad": bool(vertices.requires_grad),
     "output_dir": str(output_dir),

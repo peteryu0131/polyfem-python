@@ -108,10 +108,12 @@ def test_neohookean_stress_3d_chain_rule_example_uses_high_level_parameter():
     assert "shape_opt = diff.shape_opt(" in text
     assert "base_loss.backward()" in text
     assert "scale.grad" in text
+    assert "vertices_shape" in text
     assert "finite_difference_gradient" in text
     assert "composed_loss = composition_base_loss ** 2" in text
     assert "composition_scale.grad" in text
 
+    assert "gradient_shape" not in text
     assert "optimizer = torch.optim.Adam([vertices]" not in text
     assert "vertices.requires_grad_()" not in text
 

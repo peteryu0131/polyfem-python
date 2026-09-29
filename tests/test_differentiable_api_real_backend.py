@@ -88,6 +88,77 @@ def _laplacian_shape_smoke_settings(mesh_path: Path, output_dir: Path) -> dict:
     }
 
 
+def _bar_face_count(mesh_path: Path) -> int:
+    return sum(
+        1
+        for line in mesh_path.read_text(encoding="utf-8").splitlines()
+        if line.startswith("f ")
+    )
+
+
+def _linear_elasticity_compliance_settings(mesh_path: Path, output_dir: Path) -> dict:
+    return {
+        "geometry": [
+            {
+                "mesh": str(mesh_path),
+                "surface_selection": {"threshold": 0.0001},
+                "volume_selection": 1,
+            }
+        ],
+        "space": {
+            "discr_order": 1,
+            "advanced": {
+                "quadrature_order": 2,
+                "mass_quadrature_order": 2,
+            },
+        },
+        "solver": {
+            "max_threads": 1,
+            "linear": {"solver": "Eigen::SimplicialLDLT"},
+            "advanced": {
+                "characteristic_force_density": 1,
+                "characteristic_length": 1,
+            },
+            "nonlinear": {
+                "norm_type": "Euclidean",
+                "rel_grad_norm_tol": 0,
+                "first_grad_norm_tol": 1e-10,
+                "grad_norm_tol": 1e-8,
+            },
+        },
+        "boundary_conditions": {
+            "rhs": [10, 100],
+            "dirichlet_boundary": [
+                {
+                    "id": 1,
+                    "value": [0.0, 0.0],
+                }
+            ],
+        },
+        "materials": {
+            "type": "LinearElasticity",
+            "lambda": 1.0e5,
+            "mu": 5.0e4,
+        },
+        "output": {
+            "directory": str(output_dir),
+            "json": "",
+            "paraview": {"file_name": ""},
+            "advanced": {"save_time_sequence": False},
+        },
+    }
+
+
+def _material_loss(diff, diff_model, lame, backend):
+    return diff.material_opt(
+        diff_model,
+        lame,
+        objective=diff.Objective.COMPLIANCE,
+        objective_params={"selection": 1},
+        backend=backend,
+    )()
+
+
 def test_shapeopt_real_backend_forward_backward_smoke(tmp_path):
     backend = pytest.importorskip("polyfempy.polyfempy")
     torch = pytest.importorskip("torch")
@@ -161,6 +232,136 @@ def test_shapeopt_real_backend_objective_backward_smoke(tmp_path):
     assert not list(tmp_path.rglob("*.pvd"))
 
 
+def test_materialopt_real_backend_compliance_gradient_and_chain_rule(tmp_path):
+    backend = pytest.importorskip("polyfempy.polyfempy")
+    torch = pytest.importorskip("torch")
+
+    mesh_path = (
+        ROOT
+        / "polyfem-data"
+        / "contact"
+        / "meshes"
+        / "2D"
+        / "simple"
+        / "bar"
+        / "bar40.obj"
+    )
+    if not mesh_path.exists():
+        pytest.skip(
+            "polyfem-data submodule is not initialized; run "
+            "`git submodule update --init polyfem-data`"
+        )
+
+    from polyfempy import differentiable_api as diff
+
+    diff_model = diff.model([
+        _linear_elasticity_compliance_settings(mesh_path, tmp_path),
+    ])
+    n_elements = _bar_face_count(mesh_path)
+    base_lame = torch.empty((n_elements, 2), dtype=torch.float64)
+    base_lame[:, 0] = 1.0e5
+    base_lame[:, 1] = 5.0e4
+
+    lame_leaf = base_lame.clone().requires_grad_(True)
+    primitive_loss = _material_loss(diff, diff_model, lame_leaf, backend)
+    primitive_loss.backward()
+
+    assert tuple(primitive_loss.shape) == ()
+    assert primitive_loss.dtype is torch.float64
+    assert torch.isfinite(primitive_loss)
+    assert lame_leaf.grad is not None
+    assert tuple(lame_leaf.grad.shape) == (n_elements, 2)
+    assert torch.isfinite(lame_leaf.grad).all()
+
+    direction = torch.zeros_like(base_lame)
+    direction[:, 0] = 1.0 / math.sqrt(n_elements)
+    primitive_directional = float((lame_leaf.grad * direction).sum())
+    primitive_eps = 1e2
+    primitive_plus = _material_loss(
+        diff,
+        diff_model,
+        base_lame + primitive_eps * direction,
+        backend,
+    )
+    primitive_minus = _material_loss(
+        diff,
+        diff_model,
+        base_lame - primitive_eps * direction,
+        backend,
+    )
+    primitive_fd = float((primitive_plus - primitive_minus) / (2.0 * primitive_eps))
+
+    assert math.isfinite(primitive_directional)
+    assert math.isfinite(primitive_fd)
+    assert primitive_directional == pytest.approx(primitive_fd, rel=1e-3, abs=1e-6)
+
+    scale = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
+    lame = torch.stack(
+        (
+            base_lame[:, 0] * scale,
+            base_lame[:, 1],
+        ),
+        dim=1,
+    )
+    loss = _material_loss(diff, diff_model, lame, backend)
+    loss.backward()
+
+    eps = 1e-4
+    loss_plus = _material_loss(
+        diff,
+        diff_model,
+        torch.stack(
+            (
+                base_lame[:, 0] * (float(scale.detach()) + eps),
+                base_lame[:, 1],
+            ),
+            dim=1,
+        ),
+        backend,
+    )
+    loss_minus = _material_loss(
+        diff,
+        diff_model,
+        torch.stack(
+            (
+                base_lame[:, 0] * (float(scale.detach()) - eps),
+                base_lame[:, 1],
+            ),
+            dim=1,
+        ),
+        backend,
+    )
+    finite_difference = float((loss_plus - loss_minus) / (2.0 * eps))
+
+    assert scale.grad is not None
+    assert math.isfinite(float(scale.grad))
+    assert math.isfinite(finite_difference)
+    assert float(scale.grad) == pytest.approx(finite_difference, rel=1e-3, abs=1e-5)
+
+    composition_scale = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
+    composition_lame = torch.stack(
+        (
+            base_lame[:, 0] * composition_scale,
+            base_lame[:, 1],
+        ),
+        dim=1,
+    )
+    base_loss = _material_loss(diff, diff_model, composition_lame, backend)
+    composed_loss = base_loss**2
+    composed_loss.backward()
+    expected_composition_grad = 2.0 * float(base_loss.detach()) * finite_difference
+
+    assert composition_scale.grad is not None
+    assert math.isfinite(float(composition_scale.grad))
+    assert float(composition_scale.grad) == pytest.approx(
+        expected_composition_grad,
+        rel=1e-3,
+        abs=1e-5,
+    )
+    assert not list(tmp_path.rglob("*.vtu"))
+    assert not list(tmp_path.rglob("*.pvd"))
+
+
 def test_neohookean_stress_3d_opt_reference_example_runs_without_persistent_outputs(
     tmp_path,
 ):
@@ -184,7 +385,7 @@ def test_neohookean_stress_3d_opt_reference_example_runs_without_persistent_outp
 
     assert summary["objective"] == "stress_norm"
     assert summary["source_opt_spec"].endswith("neohookean-stress-3d-opt.json")
-    assert summary["gradient_shape"][1] == 3
+    assert summary["vertices_shape"][1] == 3
     assert math.isfinite(summary["gradient_norm"])
     assert "objective_value" in summary
     assert output_dir == (
@@ -260,7 +461,7 @@ def test_neohookean_stress_3d_chain_rule_example_validates_parameter_grad(tmp_pa
     assert summary["parameter"] == "scale_x"
     assert summary["mapping"] == "vertices[:, 0] = base_vertices[:, 0] * scale"
     assert summary["scale_value"] == 1.0
-    assert summary["gradient_shape"][1] == 3
+    assert summary["vertices_shape"][1] == 3
     assert math.isfinite(summary["parameter_grad"])
     assert math.isfinite(summary["finite_difference_gradient"])
     assert summary["finite_difference_abs_error"] < 1e-2

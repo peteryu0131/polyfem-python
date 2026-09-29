@@ -3,6 +3,7 @@
 from importlib import import_module
 
 from .model import DifferentiableModel, model
+from .material import MaterialOptimization, material_opt
 from .objectives import (
     MaxStress,
     Objective,
@@ -25,6 +26,8 @@ __all__ = [
     "DifferentiableModel",
     "DifferentiableResult",
     "MaxStress",
+    "MaterialOpt",
+    "MaterialOptimization",
     "Objective",
     "ObjectiveSpec",
     "ShapeOpt",
@@ -33,6 +36,7 @@ __all__ = [
     "State",
     "StressNorm",
     "model",
+    "material_opt",
     "objectives",
     "parameter",
     "shape_opt",
@@ -42,6 +46,7 @@ __all__ = [
 ]
 
 _LAZY_EXPORTS = {
+    "MaterialOpt": ".torch_ops",
     "ShapeOpt": ".torch_ops",
 }
 
