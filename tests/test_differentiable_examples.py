@@ -40,6 +40,10 @@ def test_shape_examples_are_direct_user_facing_scripts():
         assert "model.rhs([10, 100, 0])" in text
         assert "polyfem_config = polyfem.config(" in text
         assert "model=model" in text
+        assert "space=polyfem.space(" not in text
+        assert "polyfem.space_advanced(" not in text
+        assert "discr_order=1" not in text
+        assert "quadrature_order=4" not in text
         assert "diff_model = diff.model([polyfem_config])" in text
         assert "shape_opt = diff.shape_opt(" in text
         assert "objective=diff.Objective.STRESS_NORM" in text

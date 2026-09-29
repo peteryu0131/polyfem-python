@@ -62,10 +62,6 @@ output = polyfem.output(
 
 polyfem_config = polyfem.config(
     model=model,
-    space=polyfem.space(
-        discr_order=1,
-        advanced=polyfem.space_advanced(quadrature_order=4),
-    ),
     solver=solver,
     output=output,
 )
