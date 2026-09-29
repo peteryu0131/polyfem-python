@@ -25,10 +25,13 @@ from _shape_common import (  # noqa: E402
 # Forward model
 model = polyfem.model()
 
+mesh = polyfem.mesh(mesh=str(MESH_PATH))
 material = polyfem.neo_hookean(E=100000.0, nu=0.3)
-body = model.mesh(mesh=str(MESH_PATH))
+body = polyfem.body(model=model)
+body.mesh(mesh)
 body.material(material)
 body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
+model.rhs([10, 100, 0])
 
 solver = polyfem.solver(
     max_threads=1,
@@ -57,7 +60,6 @@ output = polyfem.output(
 
 polyfem_config = polyfem.config(
     model=model,
-    rhs=[10, 100, 0],
     space=polyfem.space(
         discr_order=1,
         advanced=polyfem.space_advanced(quadrature_order=4),

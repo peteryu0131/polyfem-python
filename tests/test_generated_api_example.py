@@ -430,6 +430,54 @@ def test_top_level_config_with_model_delegates_to_model_builder():
     assert top_level_canonical.backend_settings == builder_canonical.backend_settings
 
 
+def test_top_level_body_mesh_and_model_rhs_match_legacy_builder_payload():
+    legacy_model = polyfem.model()
+    legacy_body = legacy_model.mesh(mesh="beam.msh")
+    legacy_body.material(polyfem.neo_hookean(E=100000.0, nu=0.3))
+    legacy_body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
+    legacy_config = polyfem.config(model=legacy_model, rhs=[10, 100, 0])
+
+    model = polyfem.model()
+    mesh_descriptor = polyfem.mesh(mesh="beam.msh")
+    mesh_payload_before_attach = mesh_descriptor.as_dict()
+    body = polyfem.body(model=model)
+    body.mesh(mesh_descriptor)
+    body.material(polyfem.neo_hookean(E=100000.0, nu=0.3))
+    body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
+    model.rhs([10, 100, 0])
+    config = polyfem.config(model=model)
+
+    assert config.as_dict() == legacy_config.as_dict()
+    assert mesh_descriptor.as_dict() == mesh_payload_before_attach
+
+    legacy_canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=legacy_config,
+        dtype=None,
+    )
+    canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=config,
+        dtype=None,
+    )
+    assert canonical.backend_settings == legacy_canonical.backend_settings
+
+
+def test_model_rhs_rejects_duplicate_rhs_sources():
+    model = polyfem.model()
+    model.rhs([10, 100, 0])
+
+    with pytest.raises(TypeError, match="rhs"):
+        polyfem.config(model=model, rhs=[0, 0, 0])
+    with pytest.raises(TypeError, match="rhs"):
+        polyfem.config(
+            model=model,
+            boundary_conditions=polyfem.boundary_conditions(rhs=[0, 0, 0]),
+        )
+
+
 def test_global_material_geometry_example_uses_model_builder():
     example_path = (
         CLASSIC_EXAMPLES

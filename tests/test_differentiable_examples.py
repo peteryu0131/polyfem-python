@@ -34,6 +34,10 @@ def test_shape_examples_are_direct_user_facing_scripts():
 
         assert "# Forward model" in text
         assert "# Differentiable model" in text
+        assert "mesh = polyfem.mesh(" in text
+        assert "body = polyfem.body(model=model)" in text
+        assert "body.mesh(mesh)" in text
+        assert "model.rhs([10, 100, 0])" in text
         assert "polyfem_config = polyfem.config(" in text
         assert "model=model" in text
         assert "diff_model = diff.model([polyfem_config])" in text
@@ -54,6 +58,8 @@ def test_shape_examples_are_direct_user_facing_scripts():
         assert "diff.ShapeOpt.apply" not in text
         assert "model=diff_model" not in text
         assert "tensor=vertices" not in text
+        assert "body = model.mesh(" not in text
+        assert "rhs=[10, 100, 0]" not in text
 
 
 def test_neohookean_stress_3d_opt_example_is_single_gradient_script():
