@@ -12,8 +12,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_shape_example(module_name: str):
-    example_path = ROOT / "differentiable_example" / "shape" / f"{module_name}.py"
+def _run_example(category: str, module_name: str):
+    example_path = ROOT / "differentiable_example" / category / f"{module_name}.py"
     completed = subprocess.run(
         [sys.executable, str(example_path)],
         cwd=ROOT,
@@ -28,6 +28,14 @@ def _run_shape_example(module_name: str):
         json_start += 1
     assert json_start >= 0, completed.stdout
     return json.loads(completed.stdout[json_start:])
+
+
+def _run_shape_example(module_name: str):
+    return _run_example("shape", module_name)
+
+
+def _run_material_example(module_name: str):
+    return _run_example("material", module_name)
 
 
 def _cube_vertices(torch):
@@ -394,6 +402,46 @@ def test_neohookean_stress_3d_opt_reference_example_runs_without_persistent_outp
         / "shape"
         / "runs"
         / "neohookean_stress_3d_opt"
+    )
+    assert not list(output_dir.rglob("*.vtu"))
+    assert not list(output_dir.rglob("*.pvd"))
+
+
+def test_linear_elasticity_compliance_material_example_runs(tmp_path):
+    pytest.importorskip("polyfempy.polyfempy")
+    pytest.importorskip("torch")
+
+    mesh_path = (
+        ROOT
+        / "polyfem-data"
+        / "contact"
+        / "meshes"
+        / "2D"
+        / "simple"
+        / "bar"
+        / "bar40.obj"
+    )
+    if not mesh_path.exists():
+        pytest.skip(
+            "polyfem-data submodule is not initialized; run "
+            "`git submodule update --init polyfem-data`"
+        )
+
+    summary = _run_material_example("linear_elasticity_compliance")
+    output_dir = Path(summary["output_dir"])
+
+    assert summary["objective"] == "compliance"
+    assert summary["material_parameter"] == "lame"
+    assert summary["lame_shape"] == [40, 2]
+    assert summary["gradient_shape"] == [40, 2]
+    assert math.isfinite(summary["loss"])
+    assert math.isfinite(summary["gradient_norm"])
+    assert output_dir == (
+        ROOT
+        / "differentiable_example"
+        / "material"
+        / "runs"
+        / "linear_elasticity_compliance"
     )
     assert not list(output_dir.rglob("*.vtu"))
     assert not list(output_dir.rglob("*.pvd"))

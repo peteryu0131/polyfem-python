@@ -7,15 +7,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DIFF_EXAMPLES = ROOT / "differentiable_example"
 SHAPE_EXAMPLES = DIFF_EXAMPLES / "shape"
+MATERIAL_EXAMPLES = DIFF_EXAMPLES / "material"
 
 
 def _example_text(name: str) -> str:
     return (SHAPE_EXAMPLES / name).read_text(encoding="utf-8")
 
 
+def _material_example_text(name: str) -> str:
+    return (MATERIAL_EXAMPLES / name).read_text(encoding="utf-8")
+
+
 def test_differentiable_example_directory_contains_expected_files():
     root_files = sorted(path.name for path in DIFF_EXAMPLES.iterdir() if path.is_file())
     shape_files = sorted(path.name for path in SHAPE_EXAMPLES.iterdir() if path.is_file())
+    material_files = sorted(
+        path.name for path in MATERIAL_EXAMPLES.iterdir() if path.is_file()
+    )
 
     assert root_files == []
     assert shape_files == [
@@ -23,6 +31,9 @@ def test_differentiable_example_directory_contains_expected_files():
         "neohookean_stress_3d_chain_rule.py",
         "neohookean_stress_3d_opt.py",
         "neohookean_stress_3d_optimization.py",
+    ]
+    assert material_files == [
+        "linear_elasticity_compliance.py",
     ]
 
 
@@ -95,6 +106,36 @@ def test_neohookean_stress_3d_optimization_example_uses_plain_pytorch_loop():
     assert ".optimizer(" not in text
     assert ".steps(" not in text
     assert ".optimize(" not in text
+
+
+def test_linear_elasticity_compliance_material_example_is_direct_user_script():
+    text = _material_example_text("linear_elasticity_compliance.py")
+
+    assert "# Forward model" in text
+    assert "# Differentiable model" in text
+    assert "mesh = polyfem.mesh(" in text
+    assert "material = polyfem.linear_elasticity(" in text
+    assert "body = polyfem.body(model=model)" in text
+    assert "body.mesh(mesh)" in text
+    assert "body.material(material)" in text
+    assert "body.surface_box(" in text
+    assert "model.rhs([10, 100])" in text
+    assert "polyfem_config = polyfem.config(" in text
+    assert "diff_model = diff.model([polyfem_config])" in text
+    assert "material_opt = diff.material_opt(" in text
+    assert "objective=diff.Objective.COMPLIANCE" in text
+    assert "loss = material_opt()" in text
+    assert "loss.backward()" in text
+    assert "lame.requires_grad_(True)" in text
+    assert "gradient_shape" in text
+    assert "gradient_norm" in text
+
+    assert "finite_difference" not in text
+    assert "torch.optim" not in text
+    assert ".optimizer(" not in text
+    assert ".steps(" not in text
+    assert ".optimize(" not in text
+    assert "diff.MaterialOpt.apply" not in text
 
 
 def test_neohookean_stress_3d_chain_rule_example_uses_high_level_parameter():
