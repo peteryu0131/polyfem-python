@@ -54,6 +54,7 @@ examples/output/*
 !examples/output/.gitkeep
 examples/runs/
 differentiable_example/runs/
+differentiable_example/*/runs/
 differentiable_example/shape/runs/
 examples/classic_example/2D/2D_examples_outputs/
 

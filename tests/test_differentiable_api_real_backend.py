@@ -39,6 +39,10 @@ def _run_material_example(module_name: str):
     return _run_example("material", module_name)
 
 
+def _run_initial_condition_example(module_name: str):
+    return _run_example("initial_condition", module_name)
+
+
 def _cube_vertices(torch):
     return torch.tensor(
         [
@@ -639,6 +643,46 @@ def test_linear_elasticity_compliance_material_example_runs(tmp_path):
         / "material"
         / "runs"
         / "linear_elasticity_compliance"
+    )
+    assert not list(output_dir.rglob("*.vtu"))
+    assert not list(output_dir.rglob("*.pvd"))
+
+
+def test_transient_elastic_initial_condition_example_runs(tmp_path):
+    pytest.importorskip("polyfempy.polyfempy")
+    pytest.importorskip("torch")
+
+    mesh_path = (
+        ROOT
+        / "polyfem-data"
+        / "contact"
+        / "meshes"
+        / "2D"
+        / "simple"
+        / "square.obj"
+    )
+    if not mesh_path.exists():
+        pytest.skip(
+            "polyfem-data submodule is not initialized; run "
+            "`git submodule update --init polyfem-data`"
+        )
+
+    summary = _run_initial_condition_example("transient_elastic_initial_condition")
+    output_dir = Path(summary["output_dir"])
+
+    assert summary["objective"] == "stress_norm"
+    assert summary["parameter"] == "initial_velocity_speed"
+    assert summary["mapping"] == "initial_velocity = base_velocity * speed"
+    assert summary["speed_value"] == 1.0
+    assert summary["initial_condition_shape"][1] == 2
+    assert math.isfinite(summary["loss"])
+    assert math.isfinite(summary["speed_grad"])
+    assert output_dir == (
+        ROOT
+        / "differentiable_example"
+        / "initial_condition"
+        / "runs"
+        / "transient_elastic_initial_condition"
     )
     assert not list(output_dir.rglob("*.vtu"))
     assert not list(output_dir.rglob("*.pvd"))

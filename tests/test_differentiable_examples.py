@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DIFF_EXAMPLES = ROOT / "differentiable_example"
 SHAPE_EXAMPLES = DIFF_EXAMPLES / "shape"
 MATERIAL_EXAMPLES = DIFF_EXAMPLES / "material"
+INITIAL_CONDITION_EXAMPLES = DIFF_EXAMPLES / "initial_condition"
 
 
 def _example_text(name: str) -> str:
@@ -18,11 +19,18 @@ def _material_example_text(name: str) -> str:
     return (MATERIAL_EXAMPLES / name).read_text(encoding="utf-8")
 
 
+def _initial_condition_example_text(name: str) -> str:
+    return (INITIAL_CONDITION_EXAMPLES / name).read_text(encoding="utf-8")
+
+
 def test_differentiable_example_directory_contains_expected_files():
     root_files = sorted(path.name for path in DIFF_EXAMPLES.iterdir() if path.is_file())
     shape_files = sorted(path.name for path in SHAPE_EXAMPLES.iterdir() if path.is_file())
     material_files = sorted(
         path.name for path in MATERIAL_EXAMPLES.iterdir() if path.is_file()
+    )
+    initial_condition_files = sorted(
+        path.name for path in INITIAL_CONDITION_EXAMPLES.iterdir() if path.is_file()
     )
 
     assert root_files == []
@@ -34,6 +42,9 @@ def test_differentiable_example_directory_contains_expected_files():
     ]
     assert material_files == [
         "linear_elasticity_compliance.py",
+    ]
+    assert initial_condition_files == [
+        "transient_elastic_initial_condition.py",
     ]
 
 
@@ -136,6 +147,33 @@ def test_linear_elasticity_compliance_material_example_is_direct_user_script():
     assert ".steps(" not in text
     assert ".optimize(" not in text
     assert "diff.MaterialOpt.apply" not in text
+
+
+def test_transient_elastic_initial_condition_example_uses_high_level_speed_parameter():
+    text = _initial_condition_example_text("transient_elastic_initial_condition.py")
+
+    assert "# Forward model" in text
+    assert "# Differentiable model" in text
+    assert "polyfem_config = {" in text
+    assert "diff_model = diff.model([polyfem_config])" in text
+    assert "dof_count = initial_condition_dof_count(" in text
+    assert "speed = torch.tensor(" in text
+    assert "requires_grad=True" in text
+    assert "initial_velocity = base_velocity * speed" in text
+    assert "initial_condition = torch.stack(" in text
+    assert "initial_opt = diff.initial_condition_opt(" in text
+    assert "loss = initial_opt()" in text
+    assert "loss.backward()" in text
+    assert "speed.grad" in text
+    assert "initial_condition_shape" in text
+    assert "speed_grad" in text
+
+    assert "finite_difference" not in text
+    assert "torch.optim" not in text
+    assert ".optimizer(" not in text
+    assert ".steps(" not in text
+    assert ".optimize(" not in text
+    assert "diff.InitialConditionOpt.apply" not in text
 
 
 def test_neohookean_stress_3d_chain_rule_example_uses_high_level_parameter():
