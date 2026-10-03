@@ -34,6 +34,18 @@ class _CompleteSession:
     def backward_material(self, grad_u):
         return None
 
+    def initial_condition_dof_count(self):
+        return 0
+
+    def set_initial_condition_parameters(self, initial_condition):
+        return None
+
+    def solve_initial_condition_objective(self):
+        return None
+
+    def backward_initial_condition(self, grad_u):
+        return None
+
 
 class _CompleteBackend:
     DifferentiableSession = _CompleteSession
@@ -73,12 +85,19 @@ def test_backend_contract_includes_shape_and_elastic_material():
         "solve_material_objective",
         "backward_material",
     )
-    assert _backend.SUPPORTED_PARAMETER_KINDS == ("shape", "elastic")
+    assert _backend.REQUIRED_INITIAL_CONDITION_OPT_SESSION_METHODS == (
+        "set_settings",
+        "set_objective",
+        "initial_condition_dof_count",
+        "set_initial_condition_parameters",
+        "solve_initial_condition_objective",
+        "backward_initial_condition",
+    )
+    assert _backend.SUPPORTED_PARAMETER_KINDS == ("shape", "elastic", "initial")
     assert _backend.UNSUPPORTED_OPT_PARAMETER_KINDS == (
         "periodic-shape",
         "friction",
         "damping",
-        "initial",
         "dirichlet-boundary",
         "dirichlet-nodes",
         "pressure",
@@ -115,6 +134,14 @@ def test_backend_contract_accepts_complete_material_session():
     assert session_type is _CompleteSession
 
 
+def test_backend_contract_accepts_complete_initial_condition_session():
+    from polyfempy.differentiable_api import _backend
+
+    session_type = _backend.require_initial_condition_opt_backend(_CompleteBackend())
+
+    assert session_type is _CompleteSession
+
+
 def test_compiled_backend_exports_differentiable_session_skeleton():
     backend = pytest.importorskip("polyfempy.polyfempy")
     from polyfempy.differentiable_api import _backend
@@ -134,6 +161,17 @@ def test_compiled_backend_exports_material_session_contract():
     session = session_type()
 
     for method in _backend.REQUIRED_MATERIAL_OPT_SESSION_METHODS:
+        assert callable(getattr(session, method))
+
+
+def test_compiled_backend_exports_initial_condition_session_contract():
+    backend = pytest.importorskip("polyfempy.polyfempy")
+    from polyfempy.differentiable_api import _backend
+
+    session_type = _backend.require_initial_condition_opt_backend(backend)
+    session = session_type()
+
+    for method in _backend.REQUIRED_INITIAL_CONDITION_OPT_SESSION_METHODS:
         assert callable(getattr(session, method))
 
 

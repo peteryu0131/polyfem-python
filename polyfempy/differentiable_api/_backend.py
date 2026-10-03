@@ -31,6 +31,15 @@ REQUIRED_MATERIAL_OPT_SESSION_METHODS = (
     "backward_material",
 )
 
+REQUIRED_INITIAL_CONDITION_OPT_SESSION_METHODS = (
+    "set_settings",
+    "set_objective",
+    "initial_condition_dof_count",
+    "set_initial_condition_parameters",
+    "solve_initial_condition_objective",
+    "backward_initial_condition",
+)
+
 OPT_PARAMETER_KINDS = (
     "shape",
     "periodic-shape",
@@ -43,13 +52,12 @@ OPT_PARAMETER_KINDS = (
     "pressure",
 )
 
-SUPPORTED_PARAMETER_KINDS = ("shape", "elastic")
+SUPPORTED_PARAMETER_KINDS = ("shape", "elastic", "initial")
 
 UNSUPPORTED_OPT_PARAMETER_KINDS = (
     "periodic-shape",
     "friction",
     "damping",
-    "initial",
     "dirichlet-boundary",
     "dirichlet-nodes",
     "pressure",
@@ -141,16 +149,43 @@ def require_material_opt_backend(backend: Any) -> type:
     return session_type
 
 
+def require_initial_condition_opt_backend(backend: Any) -> type:
+    """Return the backend session type required by diff.initial_condition_opt(...)."""
+
+    session_type = getattr(backend, "DifferentiableSession", None)
+    if session_type is None:
+        raise BackendContractError(
+            "The compiled backend must expose DifferentiableSession for "
+            "differentiable initial-condition objectives."
+        )
+
+    missing = [
+        method
+        for method in REQUIRED_INITIAL_CONDITION_OPT_SESSION_METHODS
+        if not callable(getattr(session_type, method, None))
+    ]
+    if missing:
+        joined = ", ".join(missing)
+        raise BackendContractError(
+            "DifferentiableSession is missing required initial-condition "
+            f"method(s): {joined}."
+        )
+
+    return session_type
+
+
 __all__ = [
     "BackendContractError",
     "OPT_PARAMETER_KINDS",
     "REQUIRED_BACKEND_SYMBOLS",
+    "REQUIRED_INITIAL_CONDITION_OPT_SESSION_METHODS",
     "REQUIRED_MATERIAL_OPT_SESSION_METHODS",
     "REQUIRED_SHAPE_SOLVE_SESSION_METHODS",
     "REQUIRED_SESSION_METHODS",
     "SUPPORTED_PARAMETER_KINDS",
     "UNSUPPORTED_OPT_PARAMETER_KINDS",
     "declared_opt_parameter_kinds",
+    "require_initial_condition_opt_backend",
     "require_material_opt_backend",
     "require_shape_solve_backend",
     "require_shape_mvp_backend",

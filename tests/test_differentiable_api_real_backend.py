@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import math
 from pathlib import Path
@@ -157,6 +158,47 @@ def _linear_elasticity_compliance_settings(mesh_path: Path, output_dir: Path) ->
     }
 
 
+def _deep_merge_dict(base: dict, override: dict) -> dict:
+    merged = copy.deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dict(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def _transient_elastic_initial_condition_settings(
+    output_dir: Path,
+) -> dict:
+    from polyfempy.runtime._solve_contract import prepare_canonical_solve_input
+
+    config_path = (
+        ROOT / "polyfem-data" / "contact" / "examples" / "2D"
+        / "initial_angular_velocity.json"
+    )
+    common_path = (config_path.parent / ".." / "common.json").resolve()
+    common = json.loads(common_path.read_text(encoding="utf-8"))
+    canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=config_path,
+    )
+
+    payload = _deep_merge_dict(common, canonical.backend_settings)
+    payload["geometry"] = canonical.backend_settings["geometry"]
+    payload.pop("initial_conditions", None)
+    payload["time"]["dt"] = 0.04
+    payload["time"]["tend"] = 0.04
+    payload["time"]["integrator"] = "BDF"
+    payload["solver"]["max_threads"] = 1
+    payload["output"]["directory"] = str(output_dir)
+    payload["output"]["json"] = ""
+    payload["output"]["paraview"]["file_name"] = ""
+    payload["output"]["advanced"]["save_time_sequence"] = False
+    return payload
+
+
 def _material_loss(diff, diff_model, lame, backend):
     return diff.material_opt(
         diff_model,
@@ -165,6 +207,40 @@ def _material_loss(diff, diff_model, lame, backend):
         objective_params={"selection": 1},
         backend=backend,
     )()
+
+
+def _initial_condition_objective() -> dict:
+    return {
+        "type": "transient_integral",
+        "state": 0,
+        "integral_type": "final",
+        "steps": [],
+        "weight": 1.0,
+        "print_energy": "",
+        "static_objective": {
+            "type": "stress_norm",
+            "state": 0,
+            "volume_selection": [],
+            "power": 2,
+            "weight": 1.0,
+            "print_energy": "",
+        },
+    }
+
+
+def _initial_condition_loss(diff, diff_model, initial_condition, backend):
+    return diff.initial_condition_opt(
+        diff_model,
+        initial_condition,
+        objective=_initial_condition_objective(),
+        backend=backend,
+    )()
+
+
+def _initial_condition_dof_count(backend, payload: dict) -> int:
+    session = backend.DifferentiableSession()
+    session.set_settings(payload)
+    return int(session.initial_condition_dof_count())
 
 
 def test_shapeopt_real_backend_forward_backward_smoke(tmp_path):
@@ -365,6 +441,127 @@ def test_materialopt_real_backend_compliance_gradient_and_chain_rule(tmp_path):
         expected_composition_grad,
         rel=1e-3,
         abs=1e-5,
+    )
+    assert not list(tmp_path.rglob("*.vtu"))
+    assert not list(tmp_path.rglob("*.pvd"))
+
+
+def test_initialconditionopt_real_backend_transient_gradient_and_chain_rule(
+    tmp_path,
+):
+    backend = pytest.importorskip("polyfempy.polyfempy")
+    torch = pytest.importorskip("torch")
+
+    config_path = (
+        ROOT
+        / "polyfem-data"
+        / "contact"
+        / "examples"
+        / "2D"
+        / "initial_angular_velocity.json"
+    )
+    if not config_path.exists():
+        pytest.skip(
+            "polyfem-data submodule is not initialized; run "
+            "`git submodule update --init polyfem-data`"
+        )
+
+    from polyfempy import differentiable_api as diff
+
+    payload = _transient_elastic_initial_condition_settings(tmp_path)
+    diff_model = diff.model([payload])
+    n_dofs = _initial_condition_dof_count(backend, payload)
+    base_u0 = torch.zeros(n_dofs, dtype=torch.float64)
+    base_v0 = torch.linspace(0.0, 1.0e-2, n_dofs, dtype=torch.float64)
+    base_initial_condition = torch.stack((base_u0, base_v0), dim=1)
+
+    initial_condition_leaf = base_initial_condition.clone().requires_grad_(True)
+    primitive_loss = _initial_condition_loss(
+        diff,
+        diff_model,
+        initial_condition_leaf,
+        backend,
+    )
+    primitive_loss.backward()
+
+    assert tuple(primitive_loss.shape) == ()
+    assert primitive_loss.dtype is torch.float64
+    assert torch.isfinite(primitive_loss)
+    assert initial_condition_leaf.grad is not None
+    assert tuple(initial_condition_leaf.grad.shape) == (n_dofs, 2)
+    assert torch.isfinite(initial_condition_leaf.grad).all()
+
+    direction = torch.zeros_like(base_initial_condition)
+    direction[-1, 1] = 1.0
+    primitive_directional = float((initial_condition_leaf.grad * direction).sum())
+    primitive_eps = 1e-5
+    primitive_plus = _initial_condition_loss(
+        diff,
+        diff_model,
+        base_initial_condition + primitive_eps * direction,
+        backend,
+    )
+    primitive_minus = _initial_condition_loss(
+        diff,
+        diff_model,
+        base_initial_condition - primitive_eps * direction,
+        backend,
+    )
+    primitive_fd = float((primitive_plus - primitive_minus) / (2.0 * primitive_eps))
+
+    assert math.isfinite(primitive_directional)
+    assert math.isfinite(primitive_fd)
+    assert primitive_directional == pytest.approx(primitive_fd, rel=1e-3, abs=1e-8)
+
+    speed = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
+    initial_condition = torch.stack((base_u0, base_v0 * speed), dim=1)
+    loss = _initial_condition_loss(diff, diff_model, initial_condition, backend)
+    loss.backward()
+
+    eps = 1e-5
+    loss_plus = _initial_condition_loss(
+        diff,
+        diff_model,
+        torch.stack((base_u0, base_v0 * (float(speed.detach()) + eps)), dim=1),
+        backend,
+    )
+    loss_minus = _initial_condition_loss(
+        diff,
+        diff_model,
+        torch.stack((base_u0, base_v0 * (float(speed.detach()) - eps)), dim=1),
+        backend,
+    )
+    finite_difference = float((loss_plus - loss_minus) / (2.0 * eps))
+
+    assert speed.grad is not None
+    assert math.isfinite(float(speed.grad))
+    assert math.isfinite(finite_difference)
+    assert float(speed.grad) == pytest.approx(finite_difference, rel=1e-3, abs=1e-8)
+
+    composition_speed = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
+    composition_initial_condition = torch.stack(
+        (
+            base_u0,
+            base_v0 * composition_speed,
+        ),
+        dim=1,
+    )
+    base_loss = _initial_condition_loss(
+        diff,
+        diff_model,
+        composition_initial_condition,
+        backend,
+    )
+    composed_loss = base_loss**2
+    composed_loss.backward()
+    expected_composition_grad = 2.0 * float(base_loss.detach()) * finite_difference
+
+    assert composition_speed.grad is not None
+    assert math.isfinite(float(composition_speed.grad))
+    assert float(composition_speed.grad) == pytest.approx(
+        expected_composition_grad,
+        rel=1e-3,
+        abs=1e-8,
     )
     assert not list(tmp_path.rglob("*.vtu"))
     assert not list(tmp_path.rglob("*.pvd"))

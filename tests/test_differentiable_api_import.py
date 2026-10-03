@@ -10,7 +10,11 @@ def test_differentiable_api_import_surface_is_small():
     assert D.__all__ == [
         "DifferentiableModel",
         "DifferentiableResult",
+        "InitialConditionOpt",
+        "InitialConditionOptimization",
         "MaxStress",
+        "MaterialOpt",
+        "MaterialOptimization",
         "Objective",
         "ObjectiveSpec",
         "ShapeOpt",
@@ -18,7 +22,9 @@ def test_differentiable_api_import_surface_is_small():
         "ShapeOptimizationResult",
         "State",
         "StressNorm",
+        "initial_condition_opt",
         "model",
+        "material_opt",
         "objectives",
         "parameter",
         "shape_opt",
@@ -30,6 +36,7 @@ def test_differentiable_api_import_surface_is_small():
     assert D.Objective.STRESS_NORM.value == "stress_norm"
     assert callable(D.MaxStress)
     assert callable(D.StressNorm)
+    assert callable(D.initial_condition_opt)
     assert callable(D.shape_opt)
     assert callable(D.shape_solve)
     assert callable(D.state)

@@ -6,6 +6,10 @@ from typing import Any
 
 import numpy as np
 
+from .initial_condition import (
+    _run_initial_condition_session,
+    _single_initial_condition_payload,
+)
 from .material import _run_material_session, _single_material_payload
 from .shape import _run_shape_session, _single_shape_payload
 
@@ -61,6 +65,31 @@ if _TORCH_IMPORT_ERROR is None:
                 f"{2 * element_count}; got {array.size}."
             )
         return np.stack((array[:element_count], array[element_count:]), axis=1)
+
+    def _initial_condition_to_backend_array(value: Any) -> Any:
+        if _is_torch_tensor(value):
+            if value.ndim != 2 or value.shape[1] != 2:
+                raise ValueError(
+                    "initial-condition tensor must have shape (n_dofs, 2)"
+                )
+            detached = value.detach()
+            return torch.cat((detached[:, 0], detached[:, 1]), dim=0).cpu().numpy()
+
+        array = np.asarray(value)
+        if array.ndim != 2 or array.shape[1] != 2:
+            raise ValueError("initial-condition tensor must have shape (n_dofs, 2)")
+        return np.concatenate((array[:, 0], array[:, 1]), axis=0)
+
+    def _initial_condition_gradient_from_backend(value: Any, *, dof_count: int) -> Any:
+        array = np.asarray(value)
+        if array.ndim != 1:
+            array = array.reshape(-1)
+        if array.size != 2 * dof_count:
+            raise RuntimeError(
+                "Initial-condition backend gradient must have length "
+                f"{2 * dof_count}; got {array.size}."
+            )
+        return np.stack((array[:dof_count], array[dof_count:]), axis=1)
 
     class ShapeOpt(Function):
         """Low-level autograd operation for shape differentiable solves."""
@@ -316,7 +345,151 @@ if _TORCH_IMPORT_ERROR is None:
                 ctx.element_count = None
                 ctx.gradient_count = None
 
+    class InitialConditionOpt(Function):
+        """Low-level autograd operation for initial-condition objectives."""
+
+        @classmethod
+        def apply(cls, *args: Any, **kwargs: Any) -> Any:
+            """Accept the meeting-facing API and call torch positionally."""
+
+            if not kwargs:
+                return super().apply(*args)
+
+            allowed = {
+                "model",
+                "initial_condition",
+                "backend",
+                "objective",
+                "objective_params",
+            }
+            unknown = sorted(set(kwargs) - allowed)
+            if unknown:
+                joined = ", ".join(unknown)
+                raise TypeError(
+                    f"unexpected InitialConditionOpt.apply keyword(s): {joined}"
+                )
+
+            if args:
+                if len(args) not in (2, 3):
+                    raise TypeError(
+                        "InitialConditionOpt.apply positional API requires model, "
+                        "initial-condition tensor, and optional backend"
+                    )
+                duplicate = sorted({"model", "initial_condition"} & set(kwargs))
+                if duplicate:
+                    joined = ", ".join(duplicate)
+                    raise TypeError(
+                        "InitialConditionOpt.apply got positional and keyword "
+                        f"value(s) for: {joined}"
+                    )
+                if len(args) == 3 and "backend" in kwargs:
+                    raise TypeError(
+                        "InitialConditionOpt.apply got multiple backend values"
+                    )
+                model, initial_condition = args[:2]
+                backend = args[2] if len(args) == 3 else kwargs.get("backend")
+            else:
+                try:
+                    model = kwargs["model"]
+                    initial_condition = kwargs["initial_condition"]
+                except KeyError as exc:
+                    raise TypeError(
+                        "InitialConditionOpt.apply keyword API requires model "
+                        "and initial_condition"
+                    ) from exc
+                backend = kwargs.get("backend")
+
+            if "objective" not in kwargs:
+                raise TypeError("InitialConditionOpt.apply requires objective")
+            if "objective_params" in kwargs:
+                return super().apply(
+                    model,
+                    initial_condition,
+                    backend,
+                    kwargs["objective"],
+                    kwargs["objective_params"],
+                )
+            return super().apply(
+                model,
+                initial_condition,
+                backend,
+                kwargs["objective"],
+            )
+
+        @staticmethod
+        def forward(
+            ctx: Any,
+            model: Any,
+            initial_condition: Any,
+            backend: Any | None = None,
+            objective: Any | None = None,
+            objective_params: Any | None = None,
+        ) -> Any:
+            payload = _single_initial_condition_payload(
+                model=model,
+                initial_condition=initial_condition,
+            )
+            backend_initial_condition = _initial_condition_to_backend_array(
+                initial_condition
+            )
+            objective_value, session = _run_initial_condition_session(
+                payload=payload,
+                initial_condition=backend_initial_condition,
+                objective=objective,
+                objective_params=objective_params,
+                backend=backend,
+            )
+            ctx.session = session
+            ctx.input_initial_condition = initial_condition
+            ctx.dof_count = (
+                int(initial_condition.shape[0])
+                if hasattr(initial_condition, "shape")
+                else np.asarray(initial_condition).shape[0]
+            )
+            ctx.gradient_count = 5 if objective_params is not None else 4
+            return _to_torch_tensor(objective_value, like=initial_condition)
+
+        @staticmethod
+        @torch.autograd.function.once_differentiable  # type: ignore[union-attr]
+        def backward(ctx: Any, grad_output: Any) -> tuple[Any, ...]:
+            session = ctx.session
+            input_initial_condition = ctx.input_initial_condition
+            try:
+                backend_grad_output = _to_backend_array(grad_output)
+                grad_flat = session.backward_initial_condition(backend_grad_output)
+                grad_initial_condition = _initial_condition_gradient_from_backend(
+                    grad_flat,
+                    dof_count=ctx.dof_count,
+                )
+                gradients = (
+                    None,
+                    _to_torch_tensor(
+                        grad_initial_condition,
+                        like=input_initial_condition,
+                    ),
+                    None,
+                    None,
+                )
+                if getattr(ctx, "gradient_count", 4) == 5:
+                    return (*gradients, None)
+                return gradients
+            finally:
+                ctx.session = None
+                ctx.input_initial_condition = None
+                ctx.dof_count = None
+                ctx.gradient_count = None
+
 else:
+
+    class InitialConditionOpt:
+        """Unavailable InitialConditionOpt placeholder used when PyTorch is missing."""
+
+        @staticmethod
+        def apply(*args: Any, **kwargs: Any) -> Any:
+            raise ImportError(
+                "PyTorch is required for InitialConditionOpt differentiable "
+                "objectives. Install the 'differentiable' extra or install torch."
+            ) from _TORCH_IMPORT_ERROR
 
     class ShapeOpt:
         """Unavailable ShapeOpt placeholder used when PyTorch is missing."""
@@ -339,4 +512,4 @@ else:
             ) from _TORCH_IMPORT_ERROR
 
 
-__all__ = ["MaterialOpt", "ShapeOpt"]
+__all__ = ["InitialConditionOpt", "MaterialOpt", "ShapeOpt"]

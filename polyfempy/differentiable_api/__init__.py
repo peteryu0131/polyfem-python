@@ -2,6 +2,7 @@
 
 from importlib import import_module
 
+from .initial_condition import InitialConditionOptimization, initial_condition_opt
 from .model import DifferentiableModel, model
 from .material import MaterialOptimization, material_opt
 from .objectives import (
@@ -25,6 +26,8 @@ from .state import State, state
 __all__ = [
     "DifferentiableModel",
     "DifferentiableResult",
+    "InitialConditionOpt",
+    "InitialConditionOptimization",
     "MaxStress",
     "MaterialOpt",
     "MaterialOptimization",
@@ -35,6 +38,7 @@ __all__ = [
     "ShapeOptimizationResult",
     "State",
     "StressNorm",
+    "initial_condition_opt",
     "model",
     "material_opt",
     "objectives",
@@ -46,6 +50,7 @@ __all__ = [
 ]
 
 _LAZY_EXPORTS = {
+    "InitialConditionOpt": ".torch_ops",
     "MaterialOpt": ".torch_ops",
     "ShapeOpt": ".torch_ops",
 }

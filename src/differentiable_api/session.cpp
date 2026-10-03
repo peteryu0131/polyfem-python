@@ -5,6 +5,7 @@
 #include <polyfem/optimization/VarFormDiff.hpp>
 #include <polyfem/optimization/parametrization/Parametrization.hpp>
 #include <polyfem/optimization/var2sims/ElasticVariableToSimulation.hpp>
+#include <polyfem/optimization/var2sims/InitialConditionVariableToSimulation.hpp>
 #include <polyfem/optimization/var2sims/ShapeVariableToSimulation.hpp>
 #include <polyfem/varforms/diff/DifferentiableVarForm.hpp>
 
@@ -121,11 +122,13 @@ public:
     diff_cache_ = std::make_shared<polyfem::DiffCache>();
     shape_var2sim_ = build_direct_shape_variable_to_simulation();
     material_var2sim_ = build_direct_material_variable_to_simulation();
+    initial_condition_var2sim_.reset();
 
     has_settings_ = true;
     has_objective_ = false;
     has_shape_vertices_ = false;
     has_material_lame_parameters_ = false;
+    has_initial_condition_parameters_ = false;
     has_solution_ = false;
     active_parameter_kind_ = ActiveParameterKind::Shape;
     objective_form_.reset();
@@ -213,6 +216,53 @@ public:
     rebuild_objective_form();
   }
 
+  int initial_condition_dof_count() const
+  {
+    if (!has_settings_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_settings(...) before "
+          "initial_condition_dof_count().");
+    }
+    return static_cast<int>(varform_->primary_space().ndof());
+  }
+
+  void set_initial_condition_parameters(const py::object &initial_condition)
+  {
+    if (!has_settings_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_settings(...) before "
+          "set_initial_condition_parameters(...).");
+    }
+
+    const Eigen::VectorXd initial_condition_vector =
+        nb::cast<Eigen::VectorXd>(initial_condition);
+    const int expected_size = 2 * initial_condition_dof_count();
+    if (initial_condition_vector.size() != expected_size)
+    {
+      throw std::runtime_error(
+          "Initial-condition parameters must have length "
+          + std::to_string(expected_size)
+          + "; got "
+          + std::to_string(initial_condition_vector.size())
+          + ".");
+    }
+
+    if (!initial_condition_var2sim_)
+    {
+      initial_condition_var2sim_ =
+          build_direct_initial_condition_variable_to_simulation();
+    }
+
+    current_initial_condition_x_ = initial_condition_vector;
+    initial_condition_var2sim_->update(current_initial_condition_x_);
+    has_initial_condition_parameters_ = true;
+    has_solution_ = false;
+    active_parameter_kind_ = ActiveParameterKind::InitialCondition;
+    rebuild_objective_form();
+  }
+
   Eigen::MatrixXd solve()
   {
     ensure_ready_for_shape_solve();
@@ -246,6 +296,16 @@ public:
     run_forward_solve();
     objective_form_->solution_changed(current_material_x_);
     return objective_form_->value(current_material_x_);
+  }
+
+  double solve_initial_condition_objective()
+  {
+    ensure_ready_for_initial_condition_objective();
+
+    initial_condition_var2sim_->update(current_initial_condition_x_);
+    run_forward_solve();
+    objective_form_->solution_changed(current_initial_condition_x_);
+    return objective_form_->value(current_initial_condition_x_);
   }
 
   Eigen::MatrixXd backward_shape(const py::object &grad_u)
@@ -310,11 +370,39 @@ public:
     return grad_material;
   }
 
+  Eigen::VectorXd backward_initial_condition(const py::object &grad_u)
+  {
+    ensure_ready_for_initial_condition_objective();
+    if (!has_solution_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires solve_initial_condition_objective() "
+          "before backward_initial_condition(...).");
+    }
+
+    const double grad_objective = scalar_from_python(grad_u);
+    polyfem::solve_adjoint_cached(
+        *varform_,
+        *diff_cache_,
+        objective_form_->compute_reduced_adjoint_rhs(
+            current_initial_condition_x_,
+            *varform_,
+            *diff_cache_));
+
+    Eigen::VectorXd grad_initial_condition;
+    objective_form_->first_derivative(
+        current_initial_condition_x_,
+        grad_initial_condition);
+    grad_initial_condition *= grad_objective;
+    return grad_initial_condition;
+  }
+
 private:
   enum class ActiveParameterKind
   {
     Shape,
     Material,
+    InitialCondition,
   };
 
   void run_forward_solve()
@@ -370,6 +458,28 @@ private:
     }
   }
 
+  void ensure_ready_for_initial_condition_objective() const
+  {
+    if (!has_settings_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_settings(...) before "
+          "solve_initial_condition_objective().");
+    }
+    if (!has_initial_condition_parameters_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_initial_condition_parameters(...) "
+          "before solve_initial_condition_objective().");
+    }
+    if (!has_objective_ || !objective_form_)
+    {
+      throw std::runtime_error(
+          "DifferentiableSession requires set_objective(...) before "
+          "solve_initial_condition_objective().");
+    }
+  }
+
   void rebuild_objective_form()
   {
     if (!has_objective_)
@@ -392,6 +502,7 @@ private:
   bool has_objective_ = false;
   bool has_shape_vertices_ = false;
   bool has_material_lame_parameters_ = false;
+  bool has_initial_condition_parameters_ = false;
   bool has_solution_ = false;
   size_t max_threads_ = 1;
   int input_vertex_count_ = 0;
@@ -401,11 +512,14 @@ private:
   polyfem::json objective_;
   Eigen::VectorXd current_shape_x_;
   Eigen::VectorXd current_material_x_;
+  Eigen::VectorXd current_initial_condition_x_;
   Eigen::MatrixXd last_solution_;
   std::shared_ptr<polyfem::varform::DifferentiableVarForm> varform_;
   std::shared_ptr<polyfem::DiffCache> diff_cache_;
   std::shared_ptr<polyfem::solver::ShapeVariableToSimulation> shape_var2sim_;
   std::shared_ptr<polyfem::solver::ElasticVariableToSimulation> material_var2sim_;
+  std::shared_ptr<polyfem::solver::InitialConditionVariableToSimulation>
+      initial_condition_var2sim_;
   std::shared_ptr<polyfem::solver::AdjointForm> objective_form_;
 
   std::shared_ptr<polyfem::solver::ShapeVariableToSimulation>
@@ -458,12 +572,41 @@ private:
     return group;
   }
 
+  std::shared_ptr<polyfem::solver::InitialConditionVariableToSimulation>
+  build_direct_initial_condition_variable_to_simulation() const
+  {
+    std::vector<std::shared_ptr<polyfem::varform::DifferentiableVarForm>> varforms{
+        varform_};
+    std::vector<std::shared_ptr<polyfem::DiffCache>> diff_caches{
+        diff_cache_};
+    polyfem::solver::CompositeParametrization parametrization;
+    Eigen::VectorXi active_dofs;
+
+    return std::make_shared<polyfem::solver::InitialConditionVariableToSimulation>(
+        std::move(varforms),
+        std::move(diff_caches),
+        std::move(parametrization),
+        std::move(active_dofs));
+  }
+
+  polyfem::solver::VariableToSimulationGroup
+  build_direct_initial_condition_variable_to_simulation_group() const
+  {
+    polyfem::solver::VariableToSimulationGroup group;
+    group.data.push_back(initial_condition_var2sim_);
+    return group;
+  }
+
   polyfem::solver::VariableToSimulationGroup
   build_active_variable_to_simulation_group() const
   {
     if (active_parameter_kind_ == ActiveParameterKind::Material)
     {
       return build_direct_material_variable_to_simulation_group();
+    }
+    if (active_parameter_kind_ == ActiveParameterKind::InitialCondition)
+    {
+      return build_direct_initial_condition_variable_to_simulation_group();
     }
     return build_direct_shape_variable_to_simulation_group();
   }
@@ -498,6 +641,15 @@ void define_differentiable_session(py::module_ &m)
           "Store direct elastic Lamé parameters for a future objective solve.",
           py::arg("lame"))
       .def(
+          "initial_condition_dof_count",
+          &DifferentiableSession::initial_condition_dof_count,
+          "Return the primary-space DOF count for initial-condition parameters.")
+      .def(
+          "set_initial_condition_parameters",
+          &DifferentiableSession::set_initial_condition_parameters,
+          "Store direct initial solution and velocity parameters for a future objective solve.",
+          py::arg("initial_condition"))
+      .def(
           "solve",
           &DifferentiableSession::solve,
           "Run the differentiable forward solve.")
@@ -510,6 +662,10 @@ void define_differentiable_session(py::module_ &m)
           &DifferentiableSession::solve_material_objective,
           "Run the material differentiable forward solve and return objective value.")
       .def(
+          "solve_initial_condition_objective",
+          &DifferentiableSession::solve_initial_condition_objective,
+          "Run the initial-condition differentiable forward solve and return objective value.")
+      .def(
           "backward_shape",
           &DifferentiableSession::backward_shape,
           "Run the shape adjoint backward pass.",
@@ -518,5 +674,10 @@ void define_differentiable_session(py::module_ &m)
           "backward_material",
           &DifferentiableSession::backward_material,
           "Run the material adjoint backward pass.",
+          py::arg("grad_u"))
+      .def(
+          "backward_initial_condition",
+          &DifferentiableSession::backward_initial_condition,
+          "Run the initial-condition adjoint backward pass.",
           py::arg("grad_u"));
 }
