@@ -4,6 +4,7 @@ import copy
 import json
 import math
 from pathlib import Path
+import runpy
 import subprocess
 import sys
 
@@ -727,9 +728,11 @@ def test_neohookean_stress_3d_optimization_example_runs_one_step(tmp_path):
     assert not list(output_dir.rglob("*.pvd"))
 
 
-def test_neohookean_stress_3d_chain_rule_example_validates_parameter_grad(tmp_path):
-    pytest.importorskip("polyfempy.polyfempy")
-    pytest.importorskip("torch")
+def test_neohookean_stress_3d_chain_rule_example_validates_parameter_grad(
+    tmp_path, monkeypatch,
+):
+    backend = pytest.importorskip("polyfempy.polyfempy")
+    torch = pytest.importorskip("torch")
 
     opt_spec_path = (
         ROOT
@@ -743,22 +746,26 @@ def test_neohookean_stress_3d_chain_rule_example_validates_parameter_grad(tmp_pa
             "`git submodule update --init differentiability-data`"
         )
 
-    summary = _run_shape_example("neohookean_stress_3d_chain_rule")
+    from polyfempy import differentiable_api as diff
+
+    example_path = (
+        ROOT / "differentiable_example" / "shape"
+        / "neohookean_stress_3d_chain_rule.py"
+    )
+    monkeypatch.syspath_prepend(str(example_path.parent))
+    example = runpy.run_path(str(example_path))
+    summary = example["summary"]
     output_dir = Path(summary["output_dir"])
 
     assert summary["objective"] == "stress_norm"
+    assert summary["objective_transform"] == "square"
     assert summary["parameter"] == "scale_x"
     assert summary["mapping"] == "vertices[:, 0] = base_vertices[:, 0] * scale"
     assert summary["scale_value"] == 1.0
     assert summary["vertices_shape"][1] == 3
     assert math.isfinite(summary["parameter_grad"])
-    assert math.isfinite(summary["finite_difference_gradient"])
-    assert summary["finite_difference_abs_error"] < 1e-2
-    assert summary["finite_difference_rel_error"] < 1e-5
-    assert math.isfinite(summary["composition_gradient"])
-    assert math.isfinite(summary["expected_composition_gradient"])
-    assert summary["composition_abs_error"] < 1e-6
-    assert summary["composition_rel_error"] < 1e-10
+    assert math.isfinite(summary["base_objective_value"])
+    assert summary["loss"] == pytest.approx(summary["base_objective_value"] ** 2)
     assert output_dir == (
         ROOT
         / "differentiable_example"
@@ -768,3 +775,44 @@ def test_neohookean_stress_3d_chain_rule_example_validates_parameter_grad(tmp_pa
     )
     assert not list(output_dir.rglob("*.vtu"))
     assert not list(output_dir.rglob("*.pvd"))
+
+    base_vertices = example["base_vertices"]
+    diff_model = example["diff_model"]
+    build_vertices = example["build_vertices"]
+
+    def evaluate_objective(scale):
+        vertices = build_vertices(base_vertices, scale)
+        return diff.shape_opt(
+            diff_model,
+            vertices,
+            objective=diff.Objective.STRESS_NORM,
+            backend=backend,
+        )()
+
+    scale = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
+    base_loss = evaluate_objective(scale)
+    base_loss.backward()
+    assert scale.grad is not None
+    parameter_grad = float(scale.grad.detach())
+    assert math.isfinite(parameter_grad)
+
+    eps = 1e-4
+    loss_plus = evaluate_objective(torch.tensor(1.0 + eps, dtype=torch.float64))
+    loss_minus = evaluate_objective(torch.tensor(1.0 - eps, dtype=torch.float64))
+    finite_difference = float((loss_plus - loss_minus).detach()) / (2.0 * eps)
+    assert math.isfinite(finite_difference)
+    abs_error = abs(parameter_grad - finite_difference)
+    rel_error = abs_error / max(abs(finite_difference), 1e-30)
+    assert abs_error < 1e-2
+    assert rel_error < 1e-5
+
+    expected_composition_grad = (
+        2.0 * summary["base_objective_value"] * parameter_grad
+    )
+    assert math.isfinite(expected_composition_grad)
+    composition_abs_error = abs(summary["parameter_grad"] - expected_composition_grad)
+    composition_rel_error = composition_abs_error / max(
+        abs(expected_composition_grad), 1e-30,
+    )
+    assert composition_abs_error < 1e-6
+    assert composition_rel_error < 1e-10

@@ -15,11 +15,7 @@ EXAMPLE_DIR = Path(__file__).resolve().parent
 if str(EXAMPLE_DIR) not in sys.path:
     sys.path.insert(0, str(EXAMPLE_DIR))
 
-from _shape_common import (  # noqa: E402
-    MESH_PATH,
-    OPT_SPEC_PATH,
-    gmsh_vertices,
-)
+from _shape_common import MESH_PATH, OPT_SPEC_PATH, gmsh_vertices  # noqa: E402
 
 
 # Forward model
@@ -37,43 +33,29 @@ solver = polyfem.solver(
     max_threads=1,
     linear=polyfem.linear(solver="Eigen::PardisoLDLT"),
     nonlinear=polyfem.nonlinear(
-        norm_type="Euclidean",
-        rel_grad_norm_tol=0,
-        first_grad_norm_tol=1e-10,
-        grad_norm_tol=1e-8,
+        norm_type="Euclidean", rel_grad_norm_tol=0,
+        first_grad_norm_tol=1e-10, grad_norm_tol=1e-8,
     ),
-    advanced=polyfem.solver_advanced(
-        characteristic_force_density=1,
-        characteristic_length=1,
-    ),
+    advanced=polyfem.solver_advanced(characteristic_force_density=1, characteristic_length=1),
 )
 
 output_dir = EXAMPLE_DIR / "runs" / "neohookean_stress_3d_opt"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 output = polyfem.output(
-    directory=str(output_dir),
-    json="",
+    directory=str(output_dir), json="",
     paraview=polyfem.output_paraview(file_name=""),
     advanced=polyfem.output_advanced(save_time_sequence=False),
 )
 
-polyfem_config = polyfem.config(
-    model=model,
-    solver=solver,
-    output=output,
-)
+polyfem_config = polyfem.config(model=model, solver=solver, output=output)
 
 
 # Differentiable model
 vertices = gmsh_vertices(MESH_PATH, dimension=3)
 
 diff_model = diff.model([polyfem_config])
-shape_opt = diff.shape_opt(
-    diff_model,
-    vertices,
-    objective=diff.Objective.STRESS_NORM,
-)
+shape_opt = diff.shape_opt(diff_model, vertices, objective=diff.Objective.STRESS_NORM)
 
 loss = shape_opt()
 loss.backward()

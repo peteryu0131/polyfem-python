@@ -154,7 +154,14 @@ def test_transient_elastic_initial_condition_example_uses_high_level_speed_param
 
     assert "# Forward model" in text
     assert "# Differentiable model" in text
-    assert "polyfem_config = {" in text
+    assert "model = polyfem.model()" in text
+    assert "mesh = polyfem.mesh(" in text
+    assert "body = polyfem.body(model=model)" in text
+    assert "body.mesh(mesh)" in text
+    assert "body.material(material)" in text
+    assert "model.rhs([0, 0])" in text
+    assert "polyfem_config = polyfem.config(" in text
+    assert "polyfem_config = {" not in text
     assert "diff_model = diff.model([polyfem_config])" in text
     assert "dof_count = initial_condition_dof_count(" in text
     assert "speed = torch.tensor(" in text
@@ -185,12 +192,15 @@ def test_neohookean_stress_3d_chain_rule_example_uses_high_level_parameter():
     assert "vertices = build_vertices(base_vertices, scale)" in text
     assert "vertices[:, 0]" in text
     assert "shape_opt = diff.shape_opt(" in text
-    assert "base_loss.backward()" in text
+    assert "base_loss = shape_opt()" in text
+    assert "loss = base_loss ** 2" in text
+    assert "loss.backward()" in text
     assert "scale.grad" in text
     assert "vertices_shape" in text
-    assert "finite_difference_gradient" in text
-    assert "composed_loss = composition_base_loss ** 2" in text
-    assert "composition_scale.grad" in text
+    assert "finite_difference" not in text
+    assert "evaluate_objective" not in text
+    assert "expected_composition" not in text
+    assert "composition_scale" not in text
 
     assert "gradient_shape" not in text
     assert "optimizer = torch.optim.Adam([vertices]" not in text
