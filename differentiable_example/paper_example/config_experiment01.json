@@ -1,0 +1,132 @@
+{
+  "pde": "NonLinearElasticity",
+  "units": {
+    "length": "cm",
+    "mass": "g",
+    "time": "s"
+  },
+  "materials": [
+    {
+      "type": "NeoHookean",
+      "id": 1,
+      "E": {
+        "value": 20.0,
+        "unit": "MPa"
+      },
+      "nu": 0.45,
+      "rho": {
+        "value": 1100,
+        "unit": "kg/m^3"
+      }
+    },
+    {
+      "type": "NeoHookean",
+      "id": 2,
+      "E": {
+        "value": 200,
+        "unit": "GPa"
+      },
+      "nu": 0.45,
+      "rho": {
+        "value": 7850,
+        "unit": "kg/m^3"
+      }
+    }
+  ],
+  "geometry": [
+    {
+      "mesh": "C:\\Users\\peter\\OneDrive\\Documents\\GitHub\\pf\\polyfem-python\\experiment\\new_experiment\\paper_experiment_01\\case_02_E20_h0p07_theta90_steps1\\triangular_lattice.msh",
+      "volume_selection": 1,
+      "surface_selection": [
+        {
+          "id": 3,
+          "axis": -2,
+          "position": 0.0001,
+          "relative": true
+        }
+      ]
+    },
+    {
+      "mesh": "C:\\Users\\peter\\OneDrive\\Documents\\GitHub\\pf\\polyfem-python\\experiment\\new_experiment\\paper_experiment_01\\case_02_E20_h0p07_theta90_steps1\\falling_weight_block.msh",
+      "volume_selection": 2
+    }
+  ],
+  "boundary_conditions": {
+    "dirichlet_boundary": [
+      {
+        "id": 3,
+        "value": [
+          0.0,
+          0.0
+        ]
+      }
+    ],
+    "rhs": [
+      0.0,
+      980.0
+    ]
+  },
+  "initial_conditions": {
+    "velocity": [
+      {
+        "id": 2,
+        "value": [
+          0.0,
+          0.0
+        ]
+      }
+    ]
+  },
+  "contact": {
+    "enabled": true,
+    "dhat": 0.012
+  },
+  "time": {
+    "t0": 0.0,
+    "tend": 0.01,
+    "dt": 0.01
+  },
+  "solver": {
+    "linear": {
+      "solver": "Eigen::PardisoLDLT"
+    },
+    "nonlinear": {
+      "solver": "Newton",
+      "grad_norm": 0.002,
+      "max_iterations": 800
+    },
+    "contact": {
+      "barrier_stiffness": "adaptive"
+    }
+  },
+  "output": {
+    "directory": "C:\\Users\\peter\\OneDrive\\Documents\\GitHub\\pf\\polyfem-python\\experiment\\new_experiment\\paper_experiment_01\\case_02_E20_h0p07_theta90_steps1",
+    "json": "impact_stats.json",
+    "log": {
+      "level": "debug",
+      "file_level": "debug",
+      "path": "C:\\Users\\peter\\OneDrive\\Documents\\GitHub\\pf\\polyfem-python\\experiment\\new_experiment\\paper_experiment_01\\case_02_E20_h0p07_theta90_steps1\\polyfem.log",
+      "quiet": false
+    },
+    "paraview": {
+      "file_name": "impact.pvd",
+      "surface": false,
+      "wireframe": false,
+      "points": false,
+      "options": {
+        "material": true,
+        "body_ids": true,
+        "velocity": true,
+        "tensor_values": true
+      },
+      "vismesh_rel_area": 10000000
+    },
+    "advanced": {
+      "save_time_sequence": true,
+      "timestep_prefix": "impact_step_"
+    }
+  },
+  "space": {
+    "discr_order": 1
+  }
+}

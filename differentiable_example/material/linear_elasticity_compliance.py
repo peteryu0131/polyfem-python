@@ -18,6 +18,7 @@ MESH_PATH = ROOT / "polyfem-data" / "contact" / "meshes" / "2D" / "simple" / "ba
 
 
 def obj_face_count(path: Path) -> int:
+    # Each "f " line is one triangle element in this example's OBJ mesh.
     # TODO: replace this OBJ-only helper with mesh/diff_model metadata.
     return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("f "))
 

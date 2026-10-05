@@ -19,6 +19,7 @@ MESH_PATH = ROOT / "polyfem-data" / "contact" / "meshes" / "2D" / "simple" / "sq
 
 
 def initial_condition_dof_count(polyfem_config: dict) -> int:
+    # Use the backend's finite-element layout, not the number of mesh vertices.
     session = backend.DifferentiableSession()
     session.set_settings(polyfem_config)
     return int(session.initial_condition_dof_count())

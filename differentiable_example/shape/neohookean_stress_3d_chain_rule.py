@@ -21,7 +21,9 @@ from _shape_common import MESH_PATH, OPT_SPEC_PATH, gmsh_vertices  # noqa: E402
 
 
 def build_vertices(base_vertices: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    # Copy the coordinates so the reference mesh stays unchanged.
     vertices = base_vertices.clone()
+    # Scale x only; PyTorch keeps the connection to scale for backward().
     vertices[:, 0] = base_vertices[:, 0] * scale
     return vertices
 
@@ -61,6 +63,7 @@ polyfem_config = polyfem.config(model=model, solver=solver, output=output)
 
 # Differentiable model
 diff_model = diff.model([polyfem_config])
+# Treat the reference coordinates as constants; only scale needs a gradient.
 base_vertices = gmsh_vertices(MESH_PATH, dimension=3).detach()
 
 scale = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)

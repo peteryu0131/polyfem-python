@@ -18,11 +18,13 @@ def gmsh_vertices(path: Path, *, dimension: int = 3) -> torch.Tensor:
     vertices_by_tag = {}
 
     if len(header) == 1:
+        # Older Gmsh files store each node ID and its coordinates on one line.
         node_count = int(header[0])
         for line in lines[node_marker + 2 : node_marker + 2 + node_count]:
             node_id, x, y, z = line.split()
             vertices_by_tag[int(node_id)] = [float(x), float(y), float(z)]
     elif len(header) == 4:
+        # Block-based files list node IDs first, then their coordinates.
         block_count = int(header[0])
         cursor = node_marker + 2
         for _block in range(block_count):
@@ -39,5 +41,6 @@ def gmsh_vertices(path: Path, *, dimension: int = 3) -> torch.Tensor:
     else:
         raise ValueError(f"Unsupported Gmsh $Nodes header: {lines[node_marker + 1]!r}")
 
+    # Order the rows by node ID and keep only the requested coordinates.
     vertices = [vertices_by_tag[tag][:dimension] for tag in sorted(vertices_by_tag)]
     return torch.tensor(vertices, dtype=torch.float64, requires_grad=True)
