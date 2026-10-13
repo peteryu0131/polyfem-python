@@ -73,6 +73,7 @@ for shared versus independent material parameters and supported FE spaces.
 `shape/_shape_common.py` only loads the reference Gmsh vertices; it is not a
 general mesh-import API.
 
-`paper_example/` contains original triangular-lattice experiment assets. Its
-configuration still uses machine-specific paths and has no optimization loss
-or parameter mapping. Treat it as reference data, not a runnable tutorial.
+`paper_example/` now includes a [forward-only lattice impact baseline](paper_example/README.md)
+using the new API, with contact and stress-output checks. The original JSON is
+retained as reference data; optimization objectives and parameter maps are not
+yet migrated.
