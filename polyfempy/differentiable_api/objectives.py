@@ -62,9 +62,56 @@ class ObjectiveSpec:
             payload[key] = copy.deepcopy(value)
         return payload
 
+    def final(self) -> ObjectiveSpec:
+        """Evaluate this spatial objective at the final simulation time.
+
+        Keep its state, selection, and weight in the nested static objective.
+        The transient wrapper has unit weight, so weights are applied once.
+        """
+
+        if self.type_name == "transient_integral":
+            raise ValueError("final() requires a spatial objective, not a transient objective")
+        return _objective_spec(
+            "transient_integral",
+            selection=None,
+            state=self.state,
+            extra={
+                "integral_type": "final",
+                "steps": [],
+                "static_objective": self.as_dict(),
+            },
+        )
+
 
 class ObjectiveNamespace:
     """Factory namespace for differentiable objective specs."""
+
+    def position(
+        self,
+        *,
+        dim: int,
+        selection: Any = None,
+        state: Any = 0,
+        weight: Any = None,
+        print_energy: Any = None,
+    ) -> ObjectiveSpec:
+        """Integrate deformed position along dim (0=x, 1=y, 2=z).
+
+        This is a reference-volume integral, not a mean position. Divide by
+        the selected reference volume for a mean. Omit selection for all bodies.
+        Use .final() to evaluate it at the end of a transient simulation.
+        """
+
+        if isinstance(dim, bool) or not isinstance(dim, int) or dim not in (0, 1, 2):
+            raise ValueError("position dim must be 0 (x), 1 (y), or 2 (z)")
+        return _objective_spec(
+            "position",
+            selection=[] if selection is None else selection,
+            state=state,
+            weight=weight,
+            print_energy=print_energy,
+            extra={"dim": dim},
+        )
 
     def stress_norm(
         self,

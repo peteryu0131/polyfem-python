@@ -37,7 +37,7 @@ body = polyfem.body(model=model)
 body.mesh(mesh)
 body.material(material)
 body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
-model.rhs([10, 100, 0])
+body.rhs(value=[10, 100, 0])
 
 solver = polyfem.solver(
     max_threads=1,
@@ -66,13 +66,17 @@ diff_model = diff.model([polyfem_config])
 # Treat the reference coordinates as constants; only scale needs a gradient.
 base_vertices = gmsh_vertices(MESH_PATH, dimension=3).detach()
 
-scale = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
-vertices = build_vertices(base_vertices, scale)
-shape_opt = diff.shape_opt(diff_model, vertices, objective=diff.Objective.STRESS_NORM)
+def loss(scale: torch.Tensor) -> torch.Tensor:
+    """R -> R: x scale to squared stress objective, with both chain rules."""
+    vertices = build_vertices(base_vertices, scale)
+    shape_opt = diff.shape_opt(diff_model, vertices, objective=diff.Objective.STRESS_NORM)
+    base_loss = shape_opt()
+    return base_loss ** 2
 
-base_loss = shape_opt()
-loss = base_loss ** 2
-loss.backward()
+
+scale = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
+value = loss(scale)
+value.backward()
 
 summary = {
     "source_opt_spec": str(OPT_SPEC_PATH),
@@ -81,10 +85,10 @@ summary = {
     "parameter": "scale_x",
     "mapping": "vertices[:, 0] = base_vertices[:, 0] * scale",
     "scale_value": float(scale.detach()),
-    "base_objective_value": float(base_loss.detach()),
-    "loss": float(loss.detach()),
+    "base_objective_value": float(value.detach().sqrt()),
+    "loss": float(value.detach()),
     "parameter_grad": float(scale.grad.detach()),
-    "vertices_shape": list(vertices.shape),
+    "vertices_shape": list(base_vertices.shape),
     "output_dir": str(output_dir),
 }
 

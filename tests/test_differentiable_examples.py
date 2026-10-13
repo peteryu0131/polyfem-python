@@ -44,6 +44,7 @@ def test_differentiable_example_directory_contains_expected_files():
         "linear_elasticity_compliance.py",
     ]
     assert initial_condition_files == [
+        "projectile_angle.py",
         "transient_elastic_initial_condition.py",
     ]
 
@@ -149,7 +150,7 @@ def test_linear_elasticity_compliance_material_example_is_direct_user_script():
     assert "diff.MaterialOpt.apply" not in text
 
 
-def test_transient_elastic_initial_condition_example_uses_high_level_speed_parameter():
+def test_transient_elastic_initial_condition_example_uses_high_level_angle_parameter():
     text = _initial_condition_example_text("transient_elastic_initial_condition.py")
 
     assert "# Forward model" in text
@@ -159,24 +160,25 @@ def test_transient_elastic_initial_condition_example_uses_high_level_speed_param
     assert "body = polyfem.body(model=model)" in text
     assert "body.mesh(mesh)" in text
     assert "body.material(material)" in text
-    assert "model.rhs([0, 0])" in text
+    assert "body.rhs(value=[0, 0])" in text
     assert "polyfem_config = polyfem.config(" in text
     assert "polyfem_config = {" not in text
     assert "diff_model = diff.model([polyfem_config])" in text
-    assert "dof_count = initial_condition_dof_count(" in text
-    assert "speed = torch.tensor(" in text
+    assert "metadata = diff_model.metadata()" in text
+    assert "metadata.uniform_initial_condition(velocity)" in text
+    assert "theta = torch.tensor(" in text
     assert "requires_grad=True" in text
-    assert "initial_velocity = base_velocity * speed" in text
-    assert "initial_condition = torch.stack(" in text
+    assert "def loss(velocity:" in text
+    assert "def angle_loss(theta:" in text
     assert "initial_opt = diff.initial_condition_opt(" in text
-    assert "loss = initial_opt()" in text
-    assert "loss.backward()" in text
-    assert "speed.grad" in text
+    assert "final_x = initial_opt()" in text
+    assert "value.backward()" in text
+    assert "theta.grad" in text
     assert "initial_condition_shape" in text
-    assert "speed_grad" in text
+    assert "velocity_gradient_shape" in text
 
     assert "finite_difference" not in text
-    assert "torch.optim" not in text
+    assert "torch.optim.Adam([theta]" in text
     assert ".optimizer(" not in text
     assert ".steps(" not in text
     assert ".optimize(" not in text
@@ -193,8 +195,9 @@ def test_neohookean_stress_3d_chain_rule_example_uses_high_level_parameter():
     assert "vertices[:, 0]" in text
     assert "shape_opt = diff.shape_opt(" in text
     assert "base_loss = shape_opt()" in text
-    assert "loss = base_loss ** 2" in text
-    assert "loss.backward()" in text
+    assert "def loss(scale:" in text
+    assert "return base_loss ** 2" in text
+    assert "value.backward()" in text
     assert "scale.grad" in text
     assert "vertices_shape" in text
     assert "finite_difference" not in text

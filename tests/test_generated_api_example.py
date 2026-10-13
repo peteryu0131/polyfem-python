@@ -478,6 +478,41 @@ def test_model_rhs_rejects_duplicate_rhs_sources():
         )
 
 
+def test_body_rhs_preserves_each_body_selection_and_rejects_conflicts():
+    model = polyfem.model()
+    first = model.mesh(mesh="first.obj")
+    second = model.mesh(mesh="second.obj")
+    first.material(polyfem.neo_hookean(E=1000, nu=0.3))
+    second.material(polyfem.neo_hookean(E=2000, nu=0.3))
+    first.rhs(value=[1, 0])
+    second.rhs(value=[0, 2])
+    payload = polyfem.config(model=model).as_dict()
+    ids = [item["volume_selection"] for item in payload["geometry"]]
+    assert ids[0] != ids[1]
+    assert payload["boundary_conditions"]["rhs"] == [
+        {"id": ids[0], "value": [1, 0]},
+        {"id": ids[1], "value": [0, 2]},
+    ]
+    assert [item["id"] for item in payload["materials"]] == ids
+    with pytest.raises(TypeError, match="rhs"):
+        first.rhs(value=[3, 4])
+    with pytest.raises(TypeError, match="rhs"):
+        model.rhs([1, 1])
+    with pytest.raises(TypeError, match="rhs"):
+        polyfem.config(model=model, rhs=[1, 1])
+    with pytest.raises(TypeError, match="rhs"):
+        polyfem.config(model=model, boundary_conditions={"rhs": [1, 1]})
+
+    global_model = polyfem.model()
+    global_model.rhs([1, 1])
+    global_body = global_model.mesh(mesh="first.obj")
+    with pytest.raises(TypeError, match="rhs"):
+        global_body.rhs(value=[1, 0])
+    unbound = polyfem.body(model=polyfem.model())
+    with pytest.raises(ValueError, match="body.mesh"):
+        unbound.rhs(value=[1, 0])
+
+
 def test_global_material_geometry_example_uses_model_builder():
     example_path = (
         CLASSIC_EXAMPLES

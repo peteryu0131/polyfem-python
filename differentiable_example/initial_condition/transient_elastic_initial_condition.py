@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""PyTorch chain-rule InitialConditionOpt example."""
+"""Uniform initial velocity and angle optimization at a fixed final time.
+
+This targets a horizontal position, not landing range or a 45-degree launch.
+"""
 
 from __future__ import annotations
 
@@ -10,19 +13,11 @@ import torch
 
 from polyfempy.generated_api import generated_api as polyfem
 from polyfempy import differentiable_api as diff
-from polyfempy import polyfempy as backend
 
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
 ROOT = EXAMPLE_DIR.parents[1]
 MESH_PATH = ROOT / "polyfem-data" / "contact" / "meshes" / "2D" / "simple" / "square.obj"
-
-
-def initial_condition_dof_count(polyfem_config: dict) -> int:
-    # Use the backend's finite-element layout, not the number of mesh vertices.
-    session = backend.DifferentiableSession()
-    session.set_settings(polyfem_config)
-    return int(session.initial_condition_dof_count())
 
 
 # Forward model
@@ -33,10 +28,11 @@ material = polyfem.neo_hookean(E=2.55e7, nu=0.48, rho=1700)
 body = polyfem.body(model=model)
 body.mesh(mesh)
 body.material(material)
-model.rhs([0, 0])
+body.rhs(value=[0, 0])
 
 time = polyfem.time(polyfem.object1(dt=0.04, tend=0.04, integrator="BDF"))
-contact = polyfem.contact(enabled=True, dhat=0.001)
+contact = polyfem.contact(enabled=False)
+space = polyfem.space(discr_order=1)
 
 solver = polyfem.solver(
     max_threads=1,
@@ -57,53 +53,77 @@ output = polyfem.output(
     advanced=polyfem.output_advanced(save_solve_sequence_debug=False, save_time_sequence=False),
 )
 
-polyfem_config = polyfem.config(model=model, time=time, contact=contact, solver=solver, output=output)
+polyfem_config = polyfem.config(model=model, time=time, space=space, contact=contact, solver=solver, output=output)
 
-objective = {
-    "type": "transient_integral",
-    "state": 0,
-    "integral_type": "final",
-    "steps": [],
-    "weight": 1.0,
-    "print_energy": "",
-    "static_objective": {
-        "type": "stress_norm",
-        "state": 0,
-        "volume_selection": [],
-        "power": 2,
-        "weight": 1.0,
-        "print_energy": "",
-    },
-}
+objective = diff.objectives.position(dim=0, selection=body).final()
 
 
 # Differentiable model
 diff_model = diff.model([polyfem_config])
-dof_count = initial_condition_dof_count(diff_model.as_dicts()[0])
+metadata = diff_model.metadata()
+dof_count = metadata.n_dofs
 
-initial_solution = torch.zeros(dof_count, dtype=torch.float64)
-base_velocity = torch.linspace(0.0, 1.0e-2, dof_count, dtype=torch.float64)
+assert dof_count % 2 == 0
+target_x = 0.02
+speed = 1.0
 
-speed = torch.tensor(1.0, dtype=torch.float64, requires_grad=True)
-initial_velocity = base_velocity * speed
-initial_condition = torch.stack((initial_solution, initial_velocity), dim=1)
 
-initial_opt = diff.initial_condition_opt(diff_model, initial_condition, objective=objective)
+def loss(velocity: torch.Tensor) -> torch.Tensor:
+    """R^2 -> R: squared error in final horizontal mean position."""
+    initial_condition = metadata.uniform_initial_condition(velocity)
+    initial_opt = diff.initial_condition_opt(diff_model, initial_condition, objective=objective)
+    # PositionForm integrates x + displacement over reference area.
+    # This centered square has area 1, so the integral equals mean position.
+    final_x = initial_opt()
+    return (final_x - target_x) ** 2
 
-loss = initial_opt()
-loss.backward()
 
-summary = {
-    "objective": diff.Objective.STRESS_NORM.value,
-    "parameter": "initial_velocity_speed",
-    "mapping": "initial_velocity = base_velocity * speed",
-    "speed_value": float(speed.detach()),
-    "speed_grad": float(speed.grad.detach()),
-    "loss": float(loss.detach()),
-    "dof_count": dof_count,
-    "initial_condition_shape": list(initial_condition.shape),
-    "initial_condition_requires_grad": bool(initial_condition.requires_grad),
-    "output_dir": str(output_dir),
-}
+def angle_loss(theta: torch.Tensor) -> torch.Tensor:
+    """R -> R: fixed speed, one launch angle in radians."""
+    velocity = speed * torch.stack((torch.cos(theta), torch.sin(theta)))
+    return loss(velocity)
 
-print(json.dumps(summary, indent=2, sort_keys=True))
+
+def main():
+    velocity = torch.tensor([0.8, 0.6], dtype=torch.float64, requires_grad=True)
+    velocity_loss = loss(velocity)
+    velocity_loss.backward()
+
+    theta = torch.tensor(0.5, dtype=torch.float64, requires_grad=True)
+    value = angle_loss(theta)
+    value.backward()
+    initial_loss = float(value.detach())
+    initial_gradient = float(theta.grad)
+
+    # Rebuild the mapping and wrapper on each call; only theta is optimized.
+    optimizer = torch.optim.Adam([theta], lr=0.05)
+    history = []
+    for step in range(8):
+        optimizer.zero_grad()
+        value = angle_loss(theta)
+        value.backward()
+        history.append({"step": step, "theta": float(theta.detach()), "loss": float(value.detach())})
+        optimizer.step()
+    final_loss = float(angle_loss(theta).detach())
+
+    summary = {
+        "objective": "fixed_time_horizontal_position_error",
+        "parameter": "launch_angle_radians",
+        "velocity_gradient": velocity.grad.tolist(),
+        "velocity_gradient_shape": list(velocity.grad.shape),
+        "theta_initial": 0.5,
+        "theta_final": float(theta.detach()),
+        "theta_grad": initial_gradient,
+        "gradient_shape": list(theta.grad.shape),
+        "loss": initial_loss,
+        "final_loss": final_loss,
+        "history": history,
+        "dof_count": dof_count,
+        "initial_condition_shape": list(metadata.uniform_initial_condition(velocity).shape),
+        "output_dir": str(output_dir),
+    }
+    print(json.dumps(summary, indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

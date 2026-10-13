@@ -125,6 +125,43 @@ def test_objective_namespace_rejects_bad_selection_ids():
         D.objectives.stress_norm(selection=object())
 
 
+def test_final_position_preserves_body_state_and_weight_without_double_weighting():
+    from polyfempy import differentiable_api as D
+
+    objective = D.objectives.position(dim=1, selection=_BodyHandle(3), state=2, weight=2.5).final()
+    payload = objective.as_dict()
+
+    assert payload == {
+        "type": "transient_integral", "state": 2, "weight": 1.0,
+        "print_energy": "", "integral_type": "final", "steps": [],
+        "static_objective": {
+            "type": "position", "state": 2, "volume_selection": [3],
+            "weight": 2.5, "print_energy": "", "dim": 1,
+        },
+    }
+    payload["static_objective"]["volume_selection"].append(9)
+    assert objective.as_dict()["static_objective"]["volume_selection"] == [3]
+
+
+def test_final_composes_with_other_spatial_objectives_and_rejects_double_wrapping():
+    from polyfempy import differentiable_api as D
+
+    spatial = D.objectives.stress_norm(selection=1, power=4)
+    final = spatial.final()
+    assert final.as_dict()["static_objective"] == spatial.as_dict()
+    assert D.objectives.position(dim=0).as_dict()["volume_selection"] == []
+    with pytest.raises(ValueError, match="spatial objective"):
+        final.final()
+
+
+@pytest.mark.parametrize("dim", [-1, 3, 0.5, "x", True])
+def test_position_rejects_invalid_component(dim):
+    from polyfempy import differentiable_api as D
+
+    with pytest.raises(ValueError, match="position dim"):
+        D.objectives.position(dim=dim)
+
+
 def test_objectives_module_import_does_not_load_torch_or_old_reference_package():
     torch_was_loaded = "torch" in sys.modules
     sys.modules.pop("polyfempy.differentiable", None)

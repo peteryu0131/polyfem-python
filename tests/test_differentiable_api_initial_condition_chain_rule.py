@@ -42,6 +42,36 @@ class _QuadraticInitialConditionBackend:
     DifferentiableSession = _QuadraticInitialConditionSession
 
 
+def test_model_queries_initial_condition_size_without_running_a_solve(monkeypatch):
+    from polyfempy import differentiable_api as diff
+
+    settings_seen = []
+
+    def set_settings(self, settings):
+        settings_seen.append(settings)
+        settings["geometry"][0]["mesh"] = "backend-mutated.msh"
+
+    def unexpected_solve(self):
+        pytest.fail("DOF query must not solve")
+
+    monkeypatch.setattr(_QuadraticInitialConditionSession, "set_settings", set_settings)
+    monkeypatch.setattr(_QuadraticInitialConditionSession, "solve_initial_condition_objective", unexpected_solve)
+    model = diff.model({"geometry": [{"mesh": "unit-test.msh"}]})
+    assert model.initial_condition_dof_count(backend=_QuadraticInitialConditionBackend) == 3
+    assert len(settings_seen) == 1
+    assert model.as_dicts()[0]["geometry"][0]["mesh"] == "unit-test.msh"
+
+
+def test_model_initial_condition_size_rejects_multiple_models_and_old_backends():
+    from polyfempy import differentiable_api as diff
+    from polyfempy.differentiable_api._backend import BackendContractError
+
+    with pytest.raises(ValueError, match="exactly one model"):
+        diff.model([{}, {}]).initial_condition_dof_count(backend=object())
+    with pytest.raises(BackendContractError, match="DifferentiableSession"):
+        diff.model({}).initial_condition_dof_count(backend=object())
+
+
 def _transient_objective():
     return {
         "type": "transient_integral",

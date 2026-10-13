@@ -671,13 +671,16 @@ def test_transient_elastic_initial_condition_example_runs(tmp_path):
     summary = _run_initial_condition_example("transient_elastic_initial_condition")
     output_dir = Path(summary["output_dir"])
 
-    assert summary["objective"] == "stress_norm"
-    assert summary["parameter"] == "initial_velocity_speed"
-    assert summary["mapping"] == "initial_velocity = base_velocity * speed"
-    assert summary["speed_value"] == 1.0
+    assert summary["objective"] == "fixed_time_horizontal_position_error"
+    assert summary["parameter"] == "launch_angle_radians"
+    assert summary["velocity_gradient_shape"] == [2]
+    assert summary["gradient_shape"] == []
+    assert summary["theta_final"] > summary["theta_initial"]
+    assert summary["final_loss"] < summary["loss"] * 0.25
     assert summary["initial_condition_shape"][1] == 2
     assert math.isfinite(summary["loss"])
-    assert math.isfinite(summary["speed_grad"])
+    assert math.isfinite(summary["theta_grad"])
+    assert abs(summary["theta_grad"]) > 1e-6
     assert output_dir == (
         ROOT
         / "differentiable_example"
@@ -687,6 +690,72 @@ def test_transient_elastic_initial_condition_example_runs(tmp_path):
     )
     assert not list(output_dir.rglob("*.vtu"))
     assert not list(output_dir.rglob("*.pvd"))
+
+
+def test_uniform_initial_velocity_and_angle_match_analytic_motion_and_fd():
+    pytest.importorskip("polyfempy.polyfempy")
+    torch = pytest.importorskip("torch")
+    example = runpy.run_path(str(
+        ROOT / "differentiable_example" / "initial_condition"
+        / "transient_elastic_initial_condition.py"
+    ))
+    loss = example["loss"]
+    angle_loss = example["angle_loss"]
+    velocity = torch.tensor([0.8, 0.6], dtype=torch.float64, requires_grad=True)
+    initial = example["metadata"].uniform_initial_condition(velocity)
+    assert tuple(initial.shape) == (example["dof_count"], 2)
+    assert torch.equal(initial[:, 0], torch.zeros_like(initial[:, 0]))
+    assert torch.equal(initial[:, 1].reshape(-1, 2), velocity.expand(initial.shape[0] // 2, 2))
+    value = loss(velocity)
+    value.backward()
+    # Free uniform translation: x_mean(T) = vx*T on the centered unit square.
+    expected_loss = (0.8 * 0.04 - 0.02) ** 2
+    assert float(value.detach()) == pytest.approx(expected_loss, rel=1e-5, abs=1e-10)
+    assert velocity.grad.tolist() == pytest.approx([2 * (0.8 * 0.04 - 0.02) * 0.04, 0], abs=1e-8)
+    eps = 1e-4
+    for component in range(2):
+        direction = torch.zeros(2, dtype=torch.float64)
+        direction[component] = eps
+        fd = float((loss(velocity.detach() + direction) - loss(velocity.detach() - direction)).detach()) / (2 * eps)
+        assert float(velocity.grad[component]) == pytest.approx(fd, rel=1e-4, abs=1e-8)
+
+    theta = torch.tensor(0.5, dtype=torch.float64, requires_grad=True)
+    value = angle_loss(theta)
+    value.backward()
+    expected = -2 * (0.04 * math.cos(0.5) - 0.02) * 0.04 * math.sin(0.5)
+    assert theta.grad.shape == torch.Size([])
+    assert float(theta.grad) == pytest.approx(expected, rel=1e-5, abs=1e-9)
+    fd = float((angle_loss(theta.detach() + eps) - angle_loss(theta.detach() - eps)).detach()) / (2 * eps)
+    assert float(theta.grad) == pytest.approx(fd, rel=1e-4, abs=1e-9)
+
+
+def test_body_rhs_matches_global_rhs_in_real_transient_solve():
+    pytest.importorskip("polyfempy.polyfempy")
+    torch = pytest.importorskip("torch")
+    from polyfempy import differentiable_api as diff
+
+    example = runpy.run_path(str(
+        ROOT / "differentiable_example" / "initial_condition"
+        / "transient_elastic_initial_condition.py"
+    ))
+    payload = example["diff_model"].as_dicts()[0]
+    body_id = payload["geometry"][0]["volume_selection"]
+    results = []
+    for rhs in ([1.0, 2.0], [{"id": body_id, "value": [1.0, 2.0]}]):
+        settings = copy.deepcopy(payload)
+        settings["boundary_conditions"]["rhs"] = rhs
+        velocity = torch.tensor([0.8, 0.6], dtype=torch.float64, requires_grad=True)
+        value = diff.initial_condition_opt(
+            diff.model([settings]), example["metadata"].uniform_initial_condition(velocity),
+            objective=example["objective"],
+        )()
+        value.backward()
+        results.append((float(value.detach()), velocity.grad.tolist()))
+    # RHS follows the backend residual sign convention; check that it affects
+    # motion without assuming that positive RHS means positive acceleration.
+    assert abs(results[0][0] - 0.8 * 0.04) > 1e-4
+    assert results[1][0] == pytest.approx(results[0][0], rel=1e-7, abs=1e-9)
+    assert results[1][1] == pytest.approx(results[0][1], rel=1e-7, abs=1e-9)
 
 
 def test_neohookean_stress_3d_optimization_example_runs_one_step(tmp_path):

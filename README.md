@@ -91,6 +91,38 @@ contract scaffolding until its backend session methods are implemented. The
 next API expansion target is elastic material parameters from the
 `elastic-material-smoothing-2d/3d-opt.json` differentiability-data fixtures.
 
+### Shared parameter preparation
+
+Inspect the loaded mesh once, outside the optimization loop:
+
+```python
+metadata = diff_model.metadata()
+print(metadata.n_elements, metadata.n_dofs)
+
+# Inside loss(...): both helpers preserve PyTorch's computation graph.
+initial = metadata.uniform_initial_condition(velocity)  # velocity: [vx, vy] in 2D
+lame = metadata.uniform_material(material_pair)         # pair: [lambda, mu]
+```
+
+The metadata comes from the backend's actual mesh and finite-element space,
+including dimension, vertex/element counts, basis count, component count and DOF
+count. DOFs are not vertices. Re-query after changing the model or mesh.
+The initial-condition helper returns `(n_dofs, 2)` with columns `[u0, v0]`;
+optional `displacement=` sets a uniform initial displacement instead of zero.
+It currently accepts only unconstrained P1 triangle/tetrahedron displacement
+spaces without periodic boundaries, and raises an error for other layouts.
+Explicit FE coefficient tensors remain supported by `initial_condition_opt`.
+
+The material helper broadcasts one pair to `(n_elements, 2)` for the whole model.
+With a trainable pair, element gradients accumulate into that pair. To initialize
+independent per-element parameters instead, pass a non-trainable pair and call
+`lame.requires_grad_(True)` on the returned tensor, as in
+`differentiable_example/material/linear_elasticity_compliance.py`.
+The helpers do not choose material values, targets, or parameterizations.
+
+This interface requires a rebuilt C++ backend exposing
+`DifferentiableSession.model_metadata`; an older backend reports a rebuild hint.
+
 Generate the packaged API from the repository root:
 
 ```powershell

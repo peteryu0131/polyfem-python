@@ -3,7 +3,7 @@
 from importlib import import_module
 
 from .initial_condition import InitialConditionOptimization, initial_condition_opt
-from .model import DifferentiableModel, model
+from .model import DifferentiableModel, ModelMetadata, model
 from .material import MaterialOptimization, material_opt
 from .objectives import (
     MaxStress,
@@ -25,6 +25,7 @@ from .state import State, state
 
 __all__ = [
     "DifferentiableModel",
+    "ModelMetadata",
     "DifferentiableResult",
     "InitialConditionOpt",
     "InitialConditionOptimization",

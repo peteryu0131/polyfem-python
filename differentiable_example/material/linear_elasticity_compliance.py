@@ -17,12 +17,6 @@ ROOT = EXAMPLE_DIR.parents[1]
 MESH_PATH = ROOT / "polyfem-data" / "contact" / "meshes" / "2D" / "simple" / "bar" / "bar40.obj"
 
 
-def obj_face_count(path: Path) -> int:
-    # Each "f " line is one triangle element in this example's OBJ mesh.
-    # TODO: replace this OBJ-only helper with mesh/diff_model metadata.
-    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("f "))
-
-
 # Forward model
 model = polyfem.model()
 
@@ -66,13 +60,12 @@ polyfem_config = polyfem.config(model=model, space=space, solver=solver, output=
 
 
 # Differentiable model
-n_elements = obj_face_count(MESH_PATH)
-lame = torch.empty((n_elements, 2), dtype=torch.float64)
-lame[:, 0] = 1.0e5
-lame[:, 1] = 5.0e4
+diff_model = diff.model([polyfem_config])
+metadata = diff_model.metadata()
+# Initialize every element with [lambda, mu], then optimize them independently.
+lame = metadata.uniform_material(torch.tensor([1.0e5, 5.0e4], dtype=torch.float64))
 lame.requires_grad_(True)
 
-diff_model = diff.model([polyfem_config])
 material_opt = diff.material_opt(
     diff_model, lame,
     objective=diff.Objective.COMPLIANCE,

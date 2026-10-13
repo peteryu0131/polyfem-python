@@ -216,6 +216,30 @@ public:
     rebuild_objective_form();
   }
 
+  py::dict model_metadata() const
+  {
+    if (!has_settings_)
+      throw std::runtime_error("Call set_settings(...) before model_metadata().");
+    const auto &mesh = varform_->get_mesh();
+    const auto &space = varform_->primary_space();
+    py::dict result;
+    result["dimension"] = mesh.dimension();
+    result["n_vertices"] = mesh.n_vertices();
+    result["n_elements"] = mesh.n_elements();
+    result["n_bases"] = space.n_bases;
+    result["value_dim"] = space.value_dim;
+    result["n_dofs"] = space.ndof();
+    // Limit constant-field broadcasting to a verified nodal layout.
+    result["supports_uniform_initial_condition"] =
+        mesh.is_simplicial() && space.disc_orders.size() > 0
+        && (space.disc_orders.array() == 1).all()
+        && space.n_bases == mesh.n_vertices()
+        && space.value_dim == mesh.dimension()
+        && varform_->boundary_state().boundary_nodes.empty()
+        && !varform_->has_periodic_boundary();
+    return result;
+  }
+
   int initial_condition_dof_count() const
   {
     if (!has_settings_)
@@ -640,6 +664,10 @@ void define_differentiable_session(py::module_ &m)
           &DifferentiableSession::set_material_lame_parameters,
           "Store direct elastic Lamé parameters for a future objective solve.",
           py::arg("lame"))
+      .def(
+          "model_metadata",
+          &DifferentiableSession::model_metadata,
+          "Return mesh and primary finite-element space metadata after setup.")
       .def(
           "initial_condition_dof_count",
           &DifferentiableSession::initial_condition_dof_count,
