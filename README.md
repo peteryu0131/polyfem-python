@@ -49,8 +49,10 @@ somewhere else, set `POLYFEMPY_DIFFDATA_ROOT` to that path instead.
 
 ## Current differentiable API status
 
-The new `polyfempy.differentiable_api` is currently a shape differentiable MVP.
-The user-facing path is `diff.shape_opt(...)`:
+`polyfempy.differentiable_api` supports scalar objectives differentiated with
+respect to shape vertices, elastic LamÃ© parameters, and initial conditions.
+The entry points are `diff.shape_opt(...)`, `diff.material_opt(...)`, and
+`diff.initial_condition_opt(...)`. For example:
 
 ```python
 diff_model = diff.model([forward_config])
@@ -63,33 +65,30 @@ loss = shape_opt()
 loss.backward()
 ```
 
-For optimization, configure the same shape problem with a PyTorch optimizer:
+Use an ordinary PyTorch optimizer. Here the vertices themselves are the parameters:
 
 ```python
-result = (
-    shape_opt
-    .optimizer(torch.optim.Adam, lr=1e-7)
-    .steps(100)
-    .optimize()
-)
+optimizer = torch.optim.Adam([vertices], lr=1e-7)
+optimization_steps = 100
+for iteration in range(optimization_steps):
+    optimizer.zero_grad()
+    loss = shape_opt()
+    loss.backward()
+    optimizer.step()
 ```
 
-The reference regression data comes from
-`differentiability-data/input/neohookean-stress-3d-opt.json`, which maps to the
-current `shape` parameter plus `stress_norm` objective path. The matching
-forward-style examples are:
+Optimization iterations count parameter updates. They are independent of the
+physical time steps within each transient solve (`dt` and `tend`). The existing
+`.optimizer(...).steps(100).optimize()` convenience syntax remains supported;
+its `steps` also counts optimization iterations. When optimizing a higher-level
+parameter such as angle or scale, compute its mapping inside `loss(parameter)`
+on every iteration so PyTorch can differentiate the complete chain.
 
-- `differentiable_example/shape/neohookean_stress_3d_opt.py`: one objective
-  evaluation plus `loss.backward()`, matching the reference opt spec.
-- `differentiable_example/shape/neohookean_stress_3d_optimization.py`: a
-  standalone PyTorch `torch.optim.Adam` example with the same forward setup
-  and `diff.shape_opt(...)` call.
+See the [example guide](differentiable_example/README.md) for runnable scripts,
+prerequisites, and the scope of each experiment.
 
-`diff.solve(state=..., parameters=...)` is the intended generic parameter API
-shape, but it is not the completed backend-backed entry point yet. Treat it as
-contract scaffolding until its backend session methods are implemented. The
-next API expansion target is elastic material parameters from the
-`elastic-material-smoothing-2d/3d-opt.json` differentiability-data fixtures.
+`diff.solve(state=..., parameters=...)` remains unfinished contract scaffolding;
+use the three objective entry points above for backend-backed differentiation.
 
 ### Shared parameter preparation
 
@@ -113,12 +112,33 @@ It currently accepts only unconstrained P1 triangle/tetrahedron displacement
 spaces without periodic boundaries, and raises an error for other layouts.
 Explicit FE coefficient tensors remain supported by `initial_condition_opt`.
 
-The material helper broadcasts one pair to `(n_elements, 2)` for the whole model.
-With a trainable pair, element gradients accumulate into that pair. To initialize
-independent per-element parameters instead, pass a non-trainable pair and call
-`lame.requires_grad_(True)` on the returned tensor, as in
-`differentiable_example/material/linear_elasticity_compliance.py`.
-The helpers do not choose material values, targets, or parameterizations.
+For one material shared by all elements, optimize the pair and rebuild its
+broadcast inside the loss on each call:
+
+```python
+material_pair = torch.tensor([1e5, 5e4], dtype=torch.float64, requires_grad=True)
+
+def loss(material_pair):
+    lame = metadata.uniform_material(material_pair)
+    return diff.material_opt(diff_model, lame, objective=objective)()
+
+optimizer = torch.optim.Adam([material_pair], lr=1.0)
+```
+
+Here `objective` is the scalar objective configured for your experiment. For
+independent parameters per element, initialize once outside the loop instead:
+
+```python
+lame = metadata.uniform_material(torch.tensor([1e5, 5e4], dtype=torch.float64))
+lame.requires_grad_(True)
+optimizer = torch.optim.Adam([lame], lr=1.0)
+```
+
+Do not pass a broadcast of a trainable pair to the optimizer: that tensor is
+not a leaf. Optimize the original pair, or initialize independent parameters
+as above. Likewise, rebuild `uniform_initial_condition(velocity)` inside the
+loss when velocity depends on a trainable parameter. Learning rates here are
+illustrative and should be chosen for your loss and parameter units.
 
 This interface requires a rebuilt C++ backend exposing
 `DifferentiableSession.model_metadata`; an older backend reports a rebuild hint.

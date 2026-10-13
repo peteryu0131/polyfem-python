@@ -11,15 +11,20 @@ from typing import Any
 from . import _backend
 from .model import DifferentiableModel
 from .objectives import Objective, _build_objective
+from .optimization import Optimization, OptimizationResult
 
 
-@dataclass(frozen=True)
-class ShapeOptimizationResult:
-    """Result returned by ShapeOptimization.optimize()."""
+@dataclass(frozen=True, init=False)
+class ShapeOptimizationResult(OptimizationResult):
+    """Common optimization result with the legacy shape constructor and alias."""
 
-    history: tuple[dict[str, Any], ...]
-    vertices: Any
-    loss: Any
+    def __init__(self, history, vertices, loss):
+        super().__init__(parameters=(vertices,), history=history, loss=loss)
+
+    @property
+    def vertices(self):
+        """Compatibility alias for parameters[0]; no copy is made."""
+        return self.parameters[0]
 
 
 class ShapeOptimization:
@@ -46,8 +51,7 @@ class ShapeOptimization:
         self.objective = objective
         self.selection = selection
         self.backend = backend
-        self.configured_optimizer: Any | None = None
-        self.configured_steps: int | None = None
+        self._runner: Optimization | None = None
 
     def __call__(self) -> Any:
         """Return one differentiable objective evaluation."""
@@ -64,33 +68,27 @@ class ShapeOptimization:
             **kwargs,
         )
 
+    def _optimization(self) -> Optimization:
+        if self._runner is None:
+            self._runner = Optimization(self, parameters=[self.vertices])
+        return self._runner
+
+    @property
+    def configured_optimizer(self) -> Any:
+        return None if self._runner is None else self._runner.configured_optimizer
+
+    @property
+    def configured_steps(self) -> int | None:
+        return None if self._runner is None else self._runner.configured_steps
+
     def optimizer(self, optimizer: Any, **kwargs: Any) -> ShapeOptimization:
-        """Configure the PyTorch optimizer used by optimize()."""
-
-        if _is_optimizer_instance(optimizer):
-            if kwargs:
-                raise TypeError(
-                    "optimizer keyword arguments require an optimizer class or factory"
-                )
-            configured = optimizer
-        elif callable(optimizer):
-            configured = optimizer([self.vertices], **kwargs)
-        else:
-            raise TypeError("optimizer must be an optimizer instance, class, or factory")
-
-        if not _is_optimizer_instance(configured):
-            raise TypeError("optimizer must provide zero_grad() and step()")
-        self.configured_optimizer = configured
+        """Configure the shared PyTorch optimizer; preserve shape chaining."""
+        self._optimization().optimizer(optimizer, **kwargs)
         return self
 
     def steps(self, steps: int) -> ShapeOptimization:
-        """Configure the number of optimization steps."""
-
-        if not isinstance(steps, int):
-            raise TypeError("steps must be an int")
-        if steps <= 0:
-            raise ValueError("steps must be positive")
-        self.configured_steps = steps
+        """Configure optimization updates, independently of simulation time steps."""
+        self._optimization().steps(steps)
         return self
 
     def optimize(
@@ -98,9 +96,10 @@ class ShapeOptimization:
         *,
         optimizer: Any | None = None,
         steps: int | None = None,
+        record: Any = None,
+        bounds: Any = None,
     ) -> ShapeOptimizationResult:
-        """Run the configured PyTorch optimization loop."""
-
+        """Run the shared loop, keeping the legacy result.vertices alias."""
         if optimizer is not None:
             self.optimizer(optimizer)
         if steps is not None:
@@ -109,26 +108,9 @@ class ShapeOptimization:
             raise ValueError("optimizer must be configured before optimize()")
         if self.configured_steps is None:
             raise ValueError("steps must be configured before optimize()")
-
-        history = []
-        loss = None
-        for step in range(self.configured_steps):
-            self.configured_optimizer.zero_grad()
-            loss = self()
-            loss.backward()
-            history.append(
-                {
-                    "step": step,
-                    "loss": _as_float(loss),
-                    "gradient_norm": _gradient_norm(self.vertices),
-                }
-            )
-            self.configured_optimizer.step()
-
+        result = self._optimization().optimize(record=record, bounds=bounds)
         return ShapeOptimizationResult(
-            history=tuple(history),
-            vertices=self.vertices,
-            loss=loss,
+            history=result.history, vertices=result.parameters[0], loss=result.loss,
         )
 
 
@@ -176,37 +158,6 @@ def shape_solve(
         backend=backend,
     )
     return solution
-
-
-def _is_optimizer_instance(value: Any) -> bool:
-    if isinstance(value, type):
-        return False
-    return callable(getattr(value, "zero_grad", None)) and callable(
-        getattr(value, "step", None)
-    )
-
-
-def _as_float(value: Any) -> float:
-    detach = getattr(value, "detach", None)
-    if callable(detach):
-        value = detach()
-    cpu = getattr(value, "cpu", None)
-    if callable(cpu):
-        value = cpu()
-    item = getattr(value, "item", None)
-    if callable(item):
-        value = item()
-    return float(value)
-
-
-def _gradient_norm(vertices: Any) -> float:
-    grad = getattr(vertices, "grad", None)
-    if grad is None:
-        raise RuntimeError("vertices.grad is None after loss.backward()")
-    norm = getattr(grad, "norm", None)
-    if not callable(norm):
-        raise TypeError("vertices.grad must provide norm()")
-    return _as_float(norm())
 
 
 def _single_shape_payload(

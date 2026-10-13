@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small PyTorch optimizer loop for the neohookean-stress-3d ShapeOpt case."""
+"""Shape optimization with the compact API and an equivalent commented PyTorch loop."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ body = polyfem.body(model=model)
 body.mesh(mesh)
 body.material(material)
 body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
-model.rhs([10, 100, 0])
+body.rhs(value=[10, 100, 0])
 
 solver = polyfem.solver(
     max_threads=1,
@@ -60,31 +60,43 @@ diff_model = diff.model([polyfem_config])
 shape_opt = diff.shape_opt(diff_model, vertices, objective=diff.Objective.STRESS_NORM)
 
 
-# PyTorch optimization
-steps = 2
+# Optimization updates, independent of physical simulation time steps.
+optimization_steps = 2
 lr = 1e-7
-optimizer = torch.optim.Adam([vertices], lr=lr)
-history = []
-loss = None
 
-for step in range(steps):
-    optimizer.zero_grad()
+# Option 1: compact API (enabled).
+result = (
+    shape_opt
+    .optimizer(torch.optim.Adam, lr=lr)
+    .steps(optimization_steps)
+    .optimize()
+)
+history = result.history
+loss = result.loss
+# Shared result interface: result.parameters[0] is the updated vertices tensor.
+# The legacy result.vertices alias still points to that same tensor.
 
-    loss = shape_opt()
-    loss.backward()
-
-    history.append({
-        "step": step,
-        "loss": float(loss.detach()),
-        "gradient_norm": float(vertices.grad.norm()),
-    })
-
-    optimizer.step()
+# Option 2: equivalent PyTorch loop for customizing each update.
+# To use it, comment out Option 1 (including history/loss assignments),
+# uncomment the block below, and rerun the script from the beginning.
+# optimizer = torch.optim.Adam([vertices], lr=lr)
+# history = []
+# loss = None
+# for step in range(optimization_steps):
+#     optimizer.zero_grad()
+#     loss = shape_opt()
+#     loss.backward()
+#     history.append({
+#         "step": step,
+#         "loss": float(loss.detach()),
+#         "gradient_norm": float(vertices.grad.norm()),
+#     })
+#     optimizer.step()
 
 summary = {
     "source_opt_spec": str(OPT_SPEC_PATH),
     "objective": diff.Objective.STRESS_NORM.value,
-    "steps": steps,
+    "steps": optimization_steps,
     "lr": lr,
     "initial_loss": history[0]["loss"],
     "last_loss": float(loss.detach()),

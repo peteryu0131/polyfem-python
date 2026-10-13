@@ -33,7 +33,7 @@ class Objective(str, Enum):
 
 @dataclass(frozen=True)
 class ObjectiveSpec:
-    """JSON-shaped objective description for future backend objective losses."""
+    """Objective description serialized for differentiable backend solves."""
 
     type_name: str
     state: Any = 0

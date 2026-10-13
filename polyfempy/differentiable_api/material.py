@@ -33,6 +33,12 @@ class MaterialOptimization:
         )
         self.backend = backend
 
+    def optimizer(self, optimizer: Any, **kwargs: Any) -> Any:
+        """Optimize direct leaf Lamé parameters with the shared PyTorch loop."""
+        from .optimization import optimization
+
+        return optimization(self, parameters=[self.lame]).optimizer(optimizer, **kwargs)
+
     def __call__(self) -> Any:
         """Return one differentiable material objective evaluation."""
 

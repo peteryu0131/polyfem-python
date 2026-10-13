@@ -7,7 +7,7 @@ Run from the repository root in the polyfem environment:
 Edit the settings below, then read loss(theta) and the ordinary PyTorch loop.
 We reconstruct equal-height landing from a simulated position under constant
 gravity. This benchmark has no drag or ground contact; it is not an event solver.
-Details: docs/projectile-angle-example.md
+Example guide: differentiable_example/README.md
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ OUTPUT_DIR = EXAMPLE_DIR / "runs" / "projectile_angle"
 START_ANGLE_DEGREES = 20.0
 SPEED = 1.0
 GRAVITY = 1.0
-STEPS = 8
+STEPS = 8  # Optimization updates; simulation time steps are controlled by DT/PROBE_TIME.
 LEARNING_RATE = 0.2  # Step size relative to the characteristic range SPEED**2/GRAVITY.
 DT = 0.01
 PROBE_TIME = 0.2  # Simulate to this time, then reconstruct the ballistic landing.
@@ -124,23 +124,39 @@ def main():
     # Range and its angle gradient scale with SPEED**2/GRAVITY. Normalize the
     # optimizer step so changing physical units does not amplify or shrink it.
     range_scale = SPEED ** 2 / GRAVITY
-    optimizer = torch.optim.SGD([theta], lr=LEARNING_RATE / range_scale)
-    history = []
-    print("Maximize equal-height landing range (continuous reference: 45 degrees).", flush=True)
-    for step in range(STEPS):
-        optimizer.zero_grad()
-        value = loss(theta)
-        value.backward()
-        history.append({
-            "step": step, "angle_degrees": math.degrees(float(theta.detach())),
+    # This recorder only handles experiment-specific display/history.
+    def record(step, value):
+        row = {
+            "angle_degrees": math.degrees(float(theta.detach())),
             "range": -float(value.detach()), "angle_gradient": float(theta.grad),
-        })
-        print(f"Step {step:2d}: angle={history[-1]['angle_degrees']:7.3f} deg, "
-              f"range={history[-1]['range']:.6f}", flush=True)
-        optimizer.step()
-        # Restrict the search to upward launches; the optimum is interior.
-        with torch.no_grad():
-            theta.clamp_(math.radians(5), math.radians(85))
+        }
+        print(f"Step {step:2d}: angle={row['angle_degrees']:7.3f} deg, "
+              f"range={row['range']:.6f}", flush=True)
+        return row
+
+    print("Maximize equal-height landing range (continuous reference: 45 degrees).", flush=True)
+    result = (
+        diff.optimization(lambda: loss(theta), parameters=[theta])
+        .optimizer(torch.optim.SGD, lr=LEARNING_RATE / range_scale)
+        .steps(STEPS)
+        .optimize(record=record, bounds=[(math.radians(5), math.radians(85))])
+    )
+    history = result.history
+
+    # Equivalent full loop: replace the result/history block above, then rerun.
+    # optimizer = torch.optim.SGD([theta], lr=LEARNING_RATE / range_scale)
+    # history = []
+    # for step in range(STEPS):
+    #     optimizer.zero_grad()
+    #     value = loss(theta)
+    #     value.backward()
+    #     history.append({
+    #         "step": step, "loss": float(value.detach()),
+    #         "gradient_norm": float(theta.grad.norm()), **record(step, value),
+    #     })
+    #     optimizer.step()
+    #     with torch.no_grad():
+    #         theta.clamp_(math.radians(5), math.radians(85))
     with torch.no_grad():
         final_range = -float(loss(theta))
     summary = {

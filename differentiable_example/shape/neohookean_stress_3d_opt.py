@@ -27,7 +27,7 @@ body = polyfem.body(model=model)
 body.mesh(mesh)
 body.material(material)
 body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
-model.rhs([10, 100, 0])
+body.rhs(value=[10, 100, 0])
 
 solver = polyfem.solver(
     max_threads=1,

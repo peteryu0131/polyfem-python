@@ -58,6 +58,39 @@ def test_uniform_preparation_preserves_chain_rule_and_checks_inputs():
         metadata.uniform_initial_condition(velocity, displacement=displacement.float())
 
 
+def test_preparation_errors_identify_actual_input_and_correction():
+    torch = pytest.importorskip("torch")
+    metadata = diff.ModelMetadata(3, 4, 1, 4, 3, 12, True)
+    with pytest.raises(ValueError, match=r"shape \(3,\).*got \(2,\)"):
+        metadata.uniform_initial_condition(torch.zeros(2))
+    with pytest.raises(ValueError, match=r"\[lambda, mu\].*got \(4, 2\)"):
+        metadata.uniform_material(torch.zeros(4, 2))
+    with pytest.raises(ValueError, match=r"torch.int64.*to\(dtype=torch.float64\)"):
+        metadata.uniform_material(torch.tensor([1, 2]))
+
+
+def test_shared_and_independent_material_parameters_support_optimizer_loops():
+    torch = pytest.importorskip("torch")
+    metadata = diff.ModelMetadata(2, 5, 4, 5, 2, 10, True)
+    pair = torch.tensor([2.0, 3.0], dtype=torch.float64, requires_grad=True)
+    shared_optimizer = torch.optim.SGD([pair], lr=0.01)
+    independent = metadata.uniform_material(pair.detach()).requires_grad_(True)
+    independent_optimizer = torch.optim.SGD([independent], lr=0.01)
+    weights = torch.arange(1, 5, dtype=torch.float64).unsqueeze(1)
+    for _ in range(2):
+        shared_optimizer.zero_grad()
+        broadcast = metadata.uniform_material(pair)
+        (weights * broadcast.square()).sum().backward()
+        torch.testing.assert_close(pair.grad, 2 * weights.sum() * pair.detach())
+        shared_optimizer.step()
+        independent_optimizer.zero_grad()
+        (weights * independent.square()).sum().backward()
+        torch.testing.assert_close(independent.grad, 2 * weights * independent.detach())
+        independent_optimizer.step()
+    assert independent.is_leaf
+    assert not torch.equal(independent[0], independent[-1])
+
+
 @pytest.fixture
 def replacement_mesh(tmp_path):
     # Same centered unit square, different topology: 5 vertices / 4 triangles.

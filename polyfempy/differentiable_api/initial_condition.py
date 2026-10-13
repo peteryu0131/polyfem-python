@@ -36,6 +36,12 @@ class InitialConditionOptimization:
         )
         self.backend = backend
 
+    def optimizer(self, optimizer: Any, **kwargs: Any) -> Any:
+        """Optimize direct leaf FE coefficients; use optimization(loss, ...) for angles."""
+        from .optimization import optimization
+
+        return optimization(self, parameters=[self.initial_condition]).optimizer(optimizer, **kwargs)
+
     def __call__(self) -> Any:
         """Return one differentiable initial-condition objective evaluation."""
 

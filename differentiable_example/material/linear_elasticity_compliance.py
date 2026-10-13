@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal MaterialOpt compliance example with per-element Lame parameters."""
+"""Material compliance optimization with per-element Lame parameters."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ body.surface_box(
     box=[[-0.5001, -0.006], [-0.4999, 0.006]],
     relative=False, id=1,
 ).dirichlet(value=[0.0, 0.0])
-model.rhs([10, 100])
+body.rhs(value=[10, 100])
 
 space = polyfem.space(
     discr_order=1,
@@ -72,14 +72,33 @@ material_opt = diff.material_opt(
     objective_params={"selection": 1},
 )
 
-loss = material_opt()
-loss.backward()
+# Two demonstration updates; this is not a constrained material-design problem.
+optimization_steps = 2
+lr = 1.0
+result = material_opt.optimizer(torch.optim.Adam, lr=lr).steps(optimization_steps).optimize()
+history = result.history
+loss = result.loss  # Last pre-update loss, matching the history below.
+
+# Equivalent full loop: replace the result/history/loss lines above with this block.
+# optimizer = torch.optim.Adam([lame], lr=lr)
+# history = []
+# for step in range(optimization_steps):
+#     optimizer.zero_grad()
+#     loss = material_opt()
+#     loss.backward()
+#     history.append({
+#         "step": step, "loss": float(loss.detach()),
+#         "gradient_norm": float(lame.grad.norm()),
+#     })
+#     optimizer.step()
 
 summary = {
     "objective": diff.Objective.COMPLIANCE.value,
     "material_parameter": "lame",
     "lame_shape": list(lame.shape),
     "loss": float(loss.detach()),
+    "history": history,
+    "steps": optimization_steps,
     "gradient_shape": list(lame.grad.shape),
     "gradient_norm": float(lame.grad.norm()),
     "output_dir": str(output_dir),

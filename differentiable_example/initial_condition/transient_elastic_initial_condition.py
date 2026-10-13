@@ -63,7 +63,6 @@ diff_model = diff.model([polyfem_config])
 metadata = diff_model.metadata()
 dof_count = metadata.n_dofs
 
-assert dof_count % 2 == 0
 target_x = 0.02
 speed = 1.0
 
@@ -95,15 +94,27 @@ def main():
     initial_loss = float(value.detach())
     initial_gradient = float(theta.grad)
 
-    # Rebuild the mapping and wrapper on each call; only theta is optimized.
-    optimizer = torch.optim.Adam([theta], lr=0.05)
-    history = []
-    for step in range(8):
-        optimizer.zero_grad()
-        value = angle_loss(theta)
-        value.backward()
-        history.append({"step": step, "theta": float(theta.detach()), "loss": float(value.detach())})
-        optimizer.step()
+    # Re-evaluate angle -> velocity -> simulation on every iteration.
+    result = (
+        diff.optimization(lambda: angle_loss(theta), parameters=[theta])
+        .optimizer(torch.optim.Adam, lr=0.05)
+        .steps(8)
+        .optimize(record=lambda step, value: {"theta": float(theta.detach())})
+    )
+    history = result.history
+
+    # Equivalent full loop: replace the result/history block above, then rerun.
+    # optimizer = torch.optim.Adam([theta], lr=0.05)
+    # history = []
+    # for step in range(8):
+    #     optimizer.zero_grad()
+    #     value = angle_loss(theta)
+    #     value.backward()
+    #     history.append({
+    #         "step": step, "theta": float(theta.detach()), "loss": float(value.detach()),
+    #         "gradient_norm": float(theta.grad.norm()),
+    #     })
+    #     optimizer.step()
     final_loss = float(angle_loss(theta).detach())
 
     summary = {

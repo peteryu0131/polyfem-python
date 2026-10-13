@@ -634,6 +634,10 @@ def test_linear_elasticity_compliance_material_example_runs(tmp_path):
 
     assert summary["objective"] == "compliance"
     assert summary["material_parameter"] == "lame"
+    assert summary["steps"] == 2
+    assert len(summary["history"]) == 2
+    assert summary["history"][1]["loss"] < summary["history"][0]["loss"]
+    assert summary["loss"] == summary["history"][-1]["loss"]
     assert summary["lame_shape"] == [40, 2]
     assert summary["gradient_shape"] == [40, 2]
     assert math.isfinite(summary["loss"])

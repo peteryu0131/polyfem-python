@@ -44,7 +44,12 @@ class ModelMetadata:
             displacement = torch.zeros_like(velocity)
         self._check_vector(displacement, self.value_dim, "displacement")
         if displacement.dtype != velocity.dtype or displacement.device != velocity.device:
-            raise ValueError("displacement and velocity must have the same dtype and device")
+            raise ValueError(
+                "displacement and velocity must have the same dtype and device; "
+                f"got displacement={displacement.dtype}/{displacement.device}, "
+                f"velocity={velocity.dtype}/{velocity.device}. "
+                "Use displacement.to(velocity) to match them."
+            )
         return torch.stack(
             (displacement.repeat(self.n_bases), velocity.repeat(self.n_bases)), dim=1
         )
@@ -63,9 +68,23 @@ class ModelMetadata:
         import torch
 
         if not isinstance(value, torch.Tensor):
-            raise TypeError(f"{name} must be a floating-point torch.Tensor")
-        if not value.is_floating_point() or tuple(value.shape) != (size,):
-            raise ValueError(f"{name} must be a floating-point tensor with shape ({size},)")
+            raise TypeError(
+                f"{name} must be a floating-point torch.Tensor; got {type(value).__name__}. "
+                "Use torch.tensor(values, dtype=torch.float64) for constant input."
+            )
+        if not value.is_floating_point():
+            raise ValueError(
+                f"{name} must be floating-point; got {value.dtype}. "
+                f"Use {name}.to(dtype=torch.float64)."
+            )
+        if tuple(value.shape) != (size,):
+            components = "[lambda, mu]" if name == "lame" else "one component per spatial dimension"
+            raise ValueError(
+                f"{name} must have shape ({size},), {components}; "
+                f"got {tuple(value.shape)}. This helper broadcasts one vector "
+                "to the whole model; pass per-element or per-DOF tensors directly "
+                "to the corresponding diff.*_opt operation."
+            )
         if not bool(torch.isfinite(value).all()):
             raise ValueError(f"{name} must contain only finite values")
 

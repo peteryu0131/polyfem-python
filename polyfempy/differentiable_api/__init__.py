@@ -13,6 +13,7 @@ from .objectives import (
     objectives,
 )
 from .parameter import parameter
+from .optimization import Optimization, OptimizationResult, optimization
 from .result import DifferentiableResult
 from .shape import (
     ShapeOptimization,
@@ -34,6 +35,9 @@ __all__ = [
     "MaterialOptimization",
     "Objective",
     "ObjectiveSpec",
+    "Optimization",
+    "OptimizationResult",
+    "optimization",
     "ShapeOpt",
     "ShapeOptimization",
     "ShapeOptimizationResult",
