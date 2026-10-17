@@ -1,0 +1,152 @@
+{
+  "pde": "NonLinearElasticity",
+  "discr_order": 1,
+  "materials": [
+    {
+      "type": "NeoHookean",
+      "E": {
+        "value": 20.0,
+        "unit": "MPa"
+      },
+      "nu": 0.45,
+      "id": 1,
+      "rho": {
+        "value": 1100.0,
+        "unit": "kg/m^3"
+      }
+    },
+    {
+      "type": "NeoHookean",
+      "E": {
+        "value": 200.0,
+        "unit": "GPa"
+      },
+      "nu": 0.45,
+      "id": 2,
+      "rho": {
+        "value": 7850.0,
+        "unit": "kg/m^3"
+      }
+    }
+  ],
+  "boundary_conditions": {
+    "dirichlet_boundary": [
+      {
+        "value": [
+          0.0,
+          0.0
+        ],
+        "id": 1
+      }
+    ],
+    "rhs": [
+      0.0,
+      980.0
+    ]
+  },
+  "geometry": [
+    {
+      "mesh": "../assets/impact/triangular_lattice.msh",
+      "volume_selection": 1,
+      "surface_selection": [
+        {
+          "id": 1,
+          "axis": -2,
+          "position": 0.0001
+        }
+      ]
+    },
+    {
+      "mesh": "../assets/impact/falling_weight_block.msh",
+      "volume_selection": 2
+    }
+  ],
+  "units": {
+    "length": "cm",
+    "mass": "g",
+    "time": "s",
+    "characteristic_length": 1.0
+  },
+  "solver": {
+    "linear": {
+      "solver": "Eigen::PardisoLDLT"
+    },
+    "nonlinear": {
+      "solver": "Newton",
+      "max_iterations": 800,
+      "grad_norm": 0.002,
+      "Newton": {
+        "residual_tolerance": 100.0
+      }
+    },
+    "contact": {
+      "CCD": {
+        "broad_phase": "hash_grid",
+        "tolerance": 1e-06,
+        "max_iterations": 1000000
+      },
+      "barrier_stiffness": "adaptive"
+    }
+  },
+  "time": {
+    "t0": 0.0,
+    "tend": 0.02,
+    "dt": 0.01,
+    "integrator": "ImplicitEuler"
+  },
+  "output": {
+    "directory": "../runs/readme_contact_impact",
+    "json": "impact_stats.json",
+    "paraview": {
+      "volume": true,
+      "surface": false,
+      "wireframe": false,
+      "points": false,
+      "high_order_mesh": true,
+      "file_name": "",
+      "options": {
+        "material": true,
+        "body_ids": true,
+        "velocity": true,
+        "scalar_values": true,
+        "tensor_values": true
+      },
+      "vismesh_rel_area": 10000000,
+      "skip_frame": 1
+    },
+    "log": {
+      "level": "debug",
+      "file_level": "debug",
+      "path": "polyfem.log",
+      "quiet": true
+    },
+    "advanced": {
+      "timestep_prefix": "impact_step_",
+      "save_time_sequence": true
+    },
+    "result": {
+      "fields": [
+        "u",
+        "stress",
+        "von_mises"
+      ],
+      "strict": false
+    },
+    "fallback": {
+      "sampled_vtu": "auto"
+    }
+  },
+  "contact": {
+    "enabled": true,
+    "dhat": 0.012
+  },
+  "space": {
+    "discr_order": 1,
+    "pressure_discr_order": 1,
+    "use_p_ref": false,
+    "polynomial_type": "Lagrange",
+    "advanced": {
+      "bc_method": "sample"
+    }
+  }
+}
