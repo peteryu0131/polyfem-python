@@ -1,9 +1,13 @@
 #include "binding.hpp"
+#include "von_mises.hpp"
+#include <polyfem/optimization/forms/TransientForm.hpp>
 
 #include <polyfem/optimization/BuildFromJson.hpp>
 #include <polyfem/optimization/DiffCache.hpp>
 #include <polyfem/optimization/VarFormDiff.hpp>
 #include <polyfem/optimization/parametrization/Parametrization.hpp>
+#include <polyfem/optimization/parametrization/Parametrizations.hpp>
+#include <polyfem/Units.hpp>
 #include <polyfem/optimization/var2sims/ElasticVariableToSimulation.hpp>
 #include <polyfem/optimization/var2sims/InitialConditionVariableToSimulation.hpp>
 #include <polyfem/optimization/var2sims/ShapeVariableToSimulation.hpp>
@@ -12,6 +16,7 @@
 #include <Eigen/Core>
 
 #include <memory>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -108,6 +113,17 @@ void validate_solution_gradient_shape(
   }
 }
 
+void validate_material_enu(const Eigen::VectorXd &values, int dimension)
+{
+  if ((dimension != 2 && dimension != 3) || values.size() == 0 || values.size() % 2 != 0)
+    throw std::runtime_error("E/nu conversion requires dimension 2 or 3 and equal nonempty E and nu vectors.");
+  const int count = values.size() / 2;
+  for (int i = 0; i < count; ++i)
+    if (!std::isfinite(values(i)) || values(i) <= 0 || !std::isfinite(values(i + count))
+        || values(i + count) <= -1 || values(i + count) >= 0.5)
+      throw std::runtime_error("Isotropic material requires finite E > 0 and -1 < nu < 0.5.");
+}
+
 class DifferentiableSession
 {
 public:
@@ -116,9 +132,15 @@ public:
   void set_settings(const py::object &settings)
   {
     settings_ = settings_from_python(settings);
+    // Match the forward backend: zero means no additional thread limit.
+    // Do not silently replace an explicitly configured limit with one thread.
+    const auto solver_settings = settings_.value("solver", polyfem::json::object());
+    const auto thread_limit = solver_settings.value("max_threads", polyfem::json(0));
+    if (!thread_limit.is_number_integer() || thread_limit.get<int>() < 0)
+      throw std::runtime_error("solver.max_threads must be a non-negative integer (0 is unlimited).");
     varform_ = polyfem::from_json::build_differentiable_varform(
         settings_,
-        max_threads_);
+        static_cast<size_t>(thread_limit.get<int>()));
     diff_cache_ = std::make_shared<polyfem::DiffCache>();
     shape_var2sim_ = build_direct_shape_variable_to_simulation();
     material_var2sim_ = build_direct_material_variable_to_simulation();
@@ -132,6 +154,21 @@ public:
     has_solution_ = false;
     active_parameter_kind_ = ActiveParameterKind::Shape;
     objective_form_.reset();
+  }
+
+  std::string settings() const
+  {
+    if (!has_settings_)
+      throw std::runtime_error("Call set_settings(...) before settings().");
+    return varform_->get_args().dump(2);
+  }
+
+  Eigen::MatrixXd mesh_vertices() const
+  {
+    if (!has_settings_) throw std::runtime_error("Call set_settings before mesh_vertices");
+    Eigen::MatrixXd vertices;
+    varform_->get_vertices(vertices);
+    return vertices;
   }
 
   void set_objective(const py::object &objective)
@@ -226,6 +263,10 @@ public:
     result["dimension"] = mesh.dimension();
     result["n_vertices"] = mesh.n_vertices();
     result["n_elements"] = mesh.n_elements();
+    py::list element_body_ids;
+    for (int e = 0; e < mesh.n_elements(); ++e)
+      element_body_ids.append(mesh.get_body_id(e));
+    result["element_body_ids"] = element_body_ids;
     result["n_bases"] = space.n_bases;
     result["value_dim"] = space.value_dim;
     result["n_dofs"] = space.ndof();
@@ -310,6 +351,14 @@ public:
     run_forward_solve();
     objective_form_->solution_changed(current_shape_x_);
     return objective_form_->value(current_shape_x_);
+  }
+
+  py::object objective_info() const
+  {
+    if (!has_solution_) throw std::runtime_error("Solve before requesting objective_info");
+    const auto peak = std::dynamic_pointer_cast<polyfempy::differentiable_api::VonMisesPeakForm>(objective_form_);
+    const auto info = peak ? peak->info() : polyfem::json::object();
+    return py::module_::import_("json").attr("loads")(info.dump());
   }
 
   double solve_material_objective()
@@ -511,6 +560,76 @@ private:
       return;
     }
 
+    if (objective_.value("type", std::string{}) == "von_mises_peak")
+    {
+      if (active_parameter_kind_ != ActiveParameterKind::Material
+          && active_parameter_kind_ != ActiveParameterKind::Shape)
+        throw std::runtime_error("von_mises_peak supports material_opt and shape_opt only");
+      if (active_parameter_kind_ == ActiveParameterKind::Shape)
+      {
+        if (varform_->is_contact_enabled()
+            && !varform_->get_args().at("solver").at("contact").at("barrier_stiffness").is_number())
+          throw std::runtime_error("von_mises_peak shape gradients require fixed numeric contact barrier_stiffness; adaptive contact gradients are not validated");
+        const auto &space = varform_->primary_space();
+        if (!varform_->get_mesh().is_simplicial() || space.disc_orders.size() == 0
+            || space.disc_orders.minCoeff() != 1 || space.disc_orders.maxCoeff() != 1)
+          throw std::runtime_error("von_mises_peak shape gradients currently require P1 simplex meshes");
+        // Spatial material expressions need additional constitutive position derivatives.
+        auto materials = settings_.at("materials");
+        if (materials.is_object()) materials = polyfem::json::array({materials});
+        for (const auto &material : materials)
+          for (const auto *key : {"E", "nu", "lambda", "mu"})
+            if (material.contains(key))
+            {
+              const auto &v = material.at(key);
+              if (!v.is_number() && !(v.is_object() && v.contains("value") && v.at("value").is_number()))
+                throw std::runtime_error("von_mises_peak shape gradients require uniform numeric material properties");
+            }
+      }
+      if (objective_.value("state", 0) != 0)
+        throw std::runtime_error("von_mises_peak requires state=0");
+      objective_form_ = std::make_shared<polyfempy::differentiable_api::VonMisesPeakForm>(
+          build_active_variable_to_simulation_group(), varform_, diff_cache_, objective_);
+      objective_form_->set_weight(objective_.value("weight", 1.0));
+      const auto print_energy = objective_.value("print_energy", std::string{});
+      if (!print_energy.empty()) objective_form_->enable_energy_print(print_energy);
+      return;
+    }
+
+    const bool wrapped_mises = objective_.value("type", std::string{}) == "transient_integral"
+        && objective_.contains("static_objective")
+        && objective_["static_objective"].value("type", std::string{}) == "von_mises_squared";
+    if (objective_.value("type", std::string{}) == "von_mises_squared" || wrapped_mises)
+    {
+      const auto &spatial_args = wrapped_mises ? objective_["static_objective"] : objective_;
+      if (active_parameter_kind_ != ActiveParameterKind::Material)
+        throw std::runtime_error("von_mises_squared currently supports material_opt only");
+      if (objective_.value("state", 0) != 0 || spatial_args.value("state", 0) != 0)
+        throw std::runtime_error("von_mises_squared requires state=0");
+      if (varform_->get_problem().is_time_dependent() != wrapped_mises)
+        throw std::runtime_error("von_mises_squared: transient models require .final(); static models require an unwrapped objective");
+      if (wrapped_mises && (objective_.value("integral_type", std::string{}) != "final"
+                            || !objective_.value("steps", std::vector<int>{}).empty()))
+        throw std::runtime_error("von_mises_squared currently supports only final-time aggregation");
+      const auto variables = build_active_variable_to_simulation_group();
+      auto spatial = std::make_shared<polyfempy::differentiable_api::VonMisesSquaredForm>(
+          variables, varform_, diff_cache_, spatial_args);
+      spatial->set_weight(spatial_args.value("weight", 1.0));
+      objective_form_ = spatial;
+      if (wrapped_mises)
+      {
+        const auto &time = varform_->get_args()["time"];
+        objective_form_ = std::make_shared<polyfem::solver::TransientForm>(
+            variables, time["time_steps"].get<int>(), time["dt"].get<double>(),
+            "final", std::vector<int>{}, spatial);
+        objective_form_->set_weight(objective_.value("weight", 1.0));
+      }
+      const auto print_energy = spatial_args.value("print_energy", std::string{});
+      if (!print_energy.empty())
+        objective_form_->enable_energy_print(print_energy);
+      return;
+    }
+
     std::vector<std::shared_ptr<polyfem::varform::DifferentiableVarForm>> varforms{
         varform_};
     std::vector<std::shared_ptr<polyfem::DiffCache>> diff_caches{
@@ -528,7 +647,6 @@ private:
   bool has_material_lame_parameters_ = false;
   bool has_initial_condition_parameters_ = false;
   bool has_solution_ = false;
-  size_t max_threads_ = 1;
   int input_vertex_count_ = 0;
   int input_dimension_ = 0;
   ActiveParameterKind active_parameter_kind_ = ActiveParameterKind::Shape;
@@ -640,6 +758,30 @@ private:
 
 void define_differentiable_session(py::module_ &m)
 {
+  // Small conversion bindings: reuse PolyFEM's units and parametrization,
+  // without constructing a simulation or changing its adjoint implementation.
+  m.def("_material_stress_scale", [](const py::object &settings, const std::string &unit) {
+    auto args = settings_from_python(settings);
+    polyfem::json defaults = {{"length", "m"}, {"mass", "kg"}, {"time", "s"},
+                              {"temperature", "K"}, {"characteristic_length", 1.0}};
+    defaults.update(args);
+    polyfem::Units units;
+    units.init(defaults);
+    const double scale = polyfem::Units::convert(1.0, unit, units.stress());
+    if (!std::isfinite(scale) || scale <= 0)
+      throw std::runtime_error("Invalid stress unit conversion.");
+    return scale;
+  });
+  m.def("_material_enu_to_lame", [](const Eigen::VectorXd &values, int dimension) {
+    validate_material_enu(values, dimension);
+    return polyfem::solver::ENu2LambdaMu(dimension == 3).eval(values);
+  });
+  m.def("_material_enu_backward", [](const Eigen::VectorXd &values, const Eigen::VectorXd &gradient, int dimension) {
+    validate_material_enu(values, dimension);
+    if (gradient.size() != values.size() || !gradient.allFinite())
+      throw std::runtime_error("Invalid E/nu conversion gradient.");
+    return polyfem::solver::ENu2LambdaMu(dimension == 3).apply_jacobian(gradient, values);
+  });
   py::class_<DifferentiableSession>(m, "DifferentiableSession")
       .def(py::init<>())
       .def(
@@ -647,6 +789,10 @@ void define_differentiable_session(py::module_ &m)
           &DifferentiableSession::set_settings,
           "Store differentiable solve settings.",
           py::arg("settings"))
+      .def(
+          "settings",
+          &DifferentiableSession::settings,
+          "Return resolved backend settings as JSON, without running a solve.")
       .def(
           "set_objective",
           &DifferentiableSession::set_objective,
@@ -664,6 +810,9 @@ void define_differentiable_session(py::module_ &m)
           &DifferentiableSession::set_material_lame_parameters,
           "Store direct elastic Lamé parameters for a future objective solve.",
           py::arg("lame"))
+      .def("objective_info", &DifferentiableSession::objective_info)
+      .def("mesh_vertices", &DifferentiableSession::mesh_vertices,
+           "Return vertices in the exact order expected by set_shape_vertices, without solving.")
       .def(
           "model_metadata",
           &DifferentiableSession::model_metadata,

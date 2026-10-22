@@ -26,6 +26,30 @@ except Exception as exc:  # pragma: no cover - exercised only without torch
 
 if _TORCH_IMPORT_ERROR is None:
 
+    class _MaterialENu(Function):
+        """First-order bridge to PolyFEM's existing ENu2LambdaMu parametrization."""
+
+        @staticmethod
+        def forward(ctx, values, dimension, backend):
+            # Keep an independent snapshot even if the caller later updates its parameters.
+            packed = _material_lame_to_backend_array(values).copy()
+            result = backend._material_enu_to_lame(packed, dimension)
+            ctx.packed, ctx.dimension, ctx.backend = packed, dimension, backend
+            ctx.dtype, ctx.device = values.dtype, values.device
+            return torch.as_tensor(
+                _material_lame_gradient_from_backend(result, element_count=values.shape[0]),
+                dtype=values.dtype, device=values.device,
+            )
+
+        @staticmethod
+        @torch.autograd.function.once_differentiable
+        def backward(ctx, gradient):
+            result = ctx.backend._material_enu_backward(
+                ctx.packed, _material_lame_to_backend_array(gradient), ctx.dimension)
+            return (torch.as_tensor(
+                _material_lame_gradient_from_backend(result, element_count=len(ctx.packed) // 2),
+                dtype=ctx.dtype, device=ctx.device), None, None)
+
     def _is_torch_tensor(value: Any) -> bool:
         tensor_type = getattr(torch, "Tensor", None)
         return tensor_type is not None and isinstance(value, tensor_type)
@@ -239,6 +263,7 @@ if _TORCH_IMPORT_ERROR is None:
                 "backend",
                 "objective",
                 "objective_params",
+                "diagnostics",
             }
             unknown = sorted(set(kwargs) - allowed)
             if unknown:
@@ -274,6 +299,9 @@ if _TORCH_IMPORT_ERROR is None:
 
             if "objective" not in kwargs:
                 raise TypeError("MaterialOpt.apply requires objective")
+            if "diagnostics" in kwargs:
+                return super().apply(model, lame, backend, kwargs["objective"],
+                                     kwargs.get("objective_params"), kwargs["diagnostics"])
             if "objective_params" in kwargs:
                 return super().apply(
                     model,
@@ -297,6 +325,7 @@ if _TORCH_IMPORT_ERROR is None:
             backend: Any | None = None,
             objective: Any | None = None,
             objective_params: Any | None = None,
+            diagnostics: Any | None = None,
         ) -> Any:
             payload = _single_material_payload(
                 model=model,
@@ -310,12 +339,16 @@ if _TORCH_IMPORT_ERROR is None:
                 objective_params=objective_params,
                 backend=backend,
             )
+            if diagnostics is not None:
+                diagnostics.clear()
+                if callable(getattr(session, "objective_info", None)):
+                    diagnostics.update(session.objective_info())
             ctx.session = session
             ctx.input_lame = lame
             ctx.element_count = int(lame.shape[0]) if hasattr(lame, "shape") else (
                 np.asarray(lame).shape[0]
             )
-            ctx.gradient_count = 5 if objective_params is not None else 4
+            ctx.gradient_count = len(ctx.needs_input_grad)
             return _to_torch_tensor(objective_value, like=lame)
 
         @staticmethod
@@ -336,9 +369,7 @@ if _TORCH_IMPORT_ERROR is None:
                     None,
                     None,
                 )
-                if getattr(ctx, "gradient_count", 4) == 5:
-                    return (*gradients, None)
-                return gradients
+                return gradients + (None,) * (ctx.gradient_count - 4)
             finally:
                 ctx.session = None
                 ctx.input_lame = None

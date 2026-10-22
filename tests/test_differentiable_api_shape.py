@@ -327,3 +327,81 @@ def test_shape_module_import_does_not_load_torch_or_old_reference_package():
     assert "polyfempy.differentiable" not in sys.modules
     if not torch_was_loaded:
         assert "torch" not in sys.modules
+
+
+class _QuadraticShapeSession(_ShapeSession):
+    """Synthetic objective exercising the real ShapeOpt autograd bridge."""
+
+    def set_shape_vertices(self, vertices, *, selection=None):
+        self.vertices = vertices.copy()
+
+    def solve_objective(self):
+        return (self.vertices ** 2).sum()
+
+    def backward_shape(self, gradient):
+        return 2 * self.vertices * gradient
+
+
+def test_parameterized_shape_chain_rule_custom_loss_and_repeated_updates():
+    torch = pytest.importorskip("torch")
+    from polyfempy import differentiable_api as D
+
+    backend = types.SimpleNamespace(DifferentiableSession=_QuadraticShapeSession)
+    thickness = torch.tensor(0.8, dtype=torch.float64, requires_grad=True)
+    angle = torch.tensor(0.3, dtype=torch.float64, requires_grad=True)
+
+    def geometry(thickness, angle):
+        return torch.stack((thickness * angle.cos(), thickness * angle.sin() + 1)).reshape(1, 2)
+
+    problem = D.shape_opt(D.model({}), parameters={"thickness": thickness, "angle": angle},
+                         geometry=geometry, objective=D.Objective.STRESS_NORM, backend=backend)
+    assert problem.parameters == (thickness, angle)
+
+    def loss():
+        return problem() + 0.1 * (thickness - 0.8).square()
+
+    loss().backward()
+    for parameter in problem.parameters:
+        analytic = float(parameter.grad)
+        with torch.no_grad():
+            original = parameter.clone()
+            parameter.copy_(original + 1e-6)
+            plus = float(loss())
+            parameter.copy_(original - 1e-6)
+            minus = float(loss())
+            parameter.copy_(original)
+        assert analytic == pytest.approx((plus - minus) / 2e-6, rel=1e-7)
+
+    result = D.optimization(loss, parameters=problem.parameters).optimizer(torch.optim.SGD, lr=0.01).steps(3).optimize()
+    assert result.history[-1]["loss"] < result.history[0]["loss"]
+    result = problem.optimizer(torch.optim.SGD, lr=0.01).steps(3).optimize(bounds=[(0.1, 1), (-1, 1)])
+    assert result.parameters[0] is thickness
+    assert result.parameters[1] is angle
+    torch.testing.assert_close(result.vertices, geometry(thickness, angle))
+    assert not result.vertices.requires_grad
+    assert result.history[-1]["loss"] < result.history[0]["loss"]
+
+
+def test_parameterized_shape_rejects_invalid_inputs_and_detached_geometry():
+    torch = pytest.importorskip("torch")
+    from polyfempy import differentiable_api as D
+
+    model = D.model({})
+    scale = torch.tensor(1., requires_grad=True)
+    kwargs = {"objective": D.Objective.STRESS_NORM}
+    with pytest.raises(ValueError, match="either"):
+        D.shape_opt(model, torch.ones(1, 2), parameters={"scale": scale}, geometry=lambda scale: scale, **kwargs)
+    with pytest.raises(ValueError, match="nonempty"):
+        D.shape_opt(model, parameters={}, geometry=lambda: None, **kwargs)
+    with pytest.raises(TypeError, match="callable"):
+        D.shape_opt(model, parameters={"scale": scale}, **kwargs)
+    with pytest.raises(ValueError, match="leaf"):
+        D.shape_opt(model, parameters={"scale": scale * 2}, geometry=lambda scale: scale, **kwargs)
+    with pytest.raises(ValueError, match="duplicates"):
+        D.shape_opt(model, parameters={"a": scale, "b": scale}, geometry=lambda a, b: a + b, **kwargs)
+    for geometry, message in [(lambda scale: scale.detach().expand(1, 2), "gradient connection"),
+                              (lambda scale: scale.reshape(1), "shape"),
+                              (lambda scale: scale.expand(1, 2) * float("nan"), "finite")]:
+        problem = D.shape_opt(model, parameters={"scale": scale}, geometry=geometry, **kwargs)
+        with pytest.raises(ValueError, match=message):
+            problem()

@@ -59,6 +59,26 @@ vertices = gmsh_vertices(MESH_PATH, dimension=3)
 diff_model = diff.model([polyfem_config])
 shape_opt = diff.shape_opt(diff_model, vertices, objective=diff.Objective.STRESS_NORM)
 
+# Alternative: replace the line above to optimize a geometric parameter.
+# The mapping must use PyTorch operations and preserve mesh connectivity.
+# reference_vertices = vertices.detach().clone()
+# scale = torch.tensor(1.0, dtype=vertices.dtype, device=vertices.device, requires_grad=True)
+# shape_opt = diff.shape_opt(
+#     diff_model,
+#     parameters={"scale": scale},
+#     geometry=lambda scale: reference_vertices * scale,
+#     objective=diff.Objective.STRESS_NORM,
+# )
+# The same compact loop below then updates scale. result.parameters[0] is scale;
+# result.vertices contains the resulting coordinates, without another FEM solve.
+# For custom loss, use the existing shared loop instead of Option 1 below:
+# def loss():
+#     return shape_opt() + 0.1 * (scale - 1.0).square()
+# result = (diff.optimization(loss, parameters=shape_opt.parameters)
+#           .optimizer(torch.optim.Adam, lr=1e-3).steps(2).optimize())
+# Generic OptimizationResult exposes parameters/history/loss; obtain current
+# coordinates from shape_opt.vertices when using this custom-loss loop.
+
 
 # Optimization updates, independent of physical simulation time steps.
 optimization_steps = 2

@@ -18,13 +18,14 @@ from .optimization import Optimization, OptimizationResult
 class ShapeOptimizationResult(OptimizationResult):
     """Common optimization result with the legacy shape constructor and alias."""
 
-    def __init__(self, history, vertices, loss):
-        super().__init__(parameters=(vertices,), history=history, loss=loss)
+    def __init__(self, history, vertices, loss, *, parameters=None):
+        super().__init__(parameters=(vertices,) if parameters is None else tuple(parameters), history=history, loss=loss)
+        object.__setattr__(self, "_vertices", vertices)
 
     @property
     def vertices(self):
-        """Compatibility alias for parameters[0]; no copy is made."""
-        return self.parameters[0]
+        """Updated geometry; aliases parameters[0] for direct vertex optimization."""
+        return self._vertices
 
 
 class ShapeOptimization:
@@ -33,25 +34,60 @@ class ShapeOptimization:
     def __init__(
         self,
         model: DifferentiableModel,
-        vertices: Any,
+        vertices: Any = None,
         *,
         objective: Any,
+        parameters: Mapping[str, Any] | None = None,
+        geometry: Any = None,
         selection: Any = "all",
         backend: Any | None = None,
     ) -> None:
         if objective is None:
             raise ValueError("objective must not be None")
+        self._geometry = geometry
+        self._named_parameters = None
+        if parameters is not None or geometry is not None:
+            if vertices is not None:
+                raise ValueError("pass either vertices or parameters with geometry")
+            if not isinstance(parameters, Mapping) or not parameters:
+                raise ValueError("parameters must be a nonempty mapping of names to tensors")
+            if not callable(geometry):
+                raise TypeError("geometry must be callable")
+            if any(not isinstance(name, str) or not name.isidentifier() for name in parameters):
+                raise ValueError("parameter names must be valid Python identifiers")
+            self._named_parameters = dict(parameters)
+            self.parameters = tuple(parameters.values())
+            # Reuse the common leaf-tensor and duplicate validation without solving.
+            Optimization(self, parameters=self.parameters)
+        else:
+            self.parameters = (vertices,)
         _single_shape_payload(
             model=model,
             selection=selection,
-            tensor=vertices,
+            tensor=self.parameters if self._named_parameters is not None else vertices,
         )
         self.model = model
-        self.vertices = vertices
+        self._vertices = vertices
         self.objective = objective
         self.selection = selection
         self.backend = backend
         self._runner: Optimization | None = None
+
+    @property
+    def vertices(self):
+        """Current vertices; parameterized geometry is rebuilt on every access."""
+        if self._named_parameters is None:
+            return self._vertices
+        import torch
+
+        vertices = self._geometry(**self._named_parameters)
+        if (not isinstance(vertices, torch.Tensor) or not vertices.is_floating_point()
+                or vertices.ndim != 2 or vertices.shape[1] not in (2, 3)
+                or vertices.shape[0] == 0 or not bool(torch.isfinite(vertices).all())):
+            raise ValueError("geometry must return finite floating-point vertices with shape (N, 2) or (N, 3)")
+        if torch.is_grad_enabled() and not vertices.requires_grad:
+            raise ValueError("geometry must preserve the PyTorch gradient connection to parameters")
+        return vertices
 
     def __call__(self) -> Any:
         """Return one differentiable objective evaluation."""
@@ -70,7 +106,7 @@ class ShapeOptimization:
 
     def _optimization(self) -> Optimization:
         if self._runner is None:
-            self._runner = Optimization(self, parameters=[self.vertices])
+            self._runner = Optimization(self, parameters=self.parameters)
         return self._runner
 
     @property
@@ -109,24 +145,47 @@ class ShapeOptimization:
         if self.configured_steps is None:
             raise ValueError("steps must be configured before optimize()")
         result = self._optimization().optimize(record=record, bounds=bounds)
+        if self._named_parameters is None:
+            vertices = self.vertices
+        else:
+            import torch
+            with torch.no_grad():
+                vertices = self.vertices.detach().clone()
         return ShapeOptimizationResult(
-            history=result.history, vertices=result.parameters[0], loss=result.loss,
+            history=result.history, vertices=vertices, loss=result.loss,
+            parameters=result.parameters,
         )
 
 
 def shape_opt(
     model: DifferentiableModel,
-    vertices: Any,
+    vertices: Any = None,
     *,
     objective: Any,
+    parameters: Mapping[str, Any] | None = None,
+    geometry: Any = None,
     selection: Any = "all",
     backend: Any | None = None,
 ) -> ShapeOptimization:
-    """Create a user-facing shape optimization problem."""
+    """Optimize vertices directly or named parameters through a PyTorch mapping.
+
+    Example: ``shape_opt(model, parameters={"scale": scale},
+    geometry=lambda scale: reference_vertices * scale, objective=objective)``.
+    Geometry receives keyword arguments and must preserve vertex ordering and
+    mesh connectivity. It is evaluated afresh each call; NumPy remeshing is not
+    differentiable. Parameters are trainable leaf tensors in mapping order;
+    optimizer bounds apply to these tensors, not the generated vertices.
+
+    Compose a custom loss with ``loss = problem() + penalty``. To use the shared
+    loop for that loss, pass a fresh-evaluation closure to
+    ``optimization(loss_fn, parameters=problem.parameters)``.
+    """
 
     return ShapeOptimization(
         model=model,
         vertices=vertices,
+        parameters=parameters,
+        geometry=geometry,
         objective=objective,
         selection=selection,
         backend=backend,

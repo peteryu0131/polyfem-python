@@ -23,12 +23,14 @@ _DEFAULT_STRESS_NORM_POWER = 2
 
 
 class Objective(str, Enum):
-    """Supported differentiable backend objective types."""
+    """Legacy convenience names; membership does not guarantee gradient support."""
 
     MAX_STRESS = "max_stress"
     STRESS_NORM = "stress_norm"
     COMPLIANCE = "compliance"
     VOLUME = "volume"
+    VON_MISES_PEAK = "von_mises_peak"
+    VON_MISES_SQUARED = "von_mises_squared"
 
 
 @dataclass(frozen=True)
@@ -37,7 +39,7 @@ class ObjectiveSpec:
 
     type_name: str
     state: Any = 0
-    volume_selection: tuple[int, ...] | None = None
+    volume_selection: tuple[int, ...] | list[int] | str | None = None
     power: Any = None
     weight: Any = _DEFAULT_WEIGHT
     print_energy: Any = _DEFAULT_PRINT_ENERGY
@@ -48,10 +50,12 @@ class ObjectiveSpec:
 
         payload: dict[str, Any] = {
             "type": self.type_name,
-            "state": copy.deepcopy(self.state),
         }
+        if self.state is not None:
+            payload["state"] = copy.deepcopy(self.state)
         if self.volume_selection is not None:
-            payload["volume_selection"] = list(self.volume_selection)
+            payload["volume_selection"] = (self.volume_selection if isinstance(self.volume_selection, (int, str))
+                                           else list(self.volume_selection))
         if self.power is not None:
             payload["power"] = copy.deepcopy(self.power)
         if self.weight is not None:
@@ -69,7 +73,7 @@ class ObjectiveSpec:
         The transient wrapper has unit weight, so weights are applied once.
         """
 
-        if self.type_name == "transient_integral":
+        if self.type_name in ("transient_integral", "von_mises_peak"):
             raise ValueError("final() requires a spatial objective, not a transient objective")
         return _objective_spec(
             "transient_integral",
@@ -85,6 +89,71 @@ class ObjectiveSpec:
 
 class ObjectiveNamespace:
     """Factory namespace for differentiable objective specs."""
+
+    def create(self, type_name: str, **fields) -> ObjectiveSpec:
+        """Use exact objective-spec.json names/fields, including nested objectives.
+
+        Configuration coverage does not guarantee value/gradient support for a
+        particular simulation. state=0 is the single-state Python convenience.
+        """
+        from ._standard_objectives import create
+        return create(type_name, **fields)
+
+    @property
+    def standard_types(self):
+        from ._objective_schema_data import OBJECTIVES
+        return tuple(OBJECTIVES)
+
+    @property
+    def extension_types(self):
+        return ("von_mises_peak", "von_mises_squared")
+
+    def __getattr__(self, name):
+        # Python spelling replaces hyphens; the serialized type stays unchanged.
+        matches = [kind for kind in self.standard_types if kind.replace("-", "_") == name]
+        if not matches:
+            raise AttributeError(name)
+        def build(**fields):
+            return self.create(matches[0], **fields)
+        build.__name__ = name
+        build.__doc__ = f"Construct standard {matches[0]} configuration; gradient support is backend-dependent."
+        return build
+
+    def __dir__(self):
+        return sorted(set(super().__dir__()) | {kind.replace("-", "_") for kind in self.standard_types})
+
+    def von_mises_peak(self, *, selection: Any = None, state: Any = 0,
+                       weight: Any = None, print_energy: Any = None) -> ObjectiveSpec:
+        """Local extension: maximum Cauchy von Mises over cached steps and points.
+
+        Material and P1 simplex shape gradients, 2D/3D. Shape gradients require
+        uniform numeric material properties and fixed numeric contact barrier
+        stiffness when contact is enabled. Adaptive-contact shape gradients are
+        rejected before solving. Static LinearElasticity/NeoHookean;
+        transient NeoHookean only. Static models use their single state. Units are internal stress times weight.
+        Exact ties select the first step/element/point; zero stress uses a zero
+        subgradient. Peak switching is nonsmooth. Do not wrap with .final().
+        """
+        return _objective_spec("von_mises_peak", selection=selection, state=state,
+                               weight=weight, print_energy=print_energy)
+
+    def von_mises_squared(
+        self, *, selection: Any = None, state: Any = 0,
+        weight: Any = None, print_energy: Any = None,
+    ) -> ObjectiveSpec:
+        """Local extension: reference-volume integral of squared Cauchy von Mises.
+
+        MaterialOpt only; LinearElasticity and NeoHookean in 2D/3D.
+        Uses internal stress/length units. In 2D integrates area (unit thickness)
+        with the backend's xx^2-xx*yy+yy^2+3*xy^2 convention. This is neither a
+        maximum nor a time average. An empty selection includes all bodies.
+        For transient models, use .final() to evaluate at the last time step.
+        Other time aggregations and shape/initial-condition gradients are unsupported.
+        """
+        return _objective_spec(
+            "von_mises_squared", selection=selection, state=state,
+            weight=weight, print_energy=print_energy,
+        )
 
     def position(
         self,
@@ -206,7 +275,7 @@ def _objective_spec(
     print_energy: Any = None,
     extra: Mapping[str, Any] | None = None,
 ) -> ObjectiveSpec:
-    return ObjectiveSpec(
+    spec = ObjectiveSpec(
         type_name=type_name,
         state=copy.deepcopy(state),
         volume_selection=_volume_selection(selection),
@@ -215,6 +284,14 @@ def _objective_spec(
         print_energy=_defaulted(print_energy, _DEFAULT_PRINT_ENERGY),
         extra=_extra_items(extra),
     )
+    # Keep legacy payload shape/default omissions, but reject fields not in the
+    # standard. Local extensions are handled separately by the native binding.
+    if type_name not in ("von_mises_peak", "von_mises_squared", "transient_integral"):
+        from ._standard_objectives import payload
+        value = spec.as_dict()
+        value.pop("type")
+        payload(type_name, value, defaults=False)
+    return spec
 
 
 def _volume_selection(selection: Any) -> tuple[int, ...] | None:
@@ -253,7 +330,7 @@ def _selection_id(value: Any) -> int:
 
 
 def _positive_selection_id(value: Any) -> int:
-    if not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("backend selection id must be an int")
     if value < 1:
         raise ValueError("backend selection id must be positive")
@@ -298,6 +375,8 @@ def _build_objective(
         Objective.STRESS_NORM: objectives.stress_norm,
         Objective.COMPLIANCE: objectives.compliance,
         Objective.VOLUME: objectives.volume,
+        Objective.VON_MISES_PEAK: objectives.von_mises_peak,
+        Objective.VON_MISES_SQUARED: objectives.von_mises_squared,
     }
     return builders[kind](**objective_params)
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 import runpy
+import ast
 import json
 import xml.etree.ElementTree as ET
 
@@ -9,6 +10,15 @@ import pytest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "impact_forward.py"
+
+
+def run_example(example, output_dir):
+    example["OUTPUT_DIR"] = output_dir
+    example["config"].output.directory = str(output_dir)
+    body = ast.parse(SCRIPT.read_text()).body[-1]
+    assert isinstance(body, ast.If)
+    exec(compile(ast.Module(body=body.body, type_ignores=[]), str(SCRIPT), "exec"), example)
+    return example["result"]
 
 
 def verify_outputs(output_dir, *, dt, end_time):
@@ -77,7 +87,7 @@ def verify_outputs(output_dir, *, dt, end_time):
 
 def test_impact_config_keeps_block_free_and_preserves_units(tmp_path):
     example = runpy.run_path(str(SCRIPT))
-    config = example["build_config"](tmp_path).as_dict()
+    config = example["config"].as_dict()
     assert config["units"] == {"length": "cm", "mass": "g", "time": "s"}
     assert [m["E"]["unit"] for m in config["materials"]] == ["MPa", "GPa"]
     assert config["time"]["dt"] == 0.01
@@ -96,9 +106,10 @@ def test_real_lattice_impact_contact_and_stress(tmp_path, monkeypatch):
     pytest.importorskip("meshio")
     example = runpy.run_path(str(SCRIPT))
     # Keep this regression short and resolve the pre-contact free-fall steps.
-    monkeypatch.setitem(example["main"].__globals__, "DT", 0.005)
-    monkeypatch.setitem(example["main"].__globals__, "END_TIME", 0.03)
-    result = example["main"](tmp_path)
+    monkeypatch.setattr(example["config"], "time",
+                        example["pf"].time(example["pf"].object1(
+                            t0=0, dt=0.005, tend=0.03, integrator="BDF")))
+    result = run_example(example, tmp_path)
     assert np.isfinite(result.sol).all()
     summary = verify_outputs(tmp_path, dt=0.005, end_time=0.03)
     rows = summary["history"]
@@ -111,3 +122,21 @@ def test_real_lattice_impact_contact_and_stress(tmp_path, monkeypatch):
         assert rows[step]["block_contact_force_y_g_cm_s2"] == pytest.approx(0, abs=1e-6)
     assert rows[-1]["block_mean_displacement_y_cm"] > -980 * summary["dt_s"] ** 2 * 6 * 7 / 2
     assert rows[-1]["lattice_sampled_max_von_mises_MPa"] > rows[2]["lattice_sampled_max_von_mises_MPa"]
+
+
+def test_script_saves_config_and_solves(tmp_path, capsys):
+    example = runpy.run_path(str(SCRIPT))
+    calls = []
+    result = object()
+
+    def solve(*, cfg):
+        saved = json.loads((tmp_path / "config.json").read_text())
+        assert saved == cfg.as_dict()
+        calls.append(cfg)
+        return result
+
+    example["solve"] = solve
+    assert run_example(example, tmp_path) is result
+    assert calls == [example["config"]]
+    assert calls[0].as_dict()["output"]["directory"] == str(tmp_path)
+    assert str(tmp_path / "impact.pvd") in capsys.readouterr().out

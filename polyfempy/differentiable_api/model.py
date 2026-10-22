@@ -23,6 +23,42 @@ class ModelMetadata:
     value_dim: int
     n_dofs: int
     supports_uniform_initial_condition: bool
+    element_body_ids: tuple[int, ...] = ()
+
+    def __post_init__(self):
+        object.__setattr__(self, "element_body_ids", tuple(self.element_body_ids))
+
+    def material_by_body(self, materials: Any) -> Any:
+        """Map body IDs/handles to [lambda, mu] tensors in backend element order.
+
+        Every body must be supplied explicitly. Units are backend internal units;
+        tensor dtype, device and autograd graph are preserved.
+        """
+        from collections.abc import Mapping
+        from .objectives import _selection_id
+        import torch
+
+        if len(self.element_body_ids) != self.n_elements or not self.element_body_ids:
+            raise RuntimeError("Body material mapping requires element_body_ids; rebuild the backend")
+        if not isinstance(materials, Mapping) or not materials:
+            raise TypeError("materials must map each body ID or handle to a [lambda, mu] tensor")
+        pairs = {}
+        for body, pair in materials.items():
+            # Raw meshes may use the backend's default body ID 0.
+            body_id = 0 if type(body) is int and body == 0 else _selection_id(body)
+            if body_id in pairs:
+                raise ValueError(f"Duplicate material for body {body_id}")
+            self._check_vector(pair, 2, "lame")
+            pairs[body_id] = pair
+        if set(pairs) != set(self.element_body_ids):
+            raise ValueError("Provide exactly one material for every body ID in element_body_ids")
+        first = next(iter(pairs.values()))
+        if any(pair.dtype != first.dtype or pair.device != first.device for pair in pairs.values()):
+            raise ValueError("All body material tensors must have the same dtype and device")
+        positions = {body_id: index for index, body_id in enumerate(pairs)}
+        indices = torch.tensor([positions[body] for body in self.element_body_ids],
+                               dtype=torch.long, device=first.device)
+        return torch.stack(tuple(pairs.values()))[indices]
 
     def uniform_initial_condition(self, velocity: Any, *, displacement: Any = None) -> Any:
         """Broadcast component vectors to (n_dofs, 2), columns [u0, v0].

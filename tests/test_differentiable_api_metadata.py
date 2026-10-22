@@ -1,6 +1,7 @@
 """Shared parameter preparation, including real solves on a replacement mesh."""
 
 from dataclasses import replace
+import json
 from pathlib import Path
 import runpy
 from types import SimpleNamespace
@@ -116,6 +117,37 @@ $Elements
 $EndElements
 """, encoding="utf-8")
     return mesh
+
+
+@pytest.mark.parametrize("threads", [None, 0, 1, 4])
+def test_session_thread_settings(replacement_mesh, tmp_path, threads):
+    backend = pytest.importorskip("polyfempy.polyfempy")
+    session = backend.DifferentiableSession()
+    config = {
+        "geometry": [{"mesh": str(replacement_mesh)}],
+        "materials": {"type": "LinearElasticity", "E": 100., "nu": .3, "rho": 1.},
+        "space": {"discr_order": 1},
+        "contact": {"enabled": False},
+        "output": {"directory": str(tmp_path), "json": "",
+                   "paraview": {"file_name": ""}},
+    }
+    if threads is not None:
+        config["solver"] = {"max_threads": threads}
+    # Only mesh/FE preparation: no forward or adjoint solve.
+    session.set_settings(config)
+    assert json.loads(session.settings())["solver"]["max_threads"] == (0 if threads is None else threads)
+    # Reusing a session with an omitted setting must reset to the default.
+    config.pop("solver", None)
+    session.set_settings(config)
+    assert json.loads(session.settings())["solver"]["max_threads"] == 0
+
+
+@pytest.mark.parametrize("threads", [-1, 1.5, True, "4"])
+def test_session_rejects_invalid_thread_settings(threads):
+    backend = pytest.importorskip("polyfempy.polyfempy")
+    session = backend.DifferentiableSession()
+    with pytest.raises(RuntimeError, match="non-negative integer"):
+        session.set_settings({"solver": {"max_threads": threads}})
 
 
 def test_initial_condition_example_on_replacement_mesh(replacement_mesh, tmp_path):

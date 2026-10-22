@@ -34,7 +34,7 @@ def _install_fake_materialopt(monkeypatch):
     )
 
 
-def test_material_opt_builds_callable_problem_without_optimizer_helpers(monkeypatch):
+def test_material_opt_builds_callable_problem_with_diagnostics(monkeypatch):
     _install_fake_materialopt(monkeypatch)
 
     from polyfempy import differentiable_api as diff
@@ -54,7 +54,7 @@ def test_material_opt_builds_callable_problem_without_optimizer_helpers(monkeypa
     assert material_opt.lame is lame
     assert material_opt.objective is diff.Objective.COMPLIANCE
     assert material_opt.objective_params == {"selection": 1}
-    assert not hasattr(material_opt, "optimizer")
+    assert callable(material_opt.optimizer)
     assert not hasattr(material_opt, "steps")
     assert not hasattr(material_opt, "optimize")
 
@@ -67,6 +67,7 @@ def test_material_opt_builds_callable_problem_without_optimizer_helpers(monkeypa
             {
                 "objective": diff.Objective.COMPLIANCE,
                 "objective_params": {"selection": 1},
+                "diagnostics": material_opt.diagnostics,
             },
         ),
     ]

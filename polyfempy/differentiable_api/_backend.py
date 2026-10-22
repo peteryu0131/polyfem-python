@@ -124,6 +124,18 @@ def require_shape_solve_backend(backend: Any) -> type:
     return session_type
 
 
+def require_material_enu_backend(backend: Any) -> type:
+    """Check the optional E/nu bridge without restricting the direct Lame API."""
+    session = require_material_opt_backend(backend)
+    missing = [name for name in ("_material_stress_scale", "_material_enu_to_lame",
+                                 "_material_enu_backward") if not callable(getattr(backend, name, None))]
+    missing += [name for name in ("model_metadata", "settings")
+                if not callable(getattr(session, name, None))]
+    if missing:
+        raise BackendContractError("Rebuild the backend for E/nu materials; missing: " + ", ".join(missing))
+    return session
+
+
 def require_material_opt_backend(backend: Any) -> type:
     """Return the backend session type required by diff.material_opt(...)."""
 
