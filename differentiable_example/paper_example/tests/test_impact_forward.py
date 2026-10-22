@@ -1,5 +1,4 @@
 from pathlib import Path
-import runpy
 import ast
 import json
 import xml.etree.ElementTree as ET
@@ -12,12 +11,26 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "impact_forward.py"
 
 
+def load_example():
+    tree = ast.parse(SCRIPT.read_text())
+    # Read the configuration without starting the top-level simulation.
+    split = next(
+        i + 1 for i, node in enumerate(tree.body)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "config"
+                for target in node.targets)
+    )
+    example = {"__file__": str(SCRIPT), "__name__": "impact_forward_test"}
+    exec(compile(ast.Module(body=tree.body[:split], type_ignores=[]), str(SCRIPT), "exec"), example)
+    example["execution_body"] = tree.body[split:]
+    return example
+
+
 def run_example(example, output_dir):
     example["OUTPUT_DIR"] = output_dir
     example["config"].output.directory = str(output_dir)
-    body = ast.parse(SCRIPT.read_text()).body[-1]
-    assert isinstance(body, ast.If)
-    exec(compile(ast.Module(body=body.body, type_ignores=[]), str(SCRIPT), "exec"), example)
+    exec(compile(ast.Module(body=example["execution_body"], type_ignores=[]),
+                 str(SCRIPT), "exec"), example)
     return example["result"]
 
 
@@ -86,7 +99,7 @@ def verify_outputs(output_dir, *, dt, end_time):
 
 
 def test_impact_config_keeps_block_free_and_preserves_units(tmp_path):
-    example = runpy.run_path(str(SCRIPT))
+    example = load_example()
     config = example["config"].as_dict()
     assert config["units"] == {"length": "cm", "mass": "g", "time": "s"}
     assert [m["E"]["unit"] for m in config["materials"]] == ["MPa", "GPa"]
@@ -104,7 +117,7 @@ def test_impact_config_keeps_block_free_and_preserves_units(tmp_path):
 def test_real_lattice_impact_contact_and_stress(tmp_path, monkeypatch):
     pytest.importorskip("polyfempy.polyfempy")
     pytest.importorskip("meshio")
-    example = runpy.run_path(str(SCRIPT))
+    example = load_example()
     # Keep this regression short and resolve the pre-contact free-fall steps.
     monkeypatch.setattr(example["config"], "time",
                         example["pf"].time(example["pf"].object1(
@@ -125,7 +138,7 @@ def test_real_lattice_impact_contact_and_stress(tmp_path, monkeypatch):
 
 
 def test_script_saves_config_and_solves(tmp_path, capsys):
-    example = runpy.run_path(str(SCRIPT))
+    example = load_example()
     calls = []
     result = object()
 

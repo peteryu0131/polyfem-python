@@ -1,32 +1,44 @@
 """Material optimization wiring checks with synthetic data; no FEM solves."""
 
-import importlib
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 
 @pytest.fixture
 def experiment(monkeypatch):
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
-    return importlib.import_module("material_opt")
+    path = Path(__file__).resolve().parents[1] / "material_opt.py"
+    monkeypatch.syspath_prepend(str(path.parent))
+    tree = ast.parse(path.read_text())
+    # Load configuration through the objective definition without starting a solve.
+    split = next(
+        i + 1 for i, node in enumerate(tree.body)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "objective"
+                for target in node.targets)
+    )
+    namespace = {"__file__": str(path), "__name__": "material_opt_test"}
+    exec(compile(ast.Module(body=tree.body[:split], type_ignores=[]), str(path), "exec"), namespace)
+    namespace["execution_body"] = tree.body[split:]
+    return SimpleNamespace(**namespace)
 
 
 def run_example(experiment, root):
-    # Execute the actual guarded script body with a temporary output directory.
-    tree = ast.parse(Path(experiment.__file__).read_text())
-    body = tree.body[-1]
-    assert isinstance(body, ast.If)
-    namespace = dict(vars(experiment), RUN_DIR=root, __name__="__main__")
+    # Execute the actual optimization statements with a temporary output directory.
+    namespace = dict(vars(experiment), OUTPUT_DIR=root)
     namespace["config"] = experiment.pf.config(**experiment.config.as_dict())
-    namespace["config"].output.directory = str(root / "gradient")
-    exec(compile(ast.Module(body=body.body, type_ignores=[]), experiment.__file__, "exec"), namespace)
+    namespace["config"].output.directory = str(root)
+    exec(compile(ast.Module(body=experiment.execution_body, type_ignores=[]),
+                 experiment.__file__, "exec"), namespace)
 
 
 def test_gradient_preserves_physics_and_disables_visualization(experiment, tmp_path):
     config = experiment.config.as_dict()
-    original = importlib.import_module("impact_forward").config.as_dict()
+    from test_impact_forward import load_example
+
+    original = load_example()["config"].as_dict()
     assert config["output"]["paraview"]["file_name"] == ""
     assert config["output"]["advanced"]["save_time_sequence"] is False
     assert config["solver"]["max_threads"] == 1
