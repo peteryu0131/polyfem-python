@@ -59,6 +59,9 @@ polyfempy = "polyfempy.cli:main"
 [tool.setuptools]
 include-package-data = true
 
-[tool.setuptools.packages.find]
-include = ["polyfempy*"]
-exclude = ["src*", "experiment*", "docs*", "examples*", "data*", "cmake*"]
+[tool.setuptools.package-data]
+"polyfempy" = ["polyfempy.pyi"]
+"polyfempy.generated_api" = ["*_manifest.json"]
+
+[tool.pyright]
+extraPaths = ["python"]

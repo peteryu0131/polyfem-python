@@ -26,6 +26,37 @@ except Exception as exc:  # pragma: no cover - exercised only without torch
 
 if _TORCH_IMPORT_ERROR is None:
 
+    class _ControlOpt(Function):
+        @staticmethod
+        def forward(ctx, values, owner, vertices=None):
+            session = owner._session()
+            if vertices is not None:
+                session.set_shape_vertices(_to_backend_array(vertices), selection="all")
+            session.prepare_control(owner.spec)
+            session.set_control_parameters(values.detach().cpu().numpy().reshape(-1).copy())
+            if owner._target is not None:
+                if not hasattr(session, 'set_target_settings'):
+                    raise RuntimeError('Rebuild the polyfempy backend with set_target_settings support')
+                session.set_target_settings(owner._target)
+            session.set_objective(owner.objective)
+            result = session.solve_control_objective()
+            ctx.session = session
+            ctx.shape, ctx.dtype, ctx.device = values.shape, values.dtype, values.device
+            return values.new_tensor(result)
+
+        @staticmethod
+        @torch.autograd.function.once_differentiable
+        def backward(ctx, gradient):
+            try:
+                result = ctx.session.backward_control(float(gradient.detach()))
+                result = torch.as_tensor(result, dtype=ctx.dtype, device=ctx.device)
+                if len(ctx.needs_input_grad) == 3:
+                    vertex_grad = ctx.session.backward_dirichlet_shape(gradient.detach().cpu().numpy())
+                    return result.reshape(ctx.shape), None, torch.as_tensor(vertex_grad, dtype=ctx.dtype, device=ctx.device)
+                return result.reshape(ctx.shape), None
+            finally:
+                ctx.session = None
+
     class _MaterialENu(Function):
         """First-order bridge to PolyFEM's existing ENu2LambdaMu parametrization."""
 
@@ -201,6 +232,7 @@ if _TORCH_IMPORT_ERROR is None:
             backend: Any | None = None,
             objective: Any | None = None,
             objective_params: Any | None = None,
+            target: Any | None = None,
         ) -> Any:
             payload = _single_shape_payload(
                 model=model,
@@ -214,13 +246,11 @@ if _TORCH_IMPORT_ERROR is None:
                 tensor=backend_tensor,
                 objective=objective,
                 objective_params=objective_params,
-                backend=backend,
+                backend=backend, target=target,
             )
             ctx.session = session
             ctx.input_tensor = tensor
-            ctx.gradient_count = 6 if objective_params is not None else (
-                5 if objective is not None else 4
-            )
+            ctx.gradient_count = len(ctx.needs_input_grad)
             return _to_torch_tensor(solution, like=tensor)
 
         @staticmethod
@@ -237,11 +267,7 @@ if _TORCH_IMPORT_ERROR is None:
                     _to_torch_tensor(grad_tensor, like=input_tensor),
                     None,
                 )
-                if getattr(ctx, "gradient_count", 4) == 5:
-                    return (*gradients, None)
-                if getattr(ctx, "gradient_count", 4) == 6:
-                    return (*gradients, None, None)
-                return gradients
+                return gradients[:ctx.gradient_count] + (None,) * max(0, ctx.gradient_count - len(gradients))
             finally:
                 ctx.session = None
                 ctx.input_tensor = None
@@ -264,6 +290,7 @@ if _TORCH_IMPORT_ERROR is None:
                 "objective",
                 "objective_params",
                 "diagnostics",
+                "target",
             }
             unknown = sorted(set(kwargs) - allowed)
             if unknown:
@@ -299,6 +326,9 @@ if _TORCH_IMPORT_ERROR is None:
 
             if "objective" not in kwargs:
                 raise TypeError("MaterialOpt.apply requires objective")
+            if "target" in kwargs:
+                return super().apply(model, lame, backend, kwargs["objective"],
+                                     kwargs.get("objective_params"), kwargs.get("diagnostics"), kwargs["target"])
             if "diagnostics" in kwargs:
                 return super().apply(model, lame, backend, kwargs["objective"],
                                      kwargs.get("objective_params"), kwargs["diagnostics"])
@@ -326,6 +356,7 @@ if _TORCH_IMPORT_ERROR is None:
             objective: Any | None = None,
             objective_params: Any | None = None,
             diagnostics: Any | None = None,
+            target: Any | None = None,
         ) -> Any:
             payload = _single_material_payload(
                 model=model,
@@ -338,6 +369,7 @@ if _TORCH_IMPORT_ERROR is None:
                 objective=objective,
                 objective_params=objective_params,
                 backend=backend,
+                target=target,
             )
             if diagnostics is not None:
                 diagnostics.clear()
@@ -392,6 +424,7 @@ if _TORCH_IMPORT_ERROR is None:
                 "backend",
                 "objective",
                 "objective_params",
+                "target",
             }
             unknown = sorted(set(kwargs) - allowed)
             if unknown:
@@ -432,6 +465,9 @@ if _TORCH_IMPORT_ERROR is None:
 
             if "objective" not in kwargs:
                 raise TypeError("InitialConditionOpt.apply requires objective")
+            if "target" in kwargs:
+                return super().apply(model, initial_condition, backend, kwargs["objective"],
+                                     kwargs.get("objective_params"), kwargs["target"])
             if "objective_params" in kwargs:
                 return super().apply(
                     model,
@@ -455,6 +491,7 @@ if _TORCH_IMPORT_ERROR is None:
             backend: Any | None = None,
             objective: Any | None = None,
             objective_params: Any | None = None,
+            target: Any | None = None,
         ) -> Any:
             payload = _single_initial_condition_payload(
                 model=model,
@@ -469,6 +506,7 @@ if _TORCH_IMPORT_ERROR is None:
                 objective=objective,
                 objective_params=objective_params,
                 backend=backend,
+                target=target,
             )
             ctx.session = session
             ctx.input_initial_condition = initial_condition
@@ -477,7 +515,7 @@ if _TORCH_IMPORT_ERROR is None:
                 if hasattr(initial_condition, "shape")
                 else np.asarray(initial_condition).shape[0]
             )
-            ctx.gradient_count = 5 if objective_params is not None else 4
+            ctx.gradient_count = len(ctx.needs_input_grad)
             return _to_torch_tensor(objective_value, like=initial_condition)
 
         @staticmethod
@@ -501,9 +539,7 @@ if _TORCH_IMPORT_ERROR is None:
                     None,
                     None,
                 )
-                if getattr(ctx, "gradient_count", 4) == 5:
-                    return (*gradients, None)
-                return gradients
+                return gradients + (None,) * (ctx.gradient_count - 4)
             finally:
                 ctx.session = None
                 ctx.input_initial_condition = None

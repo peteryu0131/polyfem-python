@@ -162,6 +162,27 @@ class DifferentiableModel:
         session.set_settings(self.as_dicts()[0])
         return ModelMetadata(**session.model_metadata())
 
+    def boundary_vertex_ids(self, ids, *, exclude=False, backend=None):
+        """Sorted geometry vertex IDs on selected boundaries (or excluding them).
+
+        An empty ID list selects all boundary vertices. This is a setup query,
+        not a differentiable operation; call once before an optimization loop.
+        """
+        from .shape import _load_default_backend
+        if len(self._payloads) != 1:
+            raise ValueError("boundary_vertex_ids supports exactly one model")
+        ids = list(ids)
+        if any(not isinstance(i, int) or isinstance(i, bool) for i in ids):
+            raise TypeError("boundary IDs must be integers")
+        if not isinstance(exclude, bool):
+            raise TypeError("exclude must be a bool")
+        module = backend if backend is not None else _load_default_backend()
+        session = module.DifferentiableSession()
+        if not callable(getattr(session, "boundary_vertex_ids", None)):
+            raise RuntimeError("boundary_vertex_ids requires rebuilding the backend")
+        session.set_settings(self.as_dicts()[0])
+        return tuple(int(i) for i in session.boundary_vertex_ids(ids, exclude))
+
     def initial_condition_dof_count(self, *, backend: Any | None = None) -> int:
         """Return the row count for an initial-condition tensor (n_dofs, 2).
 

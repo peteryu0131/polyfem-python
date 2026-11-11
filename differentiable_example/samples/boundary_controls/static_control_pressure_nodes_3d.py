@@ -1,0 +1,109 @@
+"""Bring the equilibrium shape of surface 5 closer to the target surface.
+
+x is the pressure on the loaded boundary.
+
+Source: differentiability-data/input/static-control-pressure-nodes-3d-opt.json
+Run: python -m differentiable_example.samples.boundary_controls.static_control_pressure_nodes_3d
+"""
+
+import torch
+
+from differentiable_example._scene import (
+    DATA_DIR,
+    example_output,
+    simulation_directory,
+    solver_config,
+)
+import polyfem.diff as diff
+import polyfem
+
+with simulation_directory() as output:
+    model = polyfem.model()
+    model.mesh(
+        mesh=str(DATA_DIR / "mat20x20.msh"),
+        surface_selection=[
+            {"id": 2, "box": [[0.01, -5, 0.01], [0.99, 0, 0.99]], "relative": True},
+            {"id": 3, "axis": "-x", "position": 0.01, "relative": True},
+            {"id": 3, "axis": "x", "position": 0.99, "relative": True},
+            {"id": 3, "axis": "-z", "position": 0.01, "relative": True},
+            {"id": 3, "axis": "z", "position": 0.99, "relative": True},
+            {"id": 5, "box": [[0.01, 0, 0.01], [0.99, 5, 0.99]], "relative": True},
+        ],
+        volume_selection=1,
+        n_refs=0,
+    )
+    config = solver_config(
+        model.config(
+            materials=[polyfem.neo_hookean(id=1, E=100000.0, nu=0.3)],
+            boundary_conditions=polyfem.boundary_conditions(
+                rhs=[0, 9.81, 0],
+                dirichlet_boundary=[{"id": 3, "value": [0.0, 0.0, 0.0]}],
+                pressure_boundary=[{"id": 2, "value": -20}],
+            ),
+            space=polyfem.space(
+                discr_order=2,
+                advanced=polyfem.space_advanced(quadrature_order=5, n_boundary_samples=5),
+            ),
+            solver=polyfem.solver(
+                linear=polyfem.linear(solver="Eigen::SimplicialLDLT"),
+                nonlinear=polyfem.nonlinear(
+                    line_search=polyfem.line_search(use_grad_norm_tol=1e-07),
+                    norm_type="Euclidean",
+                    rel_grad_norm_tol=0,
+                    first_grad_norm_tol=1e-10,
+                    grad_norm_tol=1e-08,
+                ),
+                advanced=polyfem.solver_advanced(
+                    characteristic_force_density=1, characteristic_length=1
+                ),
+                max_threads=1,
+            ),
+            output=example_output(output),
+        )
+    )
+
+    objective = diff.objectives.sdf_target(
+        surface_selection=[5],
+        delta=0.05,
+        control_points_grid=[
+            [-0.5, 0.0065, -0.5],
+            [-0.16666666666666669, 0.0065, -0.5],
+            [0.16666666666666663, 0.0065, -0.5],
+            [0.5, 0.0065, -0.5],
+            [-0.5, 0.0065, -0.16666666666666669],
+            [-0.16666666666666669, 0.4065, -0.16666666666666669],
+            [0.16666666666666663, 0.4065, -0.16666666666666669],
+            [0.5, 0.0065, -0.16666666666666669],
+            [-0.5, 0.0065, 0.16666666666666663],
+            [-0.16666666666666669, 0.4065, 0.16666666666666663],
+            [0.16666666666666663, 0.4065, 0.16666666666666663],
+            [0.5, 0.0065, 0.16666666666666663],
+            [-0.5, 0.0065, 0.5],
+            [-0.16666666666666669, 0.0065, 0.5],
+            [0.16666666666666663, 0.0065, 0.5],
+            [0.5, 0.0065, 0.5],
+        ],
+        knots_u=[0, 0, 0, 0, 1, 1, 1, 1],
+        knots_v=[0, 0, 0, 0, 1, 1, 1, 1],
+    )
+    boundaries = config["boundary_conditions"]["pressure_boundary"]
+    obj = diff.pressure(
+        config, boundary_ids=[b["id"] for b in boundaries], objective=objective
+    )
+
+    x = torch.tensor(
+        [b["value"] for b in boundaries], dtype=torch.float64, requires_grad=True
+    )
+
+    def loss(x):
+        return obj(values=x)
+
+    optimizer = torch.optim.Adam([x], lr=1e-5)
+    optimizer.zero_grad()
+    before = loss(x)
+    before.backward()
+    optimizer.step()
+
+    with torch.no_grad():
+        after = loss(x)
+    print(f"Loss after one update: {before.item():.10g} -> {after.item():.10g}")

@@ -101,6 +101,7 @@ def _run_initial_condition_session(
     objective: Any,
     objective_params: Mapping[str, Any] | None = None,
     backend: Any | None = None,
+    target: dict[str, Any] | None = None,
 ) -> tuple[Any, Any]:
     backend_module = backend if backend is not None else _load_default_backend()
     session_type = _backend.require_initial_condition_opt_backend(backend_module)
@@ -108,6 +109,10 @@ def _run_initial_condition_session(
 
     session.set_settings(payload)
     session.set_initial_condition_parameters(initial_condition)
+    if target is not None:
+        if not callable(getattr(session, "set_target_settings", None)):
+            raise _backend.BackendContractError("Rebuild the backend for fixed target matching: missing set_target_settings")
+        session.set_target_settings(target)
     objective_payload = _objective_payload(
         objective,
         objective_params=objective_params,

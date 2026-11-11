@@ -16,6 +16,18 @@ import subprocess
 from setuptools._distutils.version import LooseVersion
 from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
+from setuptools.command.build_py import build_py
+
+
+class BuildPython(build_py):
+    """Ship the generated model builder's runtime without the code generator."""
+
+    def find_package_modules(self, package, package_dir):
+        modules = super().find_package_modules(package, package_dir)
+        if package == "polyfempy.generated_api.generator":
+            runtime = {"__init__", "model_builder", "id_relationships", "selection_refs"}
+            return [module for module in modules if module[1] in runtime]
+        return modules
 
 
 class CMakeExtension(Extension):
@@ -126,7 +138,7 @@ class CMakeBuild(build_ext):
         # binary profile (asserts, no inlining, .pdb beside .pyd) and are easy to mix
         # with Release VC++ runtimes — a common source of "worked until I tried a debug build".
         cfg = "Release"
-        build_args = ["--config", cfg]
+        build_args = ["--config", cfg, "--target", "polyfempy"]
         cmake_args += [f"-DCMAKE_BUILD_TYPE={cfg}"]
 
         if platform.system() == "Windows":
@@ -218,10 +230,14 @@ setup(
     url="https://polyfem.github.io/",
     # Build as `polyfempy.polyfempy` (a submodule inside the Python package).
     ext_modules=[CMakeExtension('polyfempy.polyfempy')],
-    cmdclass=dict(build_ext=CMakeBuild),
-    # Keep package discovery aligned with pyproject.toml and avoid shipping
-    # internal helper modules such as legacy_differentiable as top-level packages.
-    packages=find_packages(include=["polyfempy*"]),
+    cmdclass=dict(build_ext=CMakeBuild, build_py=BuildPython),
+    # Put a real package on sys.path ahead of the upstream namespace directory.
+    options={"editable_wheel": {"mode": "strict"}},
+    packages=find_packages(include=["polyfempy*"]) + ["polyfem", "polyfempy.generated_api.generator"],
+    package_dir={
+        "polyfem": "python/polyfem",
+        "polyfempy.generated_api.generator": "python-from-jse/generator",
+    },
     entry_points={
         "console_scripts": [
             "polyfempy=polyfempy.cli:main",

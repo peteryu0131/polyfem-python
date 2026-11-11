@@ -104,40 +104,50 @@ class _ENuMaterials:
     """Resolve constant model data once; rebuild differentiable mappings per call."""
 
     def __init__(self, payload, overrides, backend):
+        self.overrides, self.parameters, self.like = self._inputs(overrides)
+        self.backend = backend if backend is not None else _load_default_backend()
+        self._load_model(payload)
+
+    @classmethod
+    def _inputs(cls, overrides, *, internal_units=False):
         import torch
         from .objectives import _selection_id
 
+        if overrides is None:
+            return {}, (), torch.tensor(0., dtype=torch.float64)
         if not isinstance(overrides, Mapping) or not overrides:
             raise ValueError("materials must be a nonempty body-to-E/nu mapping")
-        self.overrides = {}
+        normalized = {}
         tensors = []
         parameters = []
         for body, fields in overrides.items():
             body_id = 0 if type(body) is int and body == 0 else _selection_id(body)
-            if body_id in self.overrides:
+            if body_id in normalized:
                 raise ValueError(f"Duplicate material override for body {body_id}")
             if (not isinstance(fields, Mapping) or not set(fields) & {"E", "nu"}
                     or set(fields) - {"E", "nu", "unit"}):
                 raise ValueError("Material overrides accept only E, nu and unit")
-            if "E" in fields and (not isinstance(fields.get("unit"), str) or not fields["unit"]):
+            if "E" in fields and not (internal_units and "unit" not in fields) and (
+                    not isinstance(fields.get("unit"), str) or not fields["unit"]):
                 raise ValueError("A supplied E requires an explicit stress unit")
             if "unit" in fields and "E" not in fields:
                 raise ValueError("unit applies to E, not dimensionless nu")
-            self.overrides[body_id] = dict(fields)
+            normalized[body_id] = dict(fields)
             for name in ("E", "nu"):
                 if name not in fields:
                     continue
                 value = fields[name]
-                self._validate_scalar(value, name)
+                cls._validate_scalar(value, name)
                 if isinstance(value, torch.Tensor):
                     tensors.append(value)
                     if value.requires_grad and all(value is not p for p in parameters):
                         parameters.append(value)
-        self.parameters = tuple(parameters)
-        self.like = tensors[0] if tensors else torch.tensor(0., dtype=torch.float64)
-        if any(t.dtype != self.like.dtype or t.device != self.like.device for t in tensors):
+        like = tensors[0] if tensors else torch.tensor(0., dtype=torch.float64)
+        if any(t.dtype != like.dtype or t.device != like.device for t in tensors):
             raise ValueError("All material tensors must have the same dtype and device")
+        return normalized, tuple(parameters), like
 
+    def _load_model(self, payload):
         # Reject expressions/heterogeneous models instead of silently homogenizing them.
         definitions = payload.get("materials")
         if isinstance(definitions, Mapping):
@@ -156,7 +166,6 @@ class _ENuMaterials:
             self._quantity(definition.get("E", definition.get("young")), "E")
             self._validate_scalar(definition.get("nu"), "nu")
 
-        self.backend = backend if backend is not None else _load_default_backend()
         session_type = _backend.require_material_enu_backend(self.backend)
         session = session_type()
         session.set_settings(payload)
@@ -211,19 +220,27 @@ class _ENuMaterials:
         # Bare model values already use simulation units, exactly as in ordinary forward.
         return 1. if unit is None else self.backend._material_stress_scale(self.units, unit)
 
-    def lame(self):
+    def lame(self, overrides=None):
         import torch
         from .torch_ops import _MaterialENu
 
+        if overrides is None:
+            fields_by_body, like, scales = self.overrides, self.like, self.scales
+        else:
+            fields_by_body, _, like = self._inputs(overrides, internal_units=True)
+            if not set(fields_by_body) <= set(self.base):
+                raise ValueError("Unknown body in material overrides")
+            scales = {body: self._scale(fields.get("unit"))
+                      for body, fields in fields_by_body.items() if "E" in fields}
         body_ids, pairs = [], []
         for body, (base_E, base_nu, base_scale) in self.base.items():
-            fields = self.overrides.get(body, {})
+            fields = fields_by_body.get(body, {})
             E, nu = fields.get("E", base_E), fields.get("nu", base_nu)
             self._validate_scalar(E, "E")
             self._validate_scalar(nu, "nu")
-            E = E if isinstance(E, torch.Tensor) else self.like.new_tensor(E)
-            nu = nu if isinstance(nu, torch.Tensor) else self.like.new_tensor(nu)
-            pairs.append(torch.stack((E * self.scales.get(body, base_scale), nu)))
+            E = E if isinstance(E, torch.Tensor) else like.new_tensor(E)
+            nu = nu if isinstance(nu, torch.Tensor) else like.new_tensor(nu)
+            pairs.append(torch.stack((E * scales.get(body, base_scale), nu)))
             body_ids.append(body)
         converted = _MaterialENu.apply(torch.stack(pairs), self.metadata.dimension, self.backend)
         return self.metadata.material_by_body(dict(zip(body_ids, converted)))
@@ -252,6 +269,7 @@ def _run_material_session(
     objective: Any,
     objective_params: Mapping[str, Any] | None = None,
     backend: Any | None = None,
+    target: dict[str, Any] | None = None,
 ) -> tuple[Any, Any]:
     backend_module = backend if backend is not None else _load_default_backend()
     session_type = _backend.require_material_opt_backend(backend_module)
@@ -259,6 +277,10 @@ def _run_material_session(
 
     session.set_settings(payload)
     session.set_material_lame_parameters(lame)
+    if target is not None:
+        if not callable(getattr(session, "set_target_settings", None)):
+            raise _backend.BackendContractError("Rebuild the backend for fixed target matching: missing set_target_settings")
+        session.set_target_settings(target)
     objective_payload = _objective_payload(
         objective,
         objective_params=objective_params,

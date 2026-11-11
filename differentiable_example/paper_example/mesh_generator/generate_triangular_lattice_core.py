@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Iterable
 
 import gmsh
+from shapely import BufferCapStyle, BufferJoinStyle
 from shapely.geometry import LineString, MultiPolygon, Polygon, box
 from shapely.ops import unary_union
 from shapely.geometry.polygon import orient
@@ -59,7 +60,7 @@ def build_truss_layer(
         pts.append((x, y))
 
     centerline = LineString(pts)
-    return centerline.buffer(beam_t / 2.0, cap_style=2, join_style=2)
+    return centerline.buffer(beam_t / 2.0, cap_style=BufferCapStyle.flat, join_style=BufferJoinStyle.mitre)
 
 
 def core_horizontal_extent(*, j: float, theta_deg: float, nx: int) -> float:
@@ -140,7 +141,7 @@ def build_microstructure(
     return geom, px0, px1, height
 
 
-def _ring_to_loop(ring_coords: list[tuple[float, float]], lc: float) -> int:
+def _ring_to_loop(ring_coords: list[tuple[float, ...]], lc: float) -> int:
     # drop the repeated closing point and remove near-duplicates
     raw = ring_coords[:-1]
     pts: list[tuple[float, float]] = []

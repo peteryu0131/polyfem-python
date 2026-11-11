@@ -1,8 +1,11 @@
 #include "binding.hpp"
+#include "boundary_displacement.hpp"
+#include "surface_target.hpp"
 #include "von_mises.hpp"
 #include <polyfem/optimization/forms/TransientForm.hpp>
 
 #include <polyfem/optimization/BuildFromJson.hpp>
+#include <polyfem/optimization/NodeSelectionUtils.hpp>
 #include <polyfem/optimization/DiffCache.hpp>
 #include <polyfem/optimization/VarFormDiff.hpp>
 #include <polyfem/optimization/parametrization/Parametrization.hpp>
@@ -16,6 +19,9 @@
 #include <Eigen/Core>
 
 #include <memory>
+#include <algorithm>
+#include <filesystem>
+#include <functional>
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -138,13 +144,25 @@ public:
     const auto thread_limit = solver_settings.value("max_threads", polyfem::json(0));
     if (!thread_limit.is_number_integer() || thread_limit.get<int>() < 0)
       throw std::runtime_error("solver.max_threads must be a non-negative integer (0 is unlimited).");
+    const polyfem::io::FileSystemIO files(std::filesystem::current_path());
+    resources_ = files.with_root(settings_.value("root_path", std::string{}));
+    auto args = settings_;
+    args.erase("root_path");
     varform_ = polyfem::from_json::build_differentiable_varform(
-        settings_,
+        args, *resources_,
         static_cast<size_t>(thread_limit.get<int>()));
     diff_cache_ = std::make_shared<polyfem::DiffCache>();
     shape_var2sim_ = build_direct_shape_variable_to_simulation();
     material_var2sim_ = build_direct_material_variable_to_simulation();
     initial_condition_var2sim_.reset();
+    control_var2sim_.reset();
+    control_kind_.clear();
+    has_control_parameters_ = false;
+    target_varform_.reset();
+    target_diff_cache_.reset();
+    target_resources_.reset();
+    shape_target_bodies_.clear();
+    shape_target_surfaces_.clear();
 
     has_settings_ = true;
     has_objective_ = false;
@@ -171,6 +189,13 @@ public:
     return vertices;
   }
 
+  Eigen::VectorXi boundary_vertex_ids(const std::vector<int> &ids, bool exclude) const
+  {
+    if (!has_settings_) throw std::runtime_error("Call set_settings before boundary_vertex_ids");
+    return exclude ? polyfem::select_boundary_nodes_excluding_surfaces(*varform_, ids)
+                   : polyfem::select_boundary_nodes(*varform_, ids);
+  }
+
   void set_objective(const py::object &objective)
   {
     if (!has_settings_)
@@ -185,6 +210,105 @@ public:
     rebuild_objective_form();
   }
 
+  void set_target_settings(const py::object &settings)
+  {
+    set_matching_target(settings, {}, {});
+  }
+
+  void set_shape_target(const py::object &settings, const std::vector<int> &bodies, const std::vector<int> &surfaces)
+  {
+    if (bodies.empty() || surfaces.empty())
+      throw std::runtime_error("Shape target requires explicit reference body and surface IDs");
+    set_matching_target(settings, bodies, surfaces);
+  }
+
+private:
+  void set_matching_target(const py::object &settings, const std::vector<int> &bodies, const std::vector<int> &surfaces)
+  {
+    if (!has_settings_ || has_objective_ || has_solution_)
+      throw std::runtime_error("Set target settings after primary settings and before the objective/solve.");
+    auto args = settings_from_python(settings);
+    const auto threads = args.value("solver", polyfem::json::object()).value("max_threads", polyfem::json(0));
+    if (!threads.is_number_integer() || threads.get<int>() < 0)
+      throw std::runtime_error("Target solver.max_threads must be a non-negative integer.");
+    const polyfem::io::FileSystemIO files(std::filesystem::current_path());
+    auto resources = files.with_root(args.value("root_path", std::string{}));
+    args.erase("root_path");
+    auto target = polyfem::from_json::build_differentiable_varform(
+        args, *resources, static_cast<size_t>(threads.get<int>()));
+    const auto &mesh = varform_->get_mesh();
+    const auto &target_mesh = target->get_mesh();
+    if (!mesh.is_simplicial() || !target_mesh.is_simplicial()
+        || mesh.dimension() != target_mesh.dimension()
+        || varform_->primary_space().value_dim != target->primary_space().value_dim)
+      throw std::runtime_error("Target matching requires corresponding simplex meshes and value dimensions.");
+    Eigen::MatrixXd vertices, target_vertices;
+    varform_->get_vertices(vertices);
+    target->get_vertices(target_vertices);
+    if (bodies.empty())
+    {
+      if (vertices.rows() != target_vertices.rows() || !vertices.isApprox(target_vertices, 1e-12)
+          || mesh.n_elements() != target_mesh.n_elements())
+        throw std::runtime_error("Fixed target matching requires identical reference vertices.");
+      for (int e = 0; e < mesh.n_elements(); ++e)
+      {
+        if (mesh.get_body_id(e) != target_mesh.get_body_id(e))
+          throw std::runtime_error("Target matching requires identical element body IDs/order.");
+        for (int j = 0; j <= mesh.dimension(); ++j)
+          if (mesh.element_vertex(e, j) != target_mesh.element_vertex(e, j))
+            throw std::runtime_error("Target matching requires identical element connectivity/order.");
+      }
+    }
+    else
+    {
+      // TargetForm pairs elements of each cached body by their order in that body.
+      for (int body : bodies)
+      {
+        std::vector<int> primary, reference;
+        for (int e = 0; e < mesh.n_elements(); ++e)
+          if (mesh.get_body_id(e) == body) primary.push_back(e);
+        for (int e = 0; e < target_mesh.n_elements(); ++e)
+          if (target_mesh.get_body_id(e) == body) reference.push_back(e);
+        if (primary.empty() || primary.size() != reference.size())
+          throw std::runtime_error("Reference body element counts differ");
+        for (size_t k = 0; k < primary.size(); ++k)
+          for (int j = 0; j <= mesh.dimension(); ++j)
+            if (!vertices.row(mesh.element_vertex(primary[k], j)).isApprox(
+                target_vertices.row(target_mesh.element_vertex(reference[k], j)), 1e-12))
+              throw std::runtime_error("Reference body element coordinates/order differ");
+      }
+      bool found = false;
+      for (const auto &boundary : varform_->boundary_state().total_local_boundary)
+        for (int i = 0; i < boundary.size(); ++i)
+        {
+          const int surface = mesh.get_boundary_id(boundary.global_primitive_id(i));
+          if (std::find(surfaces.begin(), surfaces.end(), surface) == surfaces.end()) continue;
+          found = true;
+          const int body = mesh.get_body_id(boundary.element_id());
+          if (std::find(bodies.begin(), bodies.end(), body) == bodies.end())
+            throw std::runtime_error("Measured surface lies outside matched bodies");
+        }
+      if (!found) throw std::runtime_error("Shape target surface is empty");
+    }
+    if (varform_->get_args().value("time", polyfem::json()) != target->get_args().value("time", polyfem::json()))
+      throw std::runtime_error("Target matching requires identical time settings.");
+    if (varform_->get_args().value("units", polyfem::json()) != target->get_args().value("units", polyfem::json()))
+      throw std::runtime_error("Target matching requires identical unit settings.");
+    auto cache = std::make_shared<polyfem::DiffCache>();
+    Eigen::MatrixXd solution;
+    const polyfem::varform::ForwardStepCallback post_step =
+        [target, cache](const int step, const Eigen::MatrixXd &u) {
+          cache->cache_transient(step, *target, u, nullptr);
+        };
+    target->solve(solution, nullptr, post_step, true);
+    target_varform_ = std::move(target);
+    target_resources_ = std::move(resources);
+    shape_target_bodies_ = bodies;
+    shape_target_surfaces_ = surfaces;
+    target_diff_cache_ = std::move(cache);
+  }
+
+public:
   void set_shape_vertices(const py::object &vertices, const py::object &selection)
   {
     (void)selection;
@@ -292,6 +416,15 @@ public:
     return static_cast<int>(varform_->primary_space().ndof());
   }
 
+  Eigen::VectorXd initial_condition_parameters()
+  {
+    if (!has_settings_)
+      throw std::runtime_error("Call set_settings before initial_condition_parameters");
+    if (!initial_condition_var2sim_)
+      initial_condition_var2sim_ = build_direct_initial_condition_variable_to_simulation();
+    return initial_condition_var2sim_->inverse_eval();
+  }
+
   void set_initial_condition_parameters(const py::object &initial_condition)
   {
     if (!has_settings_)
@@ -369,6 +502,91 @@ public:
     run_forward_solve();
     objective_form_->solution_changed(current_material_x_);
     return objective_form_->value(current_material_x_);
+  }
+
+  int prepare_control(const py::object &specification)
+  {
+    if (!has_settings_) throw std::runtime_error("Call set_settings before prepare_control");
+    auto spec = settings_from_python(specification);
+    const auto type = spec.at("type").get<std::string>();
+    if (type != "damping" && type != "friction" && type != "dirichlet-boundary"
+        && type != "dirichlet-nodes" && type != "pressure" && type != "periodic-shape")
+      throw std::runtime_error("Unsupported control parameter type");
+    spec["state"] = 0;
+    spec["composition"] = polyfem::json::array();
+    if (type == "dirichlet-boundary")
+    {
+      const auto ids = spec.value("active_boundary_ids", std::vector<int>{});
+      const auto times = spec.value("active_time_slices", std::vector<int>{});
+      control_var2sim_ = std::make_shared<polyfempy::differentiable_api::BoundaryDisplacementControl>(
+          varform_, diff_cache_, Eigen::Map<const Eigen::VectorXi>(ids.data(), ids.size()),
+          Eigen::Map<const Eigen::VectorXi>(times.data(), times.size()));
+    }
+    else
+    {
+      control_var2sim_ = polyfem::from_json::build_variable_to_simulation(
+          spec, {varform_}, {diff_cache_}, {}, {std::cref(*resources_)});
+    }
+    control_kind_ = type;
+    has_control_parameters_ = false;
+    has_solution_ = false;
+    active_parameter_kind_ = ActiveParameterKind::Control;
+    rebuild_objective_form();
+    return control_var2sim_->inverse_dof();
+  }
+
+  void set_control_parameters(const Eigen::VectorXd &values)
+  {
+    if (!control_var2sim_) throw std::runtime_error("Call prepare_control first");
+    if (values.size() != control_var2sim_->inverse_dof() || !values.allFinite())
+      throw std::runtime_error("Control parameter size mismatch or non-finite values");
+    current_control_x_ = values;
+    control_var2sim_->update(values);
+    has_control_parameters_ = true;
+    has_solution_ = false;
+  }
+
+  Eigen::VectorXd control_initial_parameters() const
+  {
+    if (!control_var2sim_) throw std::runtime_error("Call prepare_control first");
+    return control_var2sim_->inverse_eval();
+  }
+
+  double solve_control_objective()
+  {
+    if (!has_control_parameters_ || !objective_form_ || active_parameter_kind_ != ActiveParameterKind::Control)
+      throw std::runtime_error("Set control parameters and objective before solving");
+    run_forward_solve();
+    objective_form_->solution_changed(current_control_x_);
+    return objective_form_->value(current_control_x_);
+  }
+
+  Eigen::VectorXd backward_control(const py::object &gradient)
+  {
+    if (!has_solution_ || !has_control_parameters_ || !objective_form_
+        || active_parameter_kind_ != ActiveParameterKind::Control)
+      throw std::runtime_error("Solve the control objective before backward");
+    polyfem::solve_adjoint_cached(*varform_, *diff_cache_,
+        objective_form_->compute_reduced_adjoint_rhs(current_control_x_, *varform_, *diff_cache_));
+    Eigen::VectorXd result;
+    objective_form_->first_derivative(current_control_x_, result);
+    return result * scalar_from_python(gradient);
+  }
+
+  Eigen::VectorXi interior_vertex_ids(const std::vector<int> &ids) const
+  {
+    if (!has_settings_) throw std::runtime_error("Set settings before querying interior vertices");
+    return polyfem::select_interior_nodes(*varform_, ids);
+  }
+
+  Eigen::MatrixXd backward_dirichlet_shape(const py::object &gradient)
+  {
+    if (!has_solution_ || !has_shape_vertices_ || control_kind_ != "dirichlet-boundary")
+      throw std::runtime_error("Solve a joint shape and boundary control objective before backward");
+    active_parameter_kind_ = ActiveParameterKind::Shape;
+    rebuild_objective_form();
+    objective_form_->solution_changed(current_shape_x_);
+    return backward_shape(gradient);
   }
 
   double solve_initial_condition_objective()
@@ -476,6 +694,7 @@ private:
     Shape,
     Material,
     InitialCondition,
+    Control,
   };
 
   void run_forward_solve()
@@ -634,13 +853,89 @@ private:
         varform_};
     std::vector<std::shared_ptr<polyfem::DiffCache>> diff_caches{
         diff_cache_};
+    validate_objective_states(objective_);
+    std::vector<std::reference_wrapper<const polyfem::io::ResourceIO>> resources{
+        std::cref(*resources_)};
+    if (target_varform_)
+    {
+      if (!shape_target_bodies_.empty())
+      {
+        const auto spatial = objective_.value("static_objective", polyfem::json::object());
+        if (active_parameter_kind_ != ActiveParameterKind::Shape
+            || objective_.value("type", std::string{}) != "transient_integral"
+            || spatial.value("type", std::string{}) != "target" || spatial.value("target_state", -1) != 1
+            || spatial.value("surface_selection", std::vector<int>{}) != shape_target_surfaces_
+            || spatial.value("reference_cached_body_ids", std::vector<int>{}) != shape_target_bodies_)
+          throw std::runtime_error("Shape target objective must use the matched reference bodies and surfaces");
+      }
+      const bool matching_control = active_parameter_kind_ == ActiveParameterKind::Control
+          && (control_kind_ == "damping" || control_kind_ == "friction");
+      if (active_parameter_kind_ != ActiveParameterKind::Material
+          && active_parameter_kind_ != ActiveParameterKind::Shape
+          && active_parameter_kind_ != ActiveParameterKind::InitialCondition && !matching_control)
+        throw std::runtime_error("Fixed target matching currently supports material, initial-condition, damping and friction inputs only.");
+      if (active_parameter_kind_ == ActiveParameterKind::InitialCondition || matching_control)
+      {
+        const std::string spatial_type = objective_.contains("static_objective")
+            ? objective_.at("static_objective").value("type", std::string{}) : "";
+        const bool center_target = active_parameter_kind_ == ActiveParameterKind::InitialCondition
+            && spatial_type == "center-target";
+        if (objective_.value("type", std::string{}) != "transient_integral"
+            || (spatial_type != "target" && !center_target))
+          throw std::runtime_error("Initial/control fixed target matching requires a transient_integral target objective.");
+      }
+      const bool transient = objective_.value("type", std::string{}) == "transient_integral";
+      const auto &args = transient ? objective_.at("static_objective") : objective_;
+      if (args.value("type", std::string{}) == "target" && args.value("target_state", -1) == 1)
+      {
+        const auto variables = build_active_variable_to_simulation_group();
+        auto spatial = std::make_shared<polyfempy::differentiable_api::SurfaceTargetForm>(
+            variables, varform_, diff_cache_, args, *resources_);
+        spatial->set_reference(target_varform_, target_diff_cache_,
+            args.value("reference_cached_body_ids", std::set<int>{}));
+        spatial->set_weight(args.value("weight", 1.0));
+        if (!args.value("print_energy", std::string{}).empty()) spatial->enable_energy_print(args["print_energy"]);
+        objective_form_ = spatial;
+        if (transient)
+        {
+          const auto &time = varform_->get_args().at("time");
+          objective_form_ = std::make_shared<polyfem::solver::TransientForm>(
+              variables, time.at("time_steps").get<int>(), time.at("dt").get<double>(),
+              objective_.at("integral_type"), objective_.value("steps", std::vector<int>{}), spatial);
+          objective_form_->set_weight(objective_.value("weight", 1.0));
+          if (!objective_.value("print_energy", std::string{}).empty()) objective_form_->enable_energy_print(objective_["print_energy"]);
+        }
+        return;
+      }
+      varforms.push_back(target_varform_);
+      diff_caches.push_back(target_diff_cache_);
+      resources.push_back(std::cref(*target_resources_));
+    }
     objective_form_ = polyfem::from_json::build_form(
-        objective_,
+        objective_.value("type", std::string{}) == "sum" ? objective_.at("terms") : objective_,
         build_active_variable_to_simulation_group(),
         varforms,
-        diff_caches);
+        diff_caches, resources);
   }
 
+  void validate_objective_states(const polyfem::json &value) const
+  {
+    if (value.is_array())
+    {
+      for (const auto &entry : value) validate_objective_states(entry);
+    }
+    else if (value.is_object())
+    {
+      if (value.contains("state") && value["state"] != 0)
+        throw std::runtime_error("This session differentiates state=0 only; the target is fixed.");
+      if (value.contains("target_state") && (!target_varform_ || value["target_state"] != 1))
+        throw std::runtime_error("target_state=1 requires a fixed target supplied with set_target_settings.");
+      for (auto it = value.begin(); it != value.end(); ++it)
+        if (it.value().is_structured()) validate_objective_states(it.value());
+    }
+  }
+
+  std::vector<int> shape_target_bodies_, shape_target_surfaces_;
   bool has_settings_ = false;
   bool has_objective_ = false;
   bool has_shape_vertices_ = false;
@@ -655,6 +950,10 @@ private:
   Eigen::VectorXd current_shape_x_;
   Eigen::VectorXd current_material_x_;
   Eigen::VectorXd current_initial_condition_x_;
+  Eigen::VectorXd current_control_x_;
+  bool has_control_parameters_ = false;
+  std::shared_ptr<polyfem::solver::VariableToSimulation> control_var2sim_;
+  std::string control_kind_;
   Eigen::MatrixXd last_solution_;
   std::shared_ptr<polyfem::varform::DifferentiableVarForm> varform_;
   std::shared_ptr<polyfem::DiffCache> diff_cache_;
@@ -663,6 +962,10 @@ private:
   std::shared_ptr<polyfem::solver::InitialConditionVariableToSimulation>
       initial_condition_var2sim_;
   std::shared_ptr<polyfem::solver::AdjointForm> objective_form_;
+  std::shared_ptr<polyfem::varform::DifferentiableVarForm> target_varform_;
+  std::shared_ptr<polyfem::DiffCache> target_diff_cache_;
+  std::unique_ptr<const polyfem::io::ResourceIO> resources_;
+  std::unique_ptr<const polyfem::io::ResourceIO> target_resources_;
 
   std::shared_ptr<polyfem::solver::ShapeVariableToSimulation>
   build_direct_shape_variable_to_simulation() const
@@ -742,6 +1045,12 @@ private:
   polyfem::solver::VariableToSimulationGroup
   build_active_variable_to_simulation_group() const
   {
+    if (active_parameter_kind_ == ActiveParameterKind::Control)
+    {
+      polyfem::solver::VariableToSimulationGroup group;
+      group.data.push_back(control_var2sim_);
+      return group;
+    }
     if (active_parameter_kind_ == ActiveParameterKind::Material)
     {
       return build_direct_material_variable_to_simulation_group();
@@ -811,8 +1120,20 @@ void define_differentiable_session(py::module_ &m)
           "Store direct elastic Lamé parameters for a future objective solve.",
           py::arg("lame"))
       .def("objective_info", &DifferentiableSession::objective_info)
+      .def("interior_vertex_ids", &DifferentiableSession::interior_vertex_ids)
+      .def("backward_dirichlet_shape", &DifferentiableSession::backward_dirichlet_shape)
+      .def("set_shape_target", &DifferentiableSession::set_shape_target)
+      .def("set_target_settings", &DifferentiableSession::set_target_settings,
+           "Solve a fixed reference state for material target matching.")
       .def("mesh_vertices", &DifferentiableSession::mesh_vertices,
            "Return vertices in the exact order expected by set_shape_vertices, without solving.")
+      .def("boundary_vertex_ids", &DifferentiableSession::boundary_vertex_ids,
+           py::arg("ids"), py::arg("exclude") = false)
+      .def("prepare_control", &DifferentiableSession::prepare_control)
+      .def("control_initial_parameters", &DifferentiableSession::control_initial_parameters)
+      .def("set_control_parameters", &DifferentiableSession::set_control_parameters)
+      .def("solve_control_objective", &DifferentiableSession::solve_control_objective)
+      .def("backward_control", &DifferentiableSession::backward_control)
       .def(
           "model_metadata",
           &DifferentiableSession::model_metadata,
@@ -821,6 +1142,10 @@ void define_differentiable_session(py::module_ &m)
           "initial_condition_dof_count",
           &DifferentiableSession::initial_condition_dof_count,
           "Return the primary-space DOF count for initial-condition parameters.")
+      .def(
+          "initial_condition_parameters",
+          &DifferentiableSession::initial_condition_parameters,
+          "Read initial conditions in backend order: all displacement DOFs, then velocity DOFs")
       .def(
           "set_initial_condition_parameters",
           &DifferentiableSession::set_initial_condition_parameters,

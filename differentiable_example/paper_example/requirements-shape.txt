@@ -1,0 +1,5 @@
+# Example preparation only; the core PolyFEM API does not require these extras.
+scipy>=1.10
+meshio>=5
+gmsh>=4.11
+shapely>=2

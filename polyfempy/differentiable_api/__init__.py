@@ -2,6 +2,8 @@
 
 from importlib import import_module
 
+from . import object
+
 from .initial_condition import InitialConditionOptimization, initial_condition_opt
 from .model import DifferentiableModel, ModelMetadata, model
 from .material import MaterialOptimization, material_opt
@@ -24,6 +26,10 @@ from .shape import (
 from .solve import solve
 from .state import State, state
 
+# Export factories after loading the same-named implementation modules.
+from .object import material, shape, initial, damping, friction, dirichlet, pressure
+from .control import periodic_shape
+
 __all__ = [
     "DifferentiableModel",
     "ModelMetadata",
@@ -45,6 +51,15 @@ __all__ = [
     "StressNorm",
     "initial_condition_opt",
     "model",
+    "object",
+    "material",
+    "shape",
+    "initial",
+    "damping",
+    "friction",
+    "dirichlet",
+    "pressure",
+    "periodic_shape",
     "material_opt",
     "objectives",
     "parameter",

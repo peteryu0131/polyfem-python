@@ -150,11 +150,13 @@ def test_session_rejects_invalid_thread_settings(threads):
         session.set_settings({"solver": {"max_threads": threads}})
 
 
-def test_initial_condition_example_on_replacement_mesh(replacement_mesh, tmp_path):
+def test_initial_condition_example_on_replacement_mesh(replacement_mesh, tmp_path, monkeypatch):
     pytest.importorskip("polyfempy.polyfempy")
     torch = pytest.importorskip("torch")
     root = Path(__file__).resolve().parents[1]
-    example = runpy.run_path(str(root / "differentiable_example/initial_condition/transient_elastic_initial_condition.py"))
+    from test_differentiable_api_real_backend import _initial_callable_example
+    monkeypatch.chdir(tmp_path)
+    example = _initial_callable_example()
     settings = example["diff_model"].as_dicts()[0]
     settings["geometry"][0]["mesh"] = str(replacement_mesh)
     settings["output"]["directory"] = str(tmp_path / "initial")
@@ -162,9 +164,10 @@ def test_initial_condition_example_on_replacement_mesh(replacement_mesh, tmp_pat
     metadata = model.metadata()
     assert (metadata.n_vertices, metadata.n_elements, metadata.n_dofs) == (5, 4, 10)
     assert metadata.n_dofs != example["metadata"].n_dofs
-    # Exercise the real example's loss, replacing only model + its metadata.
-    loss = example["loss"]
-    loss.__globals__.update(diff_model=model, metadata=metadata)
+    obj = diff.initial(model, objective=example["objective"])
+
+    def loss(velocity):
+        return (obj(velocity=velocity) - .02).square()
     velocity = torch.tensor([0.8, 0.6], dtype=torch.float64, requires_grad=True)
     value = loss(velocity)
     value.backward()
@@ -183,22 +186,22 @@ def test_initial_condition_example_on_replacement_mesh(replacement_mesh, tmp_pat
         higher_order.uniform_initial_condition(velocity)
 
 
-def test_material_example_on_replacement_mesh(replacement_mesh, tmp_path):
+def test_material_example_on_replacement_mesh(replacement_mesh, tmp_path, monkeypatch):
     pytest.importorskip("polyfempy.polyfempy")
     torch = pytest.importorskip("torch")
     root = Path(__file__).resolve().parents[1]
-    # Runs the original bar example too, preserving per-element leaf gradients.
-    example = runpy.run_path(str(root / "differentiable_example/material/linear_elasticity_compliance.py"))
-    assert example["lame"].is_leaf
-    assert example["lame"].grad.shape == example["lame"].shape
-    settings = example["diff_model"].as_dicts()[0]
+    monkeypatch.chdir(tmp_path)
+    example = runpy.run_path(str(root / "differentiable_example/samples/material_and_contact/material_field.py"))
+    assert example["x"].is_leaf
+    assert example["x"].grad.shape == example["x"].shape
+    settings = diff.model(example["config"]).as_dicts()[0]
     settings["geometry"][0]["mesh"] = str(replacement_mesh)
     settings["geometry"][0]["surface_selection"][0]["box"] = [[-0.501, -0.501], [-0.499, 0.501]]
     settings["output"]["directory"] = str(tmp_path / "material")
     model = diff.model(settings)
     metadata = model.metadata()
     assert (metadata.n_elements, metadata.n_dofs) == (4, 10)
-    assert metadata.n_elements != example["metadata"].n_elements
+    assert metadata.n_elements != example["obj"].n_elements
     with pytest.raises(ValueError, match="unconstrained P1"):
         metadata.uniform_initial_condition(torch.zeros(2))
 

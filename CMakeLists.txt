@@ -120,3 +120,9 @@ elseif(WIN32)
 else()
     message(WARNING "Python extension module suffix not defined; leaving default target suffix.")
 endif()
+
+# Optional validation tools; never linked into the Python API.
+option(POLYFEMPY_BUILD_REFERENCE_TOOLS "Build upstream JSON comparison tools" OFF)
+if(POLYFEMPY_BUILD_REFERENCE_TOOLS)
+    add_subdirectory(tools/optimization_reference)
+endif()

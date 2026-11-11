@@ -1,7 +1,15 @@
 # PolyFEM-Python
 
-This README is intentionally minimal while the Python API documentation is being
-rewritten.
+Install the `polyfempy` distribution and use the public Python imports:
+
+```python
+import polyfem
+import polyfem.diff as diff
+
+model = polyfem.model()
+```
+
+See the [differentiable examples](differentiable_example/README.md) for complete material and shape examples.
 
 The current work-in-progress public API direction is:
 

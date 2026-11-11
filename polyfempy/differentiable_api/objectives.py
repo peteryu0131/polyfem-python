@@ -90,6 +90,12 @@ class ObjectiveSpec:
 class ObjectiveNamespace:
     """Factory namespace for differentiable objective specs."""
 
+    def sum(self, *terms: ObjectiveSpec) -> ObjectiveSpec:
+        """Evaluate a sum of standard objectives with one shared forward solve."""
+        if not terms or not all(isinstance(term, ObjectiveSpec) and term.type_name in self.standard_types for term in terms):
+            raise ValueError("Supply one or more standard objective specs")
+        return ObjectiveSpec("sum", extra=(("terms", [term.as_dict() for term in terms]),))
+
     def create(self, type_name: str, **fields) -> ObjectiveSpec:
         """Use exact objective-spec.json names/fields, including nested objectives.
 

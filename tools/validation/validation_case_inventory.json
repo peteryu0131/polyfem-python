@@ -1,0 +1,678 @@
+{
+  "date": "2026-11-09",
+  "count": 37,
+  "commits": {
+    "polyfem": "50628af3d70829e0e697dcba309d6fc96eda4945",
+    "differentiability-data": "c3d05bfc970b748d8ff7b65d398701fb312965c0"
+  },
+  "cases": [
+    {
+      "case": "3d-shape-mesh-target-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "mesh-target",
+        "sdf-target"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-3d-shape-mesh-target-20261030.json",
+      "submodule_change": "未改；使用现有 diff.shape",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "barycenter-opt.json",
+      "phase": 6,
+      "inputs": [
+        "initial"
+      ],
+      "objectives": [
+        "transient_integral",
+        "center-target"
+      ],
+      "api_candidate": [
+        "diff.initial"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-barycenter-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "control-pressure-nodes-3d-opt.json",
+      "phase": 2,
+      "inputs": [
+        "pressure"
+      ],
+      "objectives": [
+        "transient_integral",
+        "sdf-target"
+      ],
+      "api_candidate": [
+        "diff.pressure"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-transient-pressure-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "damping-transient-opt.json",
+      "phase": 1,
+      "inputs": [
+        "damping"
+      ],
+      "objectives": [
+        "transient_integral",
+        "target"
+      ],
+      "api_candidate": [
+        "diff.damping"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-damping-target-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "dirichlet-nodes-3d-opt.json",
+      "phase": 1,
+      "inputs": [
+        "dirichlet-nodes"
+      ],
+      "objectives": [
+        "stress_norm"
+      ],
+      "api_candidate": [
+        "diff.dirichlet(node_ids=...)"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-dirichlet-nodes-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "dirichlet-ref-opt.json",
+      "phase": 2,
+      "inputs": [],
+      "objectives": [
+        "target"
+      ],
+      "api_candidate": [
+        "固定参考 + 动态边界位移（未开放）"
+      ],
+      "status": "缺原网格 floor.msh；固定参考位移梯度未验证通过",
+      "evidence": "results/followup-dirichlet-ref-20261109.json",
+      "submodule_change": "未改；详见 11 月 9 日复核",
+      "literal_reference_in_test_diff": false,
+      "previous_evidence": "dirichlet-reference-audit-20261030.json"
+    },
+    {
+      "case": "dirichlet-sdf-opt.json",
+      "phase": 2,
+      "inputs": [
+        "dirichlet-boundary"
+      ],
+      "objectives": [
+        "transient_integral",
+        "sdf-target"
+      ],
+      "api_candidate": [
+        "diff.dirichlet(boundary_ids=...)"
+      ],
+      "status": "按原时间戳映射，forward、梯度与链式求导通过；原表直传仍拒绝",
+      "evidence": "results/followup-dirichlet-sdf-20261109.json",
+      "submodule_change": "未改；详见 11 月 9 日复核",
+      "literal_reference_in_test_diff": false,
+      "previous_evidence": "dirichlet-timing-20261030.json"
+    },
+    {
+      "case": "elastic-material-smoothing-2d-opt.json",
+      "phase": 3,
+      "inputs": [
+        "elastic"
+      ],
+      "objectives": [
+        "elastic_material_smoothing"
+      ],
+      "api_candidate": [
+        "diff.material"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-material-smoothing-2d-20261030.json",
+      "submodule_change": "未改；重新生成自己的目标 schema 快照",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "elastic-material-smoothing-3d-opt.json",
+      "phase": 3,
+      "inputs": [
+        "elastic"
+      ],
+      "objectives": [
+        "elastic_material_smoothing"
+      ],
+      "api_candidate": [
+        "diff.material"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-material-smoothing-3d-20261030.json",
+      "submodule_change": "未改；重新生成自己的目标 schema 快照",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "friction-contact-opt.json",
+      "phase": 1,
+      "inputs": [
+        "friction"
+      ],
+      "objectives": [
+        "transient_integral",
+        "target"
+      ],
+      "api_candidate": [
+        "diff.friction"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-friction-target-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "homogenize-stress-opt.json",
+      "phase": 7,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "stress"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-homogenize-stress-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "homogenize-stress-periodic-opt.json",
+      "phase": 7,
+      "inputs": [
+        "periodic-shape"
+      ],
+      "objectives": [
+        "stress"
+      ],
+      "api_candidate": [
+        "diff.periodic_shape"
+      ],
+      "status": "原模型周期参数检查通过",
+      "evidence": "results/remaining-homogenize-stress-periodic-20261030.json",
+      "submodule_change": "未改；新增自己的周期参数桥接",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "initial-contact-min-dist-opt.json",
+      "phase": 1,
+      "inputs": [
+        "initial"
+      ],
+      "objectives": [
+        "transient_integral",
+        "target",
+        "min-dist-target"
+      ],
+      "api_candidate": [
+        "diff.initial"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-initial-target-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "initial-contact-opt.json",
+      "phase": 6,
+      "inputs": [
+        "initial"
+      ],
+      "objectives": [
+        "transient_integral",
+        "target"
+      ],
+      "api_candidate": [
+        "diff.initial"
+      ],
+      "status": "原模型梯度检查通过；项目补充检查，非对应 C++ 测试",
+      "evidence": "results/remaining-initial-contact-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": false
+    },
+    {
+      "case": "initial-contact-smooth-opt.json",
+      "phase": 6,
+      "inputs": [
+        "initial"
+      ],
+      "objectives": [
+        "transient_integral",
+        "target",
+        "smooth_contact_force_norm"
+      ],
+      "api_candidate": [
+        "diff.initial"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-initial-contact-smooth-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "laplacian-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "stress_norm",
+        "boundary_smoothing"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原总目标通过；平滑分项全梯度已独立验证，保留旧差分超差",
+      "evidence": "results/followup-laplacian-20261109.json",
+      "submodule_change": "未改；详见 11 月 9 日复核",
+      "literal_reference_in_test_diff": true,
+      "followup_evidence": "laplacian-step-diagnostic-20261030.json",
+      "previous_evidence": "upstream-laplacian-20261030.json"
+    },
+    {
+      "case": "linear_elasticity-surface-3d-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "position"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-linear_elasticity-surface-3d-20261030.json",
+      "submodule_change": "未改；使用现有 diff.shape",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "linear_elasticity-surface-opt.json",
+      "phase": 1,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "position"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-surface-latest-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "material-transient-opt.json",
+      "phase": 3,
+      "inputs": [
+        "elastic"
+      ],
+      "objectives": [
+        "transient_integral",
+        "target"
+      ],
+      "api_candidate": [
+        "diff.material"
+      ],
+      "status": "全梯度与原 OptState 一致；保留旧小步长差分超差",
+      "evidence": "results/followup-material-transient-20261109.json",
+      "submodule_change": "未改；详见 11 月 9 日复核",
+      "literal_reference_in_test_diff": true,
+      "followup_evidence": "material-target-step-sweep-20261030.json",
+      "note": "新增三个步长通过；原小步长失败保留，不改为整例通过",
+      "previous_evidence": "upstream-material-target-20261030.json"
+    },
+    {
+      "case": "neohookean-stress-3d-opt.json",
+      "phase": 1,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "stress_norm"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "历史原入口对照通过",
+      "evidence": "results/original-shape-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "node-trajectory-opt.json",
+      "phase": 6,
+      "inputs": [],
+      "objectives": [],
+      "api_candidate": [
+        "diff.material_opt (Lamé)"
+      ],
+      "status": "原模型梯度检查通过；按原测试运行时构造目标",
+      "evidence": "results/remaining-node-trajectory-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "shape-contact-adhesion-opt.json",
+      "phase": 5,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "stress_norm",
+        "collision_barrier",
+        "deformed_collision_barrier"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-shape-contact-adhesion-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "shape-contact-force-norm-3d-opt.json",
+      "phase": 5,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "log_contact_force_norm"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-shape-contact-force-norm-3d-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "shape-contact-force-norm-opt-adhesion.json",
+      "phase": 5,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "quadratic_contact_force_norm"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-shape-contact-force-norm-adhesion-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "shape-contact-force-norm-opt.json",
+      "phase": 5,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "quadratic_contact_force_norm"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-shape-contact-force-norm-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "shape-contact-opt.json",
+      "phase": 5,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "stress_norm",
+        "collision_barrier",
+        "deformed_collision_barrier"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-shape-contact-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "shape-neumann-nodes-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "stress_norm"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-shape-neumann-nodes-20261030.json",
+      "submodule_change": "未改；使用现有 diff.shape",
+      "literal_reference_in_test_diff": true,
+      "note": "固定 Neumann 载荷；不是压力边界控制。仅移动选中边界顶点。"
+    },
+    {
+      "case": "shape-pressure-neumann-nodes-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "stress_norm"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "当前 JSON 状态通过；历史法向载荷状态梯度未通过",
+      "evidence": "results/followup-shape-opt-state-20261109.json",
+      "submodule_change": "未改；详见 11 月 9 日复核",
+      "literal_reference_in_test_diff": false,
+      "previous_evidence": "shape-pressure-neumann-audit-20261030.json",
+      "additional_evidence": [
+        "followup-shape-historical-20261109.json",
+        "followup-shape-native-20261109.json",
+        "followup-shape-zero-load-20261109.json"
+      ]
+    },
+    {
+      "case": "shape-pressure-nodes-2d-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "stress_norm"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-shape-pressure-nodes-2d-20261030.json",
+      "submodule_change": "未改；使用现有 diff.shape",
+      "literal_reference_in_test_diff": true,
+      "note": "固定 Neumann 载荷；不是压力边界控制。仅移动选中边界顶点。"
+    },
+    {
+      "case": "shape-pressure-nodes-3d-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "sdf-target"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-shape-pressure-nodes-3d-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "shape-transient-friction-opt.json",
+      "phase": 1,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "stress_norm"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-transient-aligned-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "shape-transient-friction-sdf-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "sdf-target"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-shape-transient-friction-sdf-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "shape-transient-stress-3d-frictionless-fast-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "stress_norm"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/remaining-shape-transient-stress-3d-frictionless-fast-20261030.json",
+      "submodule_change": "未改；自己的 API/桥接层及验证脚本",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "static-control-pressure-nodes-3d-opt.json",
+      "phase": 1,
+      "inputs": [
+        "pressure"
+      ],
+      "objectives": [
+        "sdf-target"
+      ],
+      "api_candidate": [
+        "diff.pressure"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-static-pressure-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "topology-compliance-opt.json",
+      "phase": 1,
+      "inputs": [
+        "elastic"
+      ],
+      "objectives": [
+        "compliance"
+      ],
+      "api_candidate": [
+        "diff.material"
+      ],
+      "status": "历史原入口对照通过",
+      "evidence": "results/original-material-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "walker-opt.json",
+      "phase": 2,
+      "inputs": [
+        "pressure"
+      ],
+      "objectives": [
+        "transient_integral",
+        "displacement-target"
+      ],
+      "api_candidate": [
+        "diff.pressure"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-walker-pressure-20261030.json",
+      "submodule_change": "本次未改源码",
+      "literal_reference_in_test_diff": true
+    },
+    {
+      "case": "walker-shape-opt.json",
+      "phase": 4,
+      "inputs": [
+        "shape"
+      ],
+      "objectives": [
+        "transient_integral",
+        "displacement-target"
+      ],
+      "api_candidate": [
+        "diff.shape"
+      ],
+      "status": "原模型梯度检查通过",
+      "evidence": "results/upstream-walker-shape-20261030.json",
+      "submodule_change": "未改；使用现有 diff.shape",
+      "literal_reference_in_test_diff": true,
+      "note": "后端报告压力边界未闭合/端点未固定；数值梯度通过不消除该配置诊断"
+    }
+  ]
+}

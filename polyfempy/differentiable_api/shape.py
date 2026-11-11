@@ -246,6 +246,7 @@ def _run_shape_session(
     objective: Any | None = None,
     objective_params: Mapping[str, Any] | None = None,
     backend: Any | None = None,
+    target=None,
 ) -> tuple[Any, Any]:
     backend_module = backend if backend is not None else _load_default_backend()
     session_type = _backend.require_shape_solve_backend(backend_module)
@@ -264,8 +265,13 @@ def _run_shape_session(
                 "Objective-aware shape solves require "
                 "DifferentiableSession.set_objective."
             )
+        if target is not None:
+            spatial = objective_payload["static_objective"]
+            session.set_shape_target(target, spatial["reference_cached_body_ids"], spatial["surface_selection"])
+            session.set_shape_vertices(tensor, selection=selection)
         set_objective(objective_payload)
-    session.set_shape_vertices(tensor, selection=selection)
+    if target is None:
+        session.set_shape_vertices(tensor, selection=selection)
     if objective_payload is not None:
         solve_objective = getattr(session, "solve_objective", None)
         if not callable(solve_objective):
