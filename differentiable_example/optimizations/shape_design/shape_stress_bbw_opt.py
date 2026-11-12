@@ -14,7 +14,7 @@ import torch
 import polyfem.diff as diff
 import polyfem
 
-from .._bbw import BAR_WEIGHTS, load_handle_data
+from differentiable_example.optimizations._bbw import BAR_WEIGHTS, load_handle_data
 from differentiable_example._scene import OPTIMIZATIONS, example_output, solver_config
 
 ASSETS = OPTIMIZATIONS / "shape-stress-bbw-opt"

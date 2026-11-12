@@ -8,6 +8,8 @@ Run it from the repository root:
 conda run -n polyfem python -m differentiable_example.samples.material_and_contact.material_beam
 ```
 
+In VS Code, open the repository root, select the `polyfem` interpreter, and run an example with **Run Python File in Terminal**. Open a new terminal if one was already running when you opened the workspace.
+
 | What would you like to do? | Where to start |
 | --- | --- |
 | Define a PyTorch loss for a simulated quantity | [Fit a friction coefficient](samples/material_and_contact/friction_matching.py) or [combine two load cases](samples/material_and_contact/material_load_cases.py) |

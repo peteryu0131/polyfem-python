@@ -4,7 +4,10 @@ import torch
 import polyfem.diff as diff
 import polyfem
 
-from _shape_geometry import prepare_geometry
+if __package__:
+    from ._shape_geometry import prepare_geometry
+else:
+    from _shape_geometry import prepare_geometry
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent

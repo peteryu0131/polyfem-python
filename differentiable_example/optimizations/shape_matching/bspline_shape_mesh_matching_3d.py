@@ -14,7 +14,7 @@ import torch
 import polyfem.diff as diff
 import polyfem
 
-from .._bbw import BOX_WEIGHTS, load_handle_data, rotate
+from differentiable_example.optimizations._bbw import BOX_WEIGHTS, load_handle_data, rotate
 from differentiable_example._scene import OPTIMIZATIONS, example_output, solver_config
 
 ASSETS = OPTIMIZATIONS / "3d-bspline-shape-mesh-matching"

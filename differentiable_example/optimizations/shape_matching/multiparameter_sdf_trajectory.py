@@ -17,7 +17,7 @@ from differentiable_example._scene import (
     simulation_directory,
     solver_config,
 )
-from .._trajectory import bernstein, mesh_and_boundary_nodes
+from differentiable_example.optimizations._trajectory import bernstein, mesh_and_boundary_nodes
 
 ASSETS = OPTIMIZATIONS / "multiparameter-sdf-trajectory-surface-opt"
 

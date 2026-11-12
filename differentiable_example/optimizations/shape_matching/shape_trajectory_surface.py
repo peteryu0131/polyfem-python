@@ -15,7 +15,10 @@ import polyfem.diff as diff
 import polyfem
 
 from differentiable_example._scene import OPTIMIZATIONS, example_output, solver_config
-from .._trajectory import mesh_and_boundary_nodes, trajectory_solver_settings
+from differentiable_example.optimizations._trajectory import (
+    mesh_and_boundary_nodes,
+    trajectory_solver_settings,
+)
 
 ASSETS = OPTIMIZATIONS / "shape-trajectory-surface-opt-new"
 

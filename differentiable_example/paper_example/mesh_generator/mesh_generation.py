@@ -11,6 +11,10 @@ import json
 import math
 from pathlib import Path
 
+# A file launched directly needs its package name for the relative imports below.
+if not __package__:
+    __package__ = "differentiable_example.paper_example.mesh_generator"
+
 from .generate_falling_weight_square import generate_mesh as generate_block_mesh
 from .generate_triangular_lattice_core import build_microstructure, generate_mesh as generate_lattice_mesh
 

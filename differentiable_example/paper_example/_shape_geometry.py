@@ -13,7 +13,10 @@ from scipy.sparse.linalg import splu
 from scipy.spatial import KDTree
 from shapely.geometry import Polygon
 
-from mesh_generator.generate_triangular_lattice_core import build_microstructure
+if __package__:
+    from .mesh_generator.generate_triangular_lattice_core import build_microstructure
+else:
+    from mesh_generator.generate_triangular_lattice_core import build_microstructure
 
 
 class LatticeShape:

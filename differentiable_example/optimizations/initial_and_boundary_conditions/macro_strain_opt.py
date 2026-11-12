@@ -7,10 +7,16 @@ Run: python -m differentiable_example.optimizations.initial_and_boundary_conditi
 """
 
 import argparse
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 import torch
+
+# Direct script execution puts this file's directory on the import path.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import polyfem.diff as diff
 from polyfempy import polyfempy as backend
@@ -102,8 +108,8 @@ def problem(config):
             slope = (evaluate(ctx.xx + h) - evaluate(ctx.xx - h)) / (2 * h)
             return (upstream * slope).reshape(1)
 
-    def loss(x):
-        return MacroStress.apply(x)
+    def loss(x: torch.Tensor) -> torch.Tensor:
+        return cast(torch.Tensor, MacroStress.apply(x))
 
     return [xx], loss
 
