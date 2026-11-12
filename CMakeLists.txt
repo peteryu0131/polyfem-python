@@ -71,6 +71,13 @@ endif()
 # dependencies
 include(polyfem)
 
+# This executable embeds schemas at build time. Only runtime binaries belong in the wheel.
+if(TARGET jse_embed_spec_tool)
+    set_target_properties(jse_embed_spec_tool PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tools/$<CONFIG>"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_BINARY_DIR}/tools/Release")
+endif()
+
     # Explicitly disable static library mode BEFORE including nanobind
     # This prevents nanobind from trying to build static library (which requires tsl::robin_map)
     # Must be set before find_package(nanobind) is called

@@ -110,25 +110,5 @@ build_verbose.txt
 .DS_Store
 Thumbs.db
 
-# --- experiment/: nothing ignored except Python cache under it ---
-# Overrides *.csv, *.npz, *.vtu, *.pvd, *.vtm, *.log, *.pyd, etc. for paths under experiment/
-!experiment/
-!experiment/**
-experiment/**/__pycache__/
-# Theta fine-sweep batch workspaces (PolyFEM case dirs + summaries); must appear after !experiment/**
-experiment/new_experiment/theta_degree/theta_jump_fine_part1/
-experiment/new_experiment/theta_degree/theta_jump_fine_part2/
-experiment/new_experiment/theta_degree/theta_jump_fine_part3/
-
-# Local experiment outputs and archived scratch trees. These rules must appear
-# after !experiment/** so generated files under experiment/ stay local-only.
-experiment/archive/
-experiment/**/runs/
-experiment/**/paper_runs/
-experiment/**/slurm_logs/
-experiment/**/outputs/
-experiment/**/outputs_*/
-experiment/**/result_summaries/
-experiment/**/training_data/
-experiment/**/training_data_*/
-experiment/**/zip_parts/
+# Local experiments
+/experiment/

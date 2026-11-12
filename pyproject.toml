@@ -34,9 +34,6 @@ classifiers = [
 io = [
     "meshio>=5.0.0",
 ]
-differentiable = [
-    "torch>=2.0.0",
-]
 visualization = [
     "matplotlib>=3.5",
 ]
@@ -50,7 +47,6 @@ all = [
     "matplotlib>=3.5",
     "meshio>=5.0.0",
     "pytest>=7.0",
-    "torch>=2.0.0",
 ]
 
 [project.scripts]
