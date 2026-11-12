@@ -29,13 +29,14 @@ python -m pytest tests/test_backend_smoke.py -q
 | When | What runs |
 | --- | --- |
 | Push or pull request | Python and generated API tests on Windows, macOS and Linux with Python 3.10–3.12 |
-| Pull request opened, updated or reopened | Linux C++ build and the cube reference check |
+| Draft PR, or PR targeting another branch | Linux C++ build and the cube reference check on open, update or reopen |
+| Ready-for-review PR targeting `main` | Cube check followed by the full contact sweep on open, update, reopen, marking ready or retargeting to `main` |
 | Manual run of Generated Contact Backend, or push to main | Full contact sweep against the pinned official data |
 
-Before merging, run the full sweep on the pull request branch. The current PolyFEM lists contain 75 active cases. To run the same check locally:
+Before merging, check **Forward solver checks (Ubuntu, Python 3.11)** on the latest PR revision. The full sweep runs the 75 active cases and compares the generated configurations with the official inputs and their reference metrics. For an on-demand check, open **Actions → Generated Contact Backend → Run workflow** and select the branch. To run the same check locally:
 
 ```sh
 python tools/run_generated_contact_backend_checks.py --output-root build/contact-check --generated-source-tolerance 1e-5 --max-threads 1 --require-tests-match
 ```
 
-Read `build/contact-check/summary.txt` for the outcome and the per-case logs for failures. GitHub Actions uploads the summary and logs as an artifact.
+Read `build/contact-check/summary.txt` for the outcome and the per-case logs for failures. In GitHub Actions, download the **generated-contact-backend-results** artifact from the workflow run to inspect those files.

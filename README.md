@@ -30,7 +30,7 @@ with TemporaryDirectory() as folder:
     print(abs(result.sol).max())
 ```
 
-The largest absolute displacement component is about `0.00011235`. For larger models, see the [classic examples](https://github.com/polyfem/python_data/tree/3e7f7ae77484adbeb977f02a5bb75915368bc69b/classic_example).
+The largest absolute displacement component is about `0.00011235`. For larger models, see the [classic examples](https://github.com/polyfem/python_data/tree/89773e1c485a223b230fe372ca2032122cd0a7cd/classic_example).
 
 ## Source layout
 
@@ -40,4 +40,6 @@ The largest absolute displacement component is about `0.00011235`. For larger mo
 - `python-from-jse/` generates the configuration API from PolyFEM schemas and the rules in `generator-config/`.
 - `polyfem-data/` supplies the official meshes, input configurations, and reference values.
 
-See [testing](TESTING.md) for the local checks and GitHub Actions.
+## Forward solver validation
+
+On a ready-for-review pull request targeting `main`, GitHub Actions builds the C++ backend, checks a Neo-Hookean cube against reference values, and runs the 75 active contact cases from the pinned PolyFEM test lists. Open the **Generated Contact Backend** run and download **generated-contact-backend-results** for the per-case results. See [testing](TESTING.md) for the commands and triggers.
