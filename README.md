@@ -30,7 +30,7 @@ with TemporaryDirectory() as folder:
     print(abs(result.sol).max())
 ```
 
-The largest absolute displacement component is about `0.00011235`. For larger models, see the [classic examples](examples/classic_example).
+The largest absolute displacement component is about `0.00011235`. For larger models, see the [classic examples](https://github.com/polyfem/python_data/tree/3e7f7ae77484adbeb977f02a5bb75915368bc69b/classic_example).
 
 ## Source layout
 
