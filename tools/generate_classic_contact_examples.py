@@ -796,10 +796,11 @@ def render_callable_call(
 ) -> str:
     spaces = " " * indent
     child_spaces = " " * (indent + 4)
-    if len(args) == 1 and not kwargs and "\n" not in args[0]:
-        return f"{spaces}{callee}({args[0].strip()})"
-    if not args and not kwargs:
-        return f"{spaces}{callee}()"
+    arguments = [arg.strip() for arg in args]
+    arguments.extend(f"{key}={value.strip()}" for key, value in kwargs)
+    inline = f"{spaces}{callee}({', '.join(arguments)})"
+    if "\n" not in inline and len(inline) <= 88:
+        return inline
 
     lines = [f"{spaces}{callee}("]
     for arg in args:
