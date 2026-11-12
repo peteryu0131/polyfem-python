@@ -28,3 +28,34 @@ Current state:
   `python-from-jse/` when they document supported generator capabilities.
 - The current `schema_patches` examples are generic examples under
   `python-from-jse/examples/`; they are not active PolyFEM config.
+
+## Generated global configuration helpers
+
+The generic generator accepts keyword arguments directly on polymorphic
+factories, for example `pf.time(dt=0.01, tend=0.5, integrator="BDF")`.
+It selects a schema branch using its required fields; explicit variant objects
+remain supported for compatibility.
+
+Root configuration sections also generate methods on the model builder:
+
+```python
+model = pf.model()
+model.time(dt=0.01, tend=0.5, integrator="BDF")
+model.units(length="cm", mass="g", time="s")
+model.output(directory="runs/example")
+config = model.config()
+```
+
+These setters return the model and replace the same section when called again.
+Passing that section again to `model.config(...)` raises an error instead of
+silently overriding it. Existing builder methods (including `space()` and
+body/selection helpers) retain their existing behavior; they are not replaced
+by generated setters.
+
+Maintain this behavior in `python-from-jse/generator/JsonToTreeClass.py` and
+`python-from-jse/generator/model_builder.py`, not the generated output. From the
+repository root, regenerate with:
+
+```powershell
+conda run -n polyfem python tools/generate_polyfem_api.py
+```

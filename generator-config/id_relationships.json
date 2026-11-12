@@ -2,6 +2,13 @@
   {
     "namespace": "volume",
     "producer": "geometry[*].volume_selection",
+    "consumer": "boundary_conditions.rhs[*].id",
+    "builder_api": "body.rhs",
+    "status": "required"
+  },
+  {
+    "namespace": "volume",
+    "producer": "geometry[*].volume_selection",
     "consumer": "materials[*].id",
     "builder_api": "body.material",
     "status": "required"

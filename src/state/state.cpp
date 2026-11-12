@@ -36,7 +36,8 @@ bool load_yaml(const std::string &yaml_file, json &out)
 {
   try
   {
-    out = io::yaml_file_to_json(yaml_file);
+    const io::FileSystemIO resources(std::filesystem::current_path());
+    out = io::yaml_string_to_json(resources.read_string(yaml_file));
     if (!out.contains("root_path"))
       out["root_path"] = yaml_file;
   }
@@ -108,7 +109,7 @@ public:
       const bool non_conforming)
   {
     init_globals(state_);
-    state_.load_mesh(vertices, cells, non_conforming);
+    state_.set_mesh(vertices, cells, non_conforming);
   }
 
   py::dict solve(int log_level)

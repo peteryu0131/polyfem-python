@@ -119,6 +119,20 @@ def test_backend_tool_defaults_dynamic_examples_to_one_step(tmp_path):
     assert payload["time"] == {"dt": 0.1, "time_steps": 1}
 
 
+def test_backend_tool_adds_json_output_to_reduced_payload(tmp_path):
+    tool = _load_tool_module()
+
+    source_json = tmp_path / "example.json"
+    source_json.write_text(
+        json.dumps({"time": {"dt": 0.1, "time_steps": 10}}),
+        encoding="utf-8",
+    )
+
+    payload, _test_directive = tool.load_reduced_backend_payload(source_json)
+
+    assert payload["output"]["json"] == "sim.json"
+
+
 def test_backend_tool_applies_polyfem_verify_run_linear_solver_patch(tmp_path):
     tool = _load_tool_module()
 
@@ -261,8 +275,10 @@ def test_batch_backend_tool_reads_polyfem_active_contact_lists():
     cases = tool.iter_active_contact_cases(tool.CONTACT_LISTS)
     by_source = {case.source_rel: case for case in cases}
 
-    assert len(cases) == 67
+    assert len(cases) == 75
+    assert all(Path(case.generated_example).exists() for case in cases)
     assert "contact/examples/3D/pile/cubes.json" in by_source
+    assert "contact/examples/3D/hex_tet/params.json" in by_source
     assert "contact/examples/3D/rigid/proxy/screw.json" in by_source
     assert "contact/examples/3D/static/two-cubes.json" not in by_source
     assert by_source[

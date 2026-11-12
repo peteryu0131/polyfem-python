@@ -243,6 +243,8 @@ def _resolve_geometry_mesh_paths_in_place(payload: Dict[str, Any], root_path: st
         if not isinstance(entry, dict):
             continue
 
+        _resolve_geometry_selection_files_in_place(entry, root_path)
+
         mesh_path = entry.get("mesh")
         if not isinstance(mesh_path, str) or not mesh_path.strip():
             continue
@@ -259,6 +261,29 @@ def _resolve_geometry_mesh_paths_in_place(payload: Dict[str, Any], root_path: st
         sibling = root_dir.parent / "meshes" / mesh_file.name
         if sibling.exists():
             entry["mesh"] = str(sibling)
+
+
+def _resolve_geometry_selection_files_in_place(entry: Dict[str, Any], root_path: str) -> None:
+    for key in ("volume_selection", "surface_selection", "point_selection"):
+        selection = entry.get(key)
+        if isinstance(selection, str) and selection.strip():
+            entry[key] = _resolve_existing_path_from_root(root_path, selection)
+        else:
+            _resolve_selection_file_paths_in_place(selection, root_path)
+
+
+def _resolve_selection_file_paths_in_place(selection: Any, root_path: str) -> None:
+    if isinstance(selection, list):
+        for item in selection:
+            _resolve_selection_file_paths_in_place(item, root_path)
+        return
+
+    if not isinstance(selection, dict):
+        return
+
+    file_path = selection.get("file")
+    if isinstance(file_path, str) and file_path.strip():
+        selection["file"] = _resolve_existing_path_from_root(root_path, file_path)
 
 
 def _resolve_existing_path_from_root(root_path: str, path_value: str) -> str:

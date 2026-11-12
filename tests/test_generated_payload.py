@@ -115,6 +115,37 @@ class GeneratedPayloadTests(unittest.TestCase):
             _canonical_path_text(mesh_file),
         )
 
+    def test_prepare_payload_resolves_relative_selection_files_from_root_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case_dir = Path(tmp) / "case"
+            case_dir.mkdir()
+            volume_file = case_dir / "volume.txt"
+            surface_file = case_dir / "surface.txt"
+            volume_file.write_text("1", encoding="utf-8")
+            surface_file.write_text("2", encoding="utf-8")
+
+            payload = {
+                "root_path": str(case_dir / "config.json"),
+                "geometry": [
+                    {
+                        "mesh": "beam.msh",
+                        "volume_selection": {"file": "volume.txt"},
+                        "surface_selection": {"file": "surface.txt"},
+                    }
+                ],
+            }
+
+            prepared = prepare_generated_backend_payload(payload)
+
+        self.assertEqual(
+            prepared["geometry"][0]["volume_selection"]["file"],
+            _canonical_path_text(volume_file),
+        )
+        self.assertEqual(
+            prepared["geometry"][0]["surface_selection"]["file"],
+            _canonical_path_text(surface_file),
+        )
+
     def test_prepare_payload_resolves_relative_collision_mesh_files_from_root_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             case_dir = Path(tmp) / "case"

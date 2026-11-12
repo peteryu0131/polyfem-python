@@ -70,9 +70,7 @@ DOLPHIN_MATERIAL_SHAPE_CASES = [
     ),
 ]
 
-EXPECTED_GENERATED_API_FALLBACK_SOURCES = {
-    "3D/static/two-cubes.json",
-}
+EXPECTED_GENERATED_API_FALLBACK_SOURCES: set[str] = set()
 
 
 def _ordinary_contact_source_paths() -> set[Path]:
@@ -89,7 +87,6 @@ def _is_auxiliary_contact_json(path: Path) -> bool:
     return (
         path.name == "common.json"
         or path.name.endswith("-common.json")
-        or path.name == "params.json"
     )
 
 
@@ -391,6 +388,129 @@ def test_model_builder_obstacle_mesh_does_not_create_volume_selection():
     ]
 
 
+def test_top_level_config_with_model_delegates_to_model_builder():
+    model = polyfem.model()
+
+    material = polyfem.neo_hookean(E=100000.0, nu=0.3)
+    body = model.mesh(mesh="beam.msh")
+    body.material(material)
+    body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
+
+    solver = polyfem.solver(max_threads=1)
+    output = polyfem.output(directory="out")
+    config_kwargs = {
+        "rhs": [10, 100, 0],
+        "space": polyfem.space(
+            discr_order=1,
+            advanced=polyfem.space_advanced(quadrature_order=4),
+        ),
+        "solver": solver,
+        "output": output,
+    }
+
+    builder_config = model.config(**config_kwargs)
+    top_level_config = polyfem.config(model=model, **config_kwargs)
+
+    assert top_level_config.as_dict() == builder_config.as_dict()
+
+    builder_canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=builder_config,
+        dtype=None,
+    )
+    top_level_canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=top_level_config,
+        dtype=None,
+    )
+    assert top_level_canonical.backend_settings == builder_canonical.backend_settings
+
+
+def test_top_level_body_mesh_and_model_rhs_match_legacy_builder_payload():
+    legacy_model = polyfem.model()
+    legacy_body = legacy_model.mesh(mesh="beam.msh")
+    legacy_body.material(polyfem.neo_hookean(E=100000.0, nu=0.3))
+    legacy_body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
+    legacy_config = polyfem.config(model=legacy_model, rhs=[10, 100, 0])
+
+    model = polyfem.model()
+    mesh_descriptor = polyfem.mesh(mesh="beam.msh")
+    mesh_payload_before_attach = mesh_descriptor.as_dict()
+    body = polyfem.body(model=model)
+    body.mesh(mesh_descriptor)
+    body.material(polyfem.neo_hookean(E=100000.0, nu=0.3))
+    body.surface_all(id=1).dirichlet(value=[0.0, 0.0, 0.0])
+    model.rhs([10, 100, 0])
+    config = polyfem.config(model=model)
+
+    assert config.as_dict() == legacy_config.as_dict()
+    assert mesh_descriptor.as_dict() == mesh_payload_before_attach
+
+    legacy_canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=legacy_config,
+        dtype=None,
+    )
+    canonical = prepare_canonical_solve_input(
+        vertices=None,
+        cells=None,
+        cfg=config,
+        dtype=None,
+    )
+    assert canonical.backend_settings == legacy_canonical.backend_settings
+
+
+def test_model_rhs_rejects_duplicate_rhs_sources():
+    model = polyfem.model()
+    model.rhs([10, 100, 0])
+
+    with pytest.raises(TypeError, match="rhs"):
+        polyfem.config(model=model, rhs=[0, 0, 0])
+    with pytest.raises(TypeError, match="rhs"):
+        polyfem.config(
+            model=model,
+            boundary_conditions=polyfem.boundary_conditions(rhs=[0, 0, 0]),
+        )
+
+
+def test_body_rhs_preserves_each_body_selection_and_rejects_conflicts():
+    model = polyfem.model()
+    first = model.mesh(mesh="first.obj")
+    second = model.mesh(mesh="second.obj")
+    first.material(polyfem.neo_hookean(E=1000, nu=0.3))
+    second.material(polyfem.neo_hookean(E=2000, nu=0.3))
+    first.rhs(value=[1, 0])
+    second.rhs(value=[0, 2])
+    payload = polyfem.config(model=model).as_dict()
+    ids = [item["volume_selection"] for item in payload["geometry"]]
+    assert ids[0] != ids[1]
+    assert payload["boundary_conditions"]["rhs"] == [
+        {"id": ids[0], "value": [1, 0]},
+        {"id": ids[1], "value": [0, 2]},
+    ]
+    assert [item["id"] for item in payload["materials"]] == ids
+    with pytest.raises(TypeError, match="rhs"):
+        first.rhs(value=[3, 4])
+    with pytest.raises(TypeError, match="rhs"):
+        model.rhs([1, 1])
+    with pytest.raises(TypeError, match="rhs"):
+        polyfem.config(model=model, rhs=[1, 1])
+    with pytest.raises(TypeError, match="rhs"):
+        polyfem.config(model=model, boundary_conditions={"rhs": [1, 1]})
+
+    global_model = polyfem.model()
+    global_model.rhs([1, 1])
+    global_body = global_model.mesh(mesh="first.obj")
+    with pytest.raises(TypeError, match="rhs"):
+        global_body.rhs(value=[1, 0])
+    unbound = polyfem.body(model=polyfem.model())
+    with pytest.raises(ValueError, match="body.mesh"):
+        unbound.rhs(value=[1, 0])
+
+
 def test_global_material_geometry_example_uses_model_builder():
     example_path = (
         CLASSIC_EXAMPLES
@@ -625,7 +745,7 @@ def _load_source_config(source_path: Path) -> dict[str, Any]:
 
     _resolve_mesh_paths(merged, source_path.parent)
     _normalize_solver_fallbacks(merged)
-    _normalize_generated_mesh_payloads(merged)
+    _normalize_generated_mesh_payloads(merged, source_path.parent)
     return merged
 
 
@@ -691,7 +811,7 @@ def _normalize_solver_fallbacks(config: dict[str, Any]) -> None:
         linear["solver"] = solver_name[0]
 
 
-def _normalize_generated_mesh_payloads(config: dict[str, Any]) -> None:
+def _normalize_generated_mesh_payloads(config: dict[str, Any], source_dir: Path) -> None:
     geometry = config.get("geometry")
     if not isinstance(geometry, list):
         return
@@ -700,6 +820,8 @@ def _normalize_generated_mesh_payloads(config: dict[str, Any]) -> None:
         if not isinstance(item, dict) or "mesh" not in item:
             continue
         item.setdefault("type", "mesh")
+        _normalize_file_selection(item, "volume_selection", source_dir)
+        _normalize_file_selection(item, "surface_selection", source_dir)
 
         transformation = item.get("transformation")
         if not isinstance(transformation, dict):
@@ -707,6 +829,23 @@ def _normalize_generated_mesh_payloads(config: dict[str, Any]) -> None:
         for field in ("rotation", "scale"):
             if isinstance(transformation.get(field), (int, float)):
                 transformation[field] = [float(transformation[field])]
+
+
+def _normalize_file_selection(item: dict[str, Any], field: str, source_dir: Path) -> None:
+    selection = item.get(field)
+    if isinstance(selection, str):
+        item[field] = {"file": _resolve_source_file_path(selection, source_dir)}
+    elif isinstance(selection, dict):
+        file_path = selection.get("file")
+        if isinstance(file_path, str):
+            selection["file"] = _resolve_source_file_path(file_path, source_dir)
+
+
+def _resolve_source_file_path(path_value: str, source_dir: Path) -> str:
+    path = Path(path_value)
+    if path.is_absolute():
+        return path_value
+    return str((source_dir / path).resolve())
 
 
 @pytest.mark.parametrize("case", EXAMPLE_CASES, ids=_case_id)
@@ -743,6 +882,31 @@ def test_classic_common_helpers_support_polyfem_data_root_env(monkeypatch, tmp_p
     assert common_2d.MESHES_DIR == data_root.resolve() / "contact" / "meshes"
     assert common_3d.POLYFEM_DATA_ROOT == data_root.resolve()
     assert common_3d.POLYFEM_DATA_CONTACT == data_root.resolve() / "contact"
+
+
+def test_contact_source_loader_resolves_file_selection_paths():
+    source_path = POLYFEM_DATA_EXAMPLES / "3D" / "hex_tet" / "params.json"
+    loader = _import_module(
+        CLASSIC_EXAMPLES / "_contact_source_loader.py",
+        "contact_source_loader_file_selection_test",
+    )
+
+    payload = loader.load_contact_source_payload(source_path)
+
+    assert payload["geometry"][0]["surface_selection"] == {
+        "file": str((source_path.parent / "surface_sidesets11.txt").resolve())
+    }
+
+
+def test_generated_config_for_workspace_adds_missing_output_directory(tmp_path):
+    example = _import_example(
+        CLASSIC_EXAMPLES / "3D" / "contact_3d_hex_tet_params_generated_api.py"
+    )
+
+    cfg = example.config_for_workspace(tmp_path)
+
+    assert cfg.as_dict()["output"]["directory"] == str(tmp_path)
+    assert cfg.as_dict()["output"]["json"] == "sim.json"
 
 
 @pytest.mark.parametrize("case", EXAMPLE_CASES, ids=_case_id)

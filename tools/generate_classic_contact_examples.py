@@ -116,7 +116,6 @@ def is_auxiliary_source(source_json: Path) -> bool:
     return (
         source_json.name == "common.json"
         or source_json.name.endswith("-common.json")
-        or source_json.name == "params.json"
     )
 
 
@@ -169,6 +168,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import polyfem
+
 EXAMPLE_DIR = Path(__file__).resolve().parent
 if str(EXAMPLE_DIR) not in sys.path:
     sys.path.insert(0, str(EXAMPLE_DIR))
@@ -177,7 +178,6 @@ from {common_module} import (  # noqa: E402
     CONTACT_EXAMPLES_DIR,
     MESHES_DIR,
 {extra_import}    config_for_workspace_from,
-    polyfem,
     run_solve,
 )
 
