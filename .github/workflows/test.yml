@@ -39,4 +39,6 @@ jobs:
       # Do not run `pip install -e .` here: it compiles the C++ backend.
       # This workflow is the backend-free Python/generator test gate.
       - name: Run tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/python
         run: python -m pytest tests -q

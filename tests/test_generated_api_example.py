@@ -70,9 +70,7 @@ DOLPHIN_MATERIAL_SHAPE_CASES = [
     ),
 ]
 
-EXPECTED_GENERATED_API_FALLBACK_SOURCES = {
-    "3D/static/two-cubes.json",
-}
+EXPECTED_GENERATED_API_FALLBACK_SOURCES: set[str] = set()
 
 
 def _ordinary_contact_source_paths() -> set[Path]:

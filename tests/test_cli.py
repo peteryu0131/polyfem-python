@@ -203,7 +203,7 @@ def test_github_actions_keep_backend_validation_in_two_workflows():
     }
 
 
-def test_generated_contact_backend_workflow_runs_push_full_sweep_without_pr_trigger():
+def test_backend_workflow_runs_pr_smoke_and_main_or_manual_sweep():
     workflow = (
         ROOT / ".github" / "workflows" / "generated-contact-backend.yml"
     ).read_text(encoding="utf-8")
@@ -211,8 +211,8 @@ def test_generated_contact_backend_workflow_runs_push_full_sweep_without_pr_trig
     assert "push:" in workflow
     assert "branches:" in workflow
     assert "- main" in workflow
-    assert "- jingyao" in workflow
-    assert "pull_request:" not in workflow
+    assert "- jingyao" not in workflow
+    assert "pull_request:\n    types: [opened, synchronize, reopened]" in workflow
     assert "workflow_dispatch:" in workflow
     assert "GENERATED_SOURCE_TOLERANCE" in workflow
     assert "github.event.inputs.generated_source_tolerance || '1e-5'" in workflow
@@ -222,7 +222,11 @@ def test_generated_contact_backend_workflow_runs_push_full_sweep_without_pr_trig
     assert "python tools/generate_polyfem_api.py" in workflow
     assert "python -m pip install -e . --no-build-isolation -vv" in workflow
     assert "python -m polyfempy backend-info --require" in workflow
-    assert "tools/run_generated_contact_backend_checks.py" in workflow
+    smoke, sweep = workflow.split("- name: Run active generated contact backend sweep")
+    assert "if: github.event_name == 'pull_request'" in smoke
+    assert "tests/test_backend_smoke.py::test_backend_forward_solve_smoke" in smoke
+    assert "if: github.event_name != 'pull_request'" in sweep
+    assert "tools/run_generated_contact_backend_checks.py" in sweep
     assert "--require-tests-match" in workflow
     assert "tools/generated_contact_expected_failures.json" in workflow
     assert "actions/upload-artifact@v7" in workflow

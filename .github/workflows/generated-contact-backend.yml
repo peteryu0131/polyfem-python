@@ -1,10 +1,11 @@
 name: Generated Contact Backend
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
   push:
     branches:
       - main
-      - jingyao
   workflow_dispatch:
     inputs:
       generated_source_tolerance:
@@ -25,7 +26,7 @@ env:
 jobs:
   generated-contact-backend:
     runs-on: ubuntu-latest
-    name: ubuntu-latest (py3.11 generated contact backend)
+    name: ${{ github.event_name == 'pull_request' && 'C++ forward smoke' || 'Full contact sweep' }} (Ubuntu, Python 3.11)
     timeout-minutes: 360
 
     steps:
@@ -52,7 +53,14 @@ jobs:
       - name: Check compiled backend
         run: python -m polyfempy backend-info --require
 
+      - name: Check forward solve against reference values
+        if: github.event_name == 'pull_request'
+        run: |
+          test -f polyfem-data/units/neohookean.json
+          python -m pytest tests/test_backend_smoke.py::test_backend_forward_solve_smoke -q
+
       - name: Run active generated contact backend sweep
+        if: github.event_name != 'pull_request'
         run: |
           python tools/run_generated_contact_backend_checks.py \
             --output-root build/generated-contact-backend-check-release-candidate \
@@ -61,7 +69,7 @@ jobs:
             --require-tests-match
 
       - name: Upload generated contact backend results
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: generated-contact-backend-results
