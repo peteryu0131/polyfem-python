@@ -2,7 +2,7 @@
 
 import argparse
 import os
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -58,10 +58,16 @@ def bdf1_option():
 
 
 @contextmanager
-def simulation_directory():
-    """Keep solver and target exports in a temporary directory."""
+def simulation_directory(example_file=None):
+    """Run in a temporary directory, or keep exports in examples/output/<example>."""
+    if example_file is None:
+        workspace = TemporaryDirectory()
+    else:
+        output = DATA_DIR.parent / "examples" / "output" / Path(example_file).stem
+        output.mkdir(parents=True, exist_ok=True)
+        workspace = nullcontext(output)
     previous = Path.cwd()
-    with TemporaryDirectory() as directory:
+    with workspace as directory:
         try:
             os.chdir(directory)
             yield Path(directory)

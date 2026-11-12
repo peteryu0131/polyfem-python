@@ -6,15 +6,17 @@ Source: differentiability-data/optimizations/multiparameter-sdf-trajectory-surfa
 Run: python -m differentiable_example.optimizations.shape_matching.multiparameter_sdf_trajectory
 """
 
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
 import torch
 
 import polyfem.diff as diff
 import polyfem
 
-from differentiable_example._scene import OPTIMIZATIONS, example_output, solver_config
+from differentiable_example._scene import (
+    OPTIMIZATIONS,
+    example_output,
+    simulation_directory,
+    solver_config,
+)
 from .._trajectory import bernstein, mesh_and_boundary_nodes
 
 ASSETS = OPTIMIZATIONS / "multiparameter-sdf-trajectory-surface-opt"
@@ -153,9 +155,8 @@ def build_problem(
 
 
 if __name__ == "__main__":
-    with TemporaryDirectory() as directory:
-        output = Path(directory)
-        config = build_scene(output=output / "forward0")
+    with simulation_directory(__file__) as output:
+        config = build_scene(output=output)
         curve = diff.objectives.sdf_target(
             surface_selection=[5],
             control_points=[

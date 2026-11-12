@@ -18,7 +18,7 @@ from differentiable_example._scene import (
 import polyfem.diff as diff
 import polyfem
 
-with simulation_directory() as output:
+with simulation_directory(__file__) as output:
     model = polyfem.model()
     model.mesh(
         mesh=str(DATA_DIR / "mat20x20.msh"),
