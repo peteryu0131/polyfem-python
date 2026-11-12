@@ -176,6 +176,7 @@ def test_setup_py_disables_heavy_optional_polysolve_dependencies():
     assert "'-DPOLYSOLVE_WITH_SPECTRA=OFF'" in setup_py
     assert "'-DPOLYSOLVE_WITH_AMGCL=OFF'" in setup_py
     assert "'-DPOLYSOLVE_WITH_UMFPACK=OFF'" in setup_py
+    assert "'-DPOLYSOLVE_WITH_MPI=OFF'" in setup_py
     assert "'-DPOLYSOLVE_WITH_HYPRE=OFF'" in setup_py
 
 

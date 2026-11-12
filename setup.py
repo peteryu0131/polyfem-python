@@ -105,6 +105,8 @@ class CMakeBuild(build_ext):
                       '-DPOLYSOLVE_WITH_SPECTRA=OFF',
                       '-DPOLYSOLVE_WITH_AMGCL=OFF',
                       '-DPOLYSOLVE_WITH_UMFPACK=OFF',
+                      # PolySolve's MPI-enabled CPUHybrid solver requires HYPRE.
+                      '-DPOLYSOLVE_WITH_MPI=OFF',
                       '-DPOLYSOLVE_WITH_HYPRE=OFF',
                       '-DPOLYFEM_WITH_MISO=OFF',
                       '-DCMAKE_POLICY_VERSION_MINIMUM=3.5']
