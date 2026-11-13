@@ -213,28 +213,29 @@ class GeneratePolyfemApiWorkflowTests(unittest.TestCase):
             cmake_dir.mkdir(parents=True)
             schema_file = json_spec_dir / "input-spec.json"
             schema_file.write_text("{}", encoding="utf-8")
-            (cmake_dir / "polysolve.cmake").write_text(
-                'CPMAddPackage("gh:polyfem/polysolve#abc123")',
-                encoding="utf-8",
-            )
+            cache_dir.mkdir(parents=True)
+            for name in workflow.LINKED_SOLVER_SPEC_FILES:
+                (cache_dir / name).write_text("old unversioned spec", encoding="utf-8")
 
             def fake_urlretrieve(url, target):
-                Path(target).write_text("{}", encoding="utf-8")
-                return target, None
+                Path(target).write_text(url, encoding="utf-8")
 
             with (
                 mock.patch.object(workflow, "POLYSOLVE_SPEC_CACHE_DIR", cache_dir),
-                mock.patch.object(workflow.urllib.request, "urlretrieve", fake_urlretrieve),
+                mock.patch.object(workflow.urllib.request, "urlretrieve", side_effect=fake_urlretrieve) as download,
             ):
-                include_dirs = workflow.resolve_include_spec_dirs(
-                    schema_file,
-                    [],
-                    polyfem_source_dir,
-                )
-
-            self.assertEqual([cache_dir], include_dirs)
-            self.assertTrue((cache_dir / "linear-solver-spec.json").exists())
-            self.assertTrue((cache_dir / "nonlinear-solver-spec.json").exists())
+                for revision, downloads in [("abc123", 2), ("def456", 4), ("abc123", 4)]:
+                    (cmake_dir / "polysolve.cmake").write_text(
+                        f'CPMAddPackage("gh:polyfem/polysolve#{revision}")', encoding="utf-8"
+                    )
+                    dirs = workflow.resolve_include_spec_dirs(schema_file, [], polyfem_source_dir)
+                    self.assertEqual([cache_dir / revision], dirs)
+                    self.assertEqual(downloads, download.call_count)
+                    for name in workflow.LINKED_SOLVER_SPEC_FILES:
+                        self.assertEqual(
+                            f"https://raw.githubusercontent.com/polyfem/polysolve/{revision}/{name}",
+                            (dirs[0] / name).read_text(encoding="utf-8"),
+                        )
 
     def test_check_workflow_runs_backend_free_checks_after_generation(self):
         workflow = import_workflow()

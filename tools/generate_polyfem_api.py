@@ -128,14 +128,15 @@ def _polysolve_revision_from_recipe(polyfem_source_dir: Path) -> str | None:
     return match.group(1)
 
 
-def _cache_polysolve_solver_specs(polyfem_source_dir: Path) -> bool:
+def _cache_polysolve_solver_specs(polyfem_source_dir: Path) -> Path | None:
     revision = _polysolve_revision_from_recipe(polyfem_source_dir)
-    if revision is None:
-        return False
+    if revision in (None, '.', '..'):
+        return None
 
-    POLYSOLVE_SPEC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_dir = POLYSOLVE_SPEC_CACHE_DIR / revision
+    cache_dir.mkdir(parents=True, exist_ok=True)
     for spec_file in LINKED_SOLVER_SPEC_FILES:
-        target = POLYSOLVE_SPEC_CACHE_DIR / spec_file
+        target = cache_dir / spec_file
         if target.exists():
             continue
 
@@ -152,9 +153,9 @@ def _cache_polysolve_solver_specs(polyfem_source_dir: Path) -> bool:
                 f"revision {revision}: {exc}",
                 file=sys.stderr,
             )
-            return False
+            return None
 
-    return _linked_solver_specs_are_available([POLYSOLVE_SPEC_CACHE_DIR])
+    return cache_dir
 
 
 def resolve_include_spec_dirs(
@@ -168,8 +169,9 @@ def resolve_include_spec_dirs(
     if _linked_solver_specs_are_available(search_dirs):
         return resolved_include_dirs
 
-    if _cache_polysolve_solver_specs(polyfem_source_dir):
-        resolved_include_dirs.append(POLYSOLVE_SPEC_CACHE_DIR)
+    cache_dir = _cache_polysolve_solver_specs(polyfem_source_dir)
+    if cache_dir is not None:
+        resolved_include_dirs.append(cache_dir)
 
     return resolved_include_dirs
 
