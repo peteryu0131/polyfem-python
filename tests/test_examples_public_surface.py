@@ -61,22 +61,9 @@ def test_classic_examples_do_not_import_legacy_api_package():
 def test_classic_examples_import_public_polyfem():
     _require_examples_submodule()
     for example in CLASSIC_EXAMPLES.glob("[23]D/*_generated_api.py"):
-        assert "import polyfem" in example.read_text(encoding="utf-8").splitlines()
-
-
-def test_classic_helpers_import_public_polyfem():
-    helpers = [
-        EXAMPLES / "classic_example" / "2D" / "_contact_2d_common.py",
-        EXAMPLES / "classic_example" / "3D" / "_contact_3d_common.py",
-    ]
-
-    for path in helpers:
-        text = path.read_text(encoding="utf-8")
-        assert "from polyfempy.runtime import solve" in text
-        assert "import polyfem" in text.splitlines()
-        assert "python-from-jse" not in text
-        assert "GENERATED_DIR" not in text
-        assert "importlib.util" not in text
+        lines = example.read_text(encoding="utf-8").splitlines()
+        assert "import polyfem" in lines
+        assert "from polyfempy.runtime import solve" in lines
 
 
 def test_classic_examples_keep_solver_and_output_explicit():

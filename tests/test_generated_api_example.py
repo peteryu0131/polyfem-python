@@ -604,6 +604,20 @@ def test_model_builder_mesh_sequence_preserves_payload():
     ]
 
 
+
+def test_implicit_obstacle_motion_targets_only_the_bound_obstacle():
+    model = polyfem.model()
+    model.obstacle_mesh(mesh="lower.obj")
+    obstacle = model.obstacle_mesh(mesh="upper.obj")
+    obstacle.dirichlet(value=[1, 0, 0])
+    moved = model.config().as_dict()
+    assert "surface_selection" not in moved["geometry"][0]
+    surface_id = moved["geometry"][1]["surface_selection"]
+    assert moved["boundary_conditions"]["dirichlet_boundary"] == [
+        {"id": surface_id, "value": [1, 0, 0]}
+    ]
+
+
 def test_mesh_array_pile_example_uses_model_builder():
     example_path = (
         CLASSIC_EXAMPLES
@@ -751,10 +765,16 @@ def _load_source_config(source_path: Path) -> dict[str, Any]:
 
 def _expected_config_from_source(source_path: Path) -> dict[str, Any]:
     config = _load_source_config(source_path)
-    try:
-        return polyfem.config(**copy.deepcopy(config)).as_dict()
-    except TypeError:
-        return config
+    output = config.setdefault("output", {})
+    case = source_path.relative_to(POLYFEM_DATA_EXAMPLES).with_suffix("")
+    output.setdefault("directory", f"results/{case.as_posix()}")
+    # The generated configuration represents these singleton entries as lists.
+    if isinstance(config.get("materials"), dict):
+        config["materials"] = [config["materials"]]
+    boundary = config.get("boundary_conditions", {})
+    if isinstance(boundary.get("dirichlet_boundary"), dict):
+        boundary["dirichlet_boundary"] = [boundary["dirichlet_boundary"]]
+    return config
 
 
 def _apply_json_patch(config: dict[str, Any], patch: list[dict[str, Any]]) -> dict[str, Any]:
@@ -898,15 +918,83 @@ def test_contact_source_loader_resolves_file_selection_paths():
     }
 
 
-def test_generated_config_for_workspace_adds_missing_output_directory(tmp_path):
-    example = _import_example(
-        CLASSIC_EXAMPLES / "3D" / "contact_3d_hex_tet_params_generated_api.py"
-    )
+def _assert_source_parity(actual, expected):
+    """Compare geometry labels and their consumers under a one-to-one renumbering."""
+    actual = copy.deepcopy(actual)
+    maps = {"volume": {}, "boundary": {}}
 
-    cfg = example.config_for_workspace(tmp_path)
+    def match(label, source_label, group):
+        if not isinstance(label, int) or not isinstance(source_label, int) or min(label, source_label) <= 0:
+            assert label == source_label
+            return label
+        mapping = maps[group]
+        assert mapping.setdefault(label, source_label) == source_label
+        return source_label
 
-    assert cfg.as_dict()["output"]["directory"] == str(tmp_path)
-    assert cfg.as_dict()["output"]["json"] == "sim.json"
+    def align(value, source, group):
+        if isinstance(value, list):
+            assert len(value) == len(source)
+            return [align(v, s, group) for v, s in zip(value, source)]
+        if isinstance(value, dict):
+            if "id" in value:
+                value["id"] = match(value["id"], source["id"], group)
+            return value
+        return match(value, source, group)
+
+    expected = copy.deepcopy(expected)
+    conditions = expected.get("boundary_conditions", {})
+    for geometry, source in zip(actual["geometry"], expected["geometry"]):
+        if (source.get("is_obstacle") and source.get("type", "mesh") in ("mesh", "mesh_array")
+                and source.get("surface_selection") == 0 and "surface_selection" not in geometry):
+            # GeometryLoader only consults an obstacle tag when choosing its displacement.
+            for key in ("dirichlet_boundary", "obstacle_displacements"):
+                entries = conditions.get(key, [])
+                for entry in entries if isinstance(entries, list) else [entries]:
+                    target = entry["id"]
+                    assert target not in (0, "all")
+                    assert not isinstance(target, list) or 0 not in target
+            del source["surface_selection"]
+        for field, group in (("volume_selection", "volume"), ("surface_selection", "boundary"), ("point_selection", "boundary")):
+            if field in geometry:
+                if (field == "surface_selection" and not source.get("is_obstacle")
+                        and source[field] == 0 and isinstance(geometry[field], int) and geometry[field] > 0):
+                    label = geometry[field]
+                    assert maps[group].setdefault(label, 0) == 0
+                    geometry[field] = 0
+                else:
+                    geometry[field] = align(geometry[field], source[field], group)
+    for mapping in maps.values():
+        assert len(set(mapping.values())) == len(mapping)
+
+    def translate(items, group):
+        for item in items if isinstance(items, list) else [items]:
+            if isinstance(item, dict) and isinstance(item.get("id"), int):
+                label = item["id"]
+                mapping = maps[group]
+                if label in mapping:
+                    item["id"] = mapping[label]
+                else:
+                    # An external mesh tag can stay literal. An old, reassigned ID cannot.
+                    assert label not in mapping.values(), f"Stale {group} ID {label}"
+
+    translate(actual.get("materials"), "volume")
+    translate(actual.get("space", {}).get("discr_order"), "volume")
+    for items in actual.get("initial_conditions", {}).values():
+        translate(items, "volume")
+    for items in actual.get("boundary_conditions", {}).values():
+        translate(items, "boundary")
+    assert actual == expected
+
+
+def test_source_parity_rejects_stale_boundary_id():
+    source = {
+        "geometry": [{"surface_selection": 1000}],
+        "boundary_conditions": {"dirichlet_boundary": [{"id": 1000, "value": [1, 0]}]},
+    }
+    actual = copy.deepcopy(source)
+    actual["geometry"][0]["surface_selection"] = 1
+    with pytest.raises(AssertionError, match="Stale boundary ID 1000"):
+        _assert_source_parity(actual, source)
 
 
 @pytest.mark.parametrize("case", EXAMPLE_CASES, ids=_case_id)
@@ -914,17 +1002,17 @@ def test_classic_generated_example_matches_polyfem_data_source(case: tuple[Path,
     example_path, source_path = case
     example = _import_example(example_path)
 
-    assert example.polyfem_config.as_dict() == _expected_config_from_source(source_path)
+    _assert_source_parity(example.polyfem_config.as_dict(), _expected_config_from_source(source_path))
 
 
 def test_all_classic_generated_examples_match_polyfem_data_sources():
-    mismatches = []
     for example_path, source_path in _all_example_cases():
         example = _import_example(example_path)
-        if example.polyfem_config.as_dict() != _expected_config_from_source(source_path):
-            mismatches.append(example_path.relative_to(ROOT).as_posix())
+        try:
+            _assert_source_parity(example.polyfem_config.as_dict(), _expected_config_from_source(source_path))
+        except AssertionError as error:
+            raise AssertionError(str(source_path)) from error
 
-    assert mismatches == []
 
 
 @pytest.mark.parametrize("case", DOLPHIN_MATERIAL_SHAPE_CASES, ids=_case_id)

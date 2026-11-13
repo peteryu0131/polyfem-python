@@ -141,6 +141,8 @@ def wrapper_text(source_json: Path, target: Path) -> str:
     source_expr = path_expression(source_json.relative_to(CONTACT_EXAMPLES))
     source_label = source_json.relative_to(ROOT).as_posix()
     payload = load_contact_source_payload(source_json)
+    case_path = source_json.relative_to(CONTACT_EXAMPLES).with_suffix("")
+    payload.setdefault("output", {}).setdefault("directory", f"results/{case_path.as_posix()}")
     try:
         polyfem.config(**copy.deepcopy(payload))
     except TypeError as exc:
@@ -166,9 +168,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
 
 import polyfem
+from polyfempy.runtime import solve
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
 if str(EXAMPLE_DIR) not in sys.path:
@@ -177,9 +179,7 @@ if str(EXAMPLE_DIR) not in sys.path:
 from {common_module} import (  # noqa: E402
     CONTACT_EXAMPLES_DIR,
     MESHES_DIR,
-{extra_import}    config_for_workspace_from,
-    run_solve,
-)
+{extra_import})
 
 
 SOURCE_JSON = {source_expr}
@@ -187,16 +187,8 @@ SOURCE_JSON = {source_expr}
 {config_text}
 
 
-def config_for_workspace(workspace: Path) -> Any:
-    return config_for_workspace_from(polyfem_config, workspace)
-
-
-def main() -> int:
-    return run_solve(polyfem_config, "{target.stem}")
-
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+    solve(cfg=polyfem_config)
 '''
 
 
@@ -240,7 +232,21 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
 
     volume_body_by_id: dict[int, str] = {}
     material_by_id = {item["id"]: item for item in materials if "id" in item}
-    selection_handle_by_id: dict[int, str] = {}
+    selection_handle_by_id: dict[int, list[str]] = {}
+    boundary_ids = set()
+    for section in BOUNDARY_ITEM_CLASSES:
+        for item in normalize_optional_items(payload.get("boundary_conditions", {}).get(section)):
+            if isinstance(item, dict) and isinstance(item.get("id"), int):
+                boundary_ids.add(item["id"])
+    conditions = payload.get("boundary_conditions", {})
+    obstacle_targets = [
+        entry.get("id") for key in ("dirichlet_boundary", "obstacle_displacements")
+        for entry in normalize_optional_items(conditions.get(key)) if isinstance(entry, dict)
+    ]
+    moves_tag_zero = any(
+        target in (0, "all") or isinstance(target, list) and 0 in target
+        for target in obstacle_targets
+    )
     consumed_top_sections = {"geometry"}
     if len(material_by_id) == len(materials):
         consumed_top_sections.add("materials")
@@ -279,18 +285,17 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
         is_obstacle = bool(mesh_values.pop("is_obstacle", False))
         volume_id = mesh_values.get("volume_selection")
         has_volume_handle = isinstance(volume_id, int) and volume_id > 0
+        if has_volume_handle and not is_obstacle and item_type == "mesh":
+            mesh_values.pop("volume_selection")
         if is_obstacle:
             if point_selection not in (None, 0):
                 return None
-            if surface_selection is not None:
+            if surface_selection is not None and (not isinstance(surface_selection, int) or surface_selection < 0):
                 mesh_values["surface_selection"] = surface_selection
             if point_selection is not None:
                 mesh_values["point_selection"] = point_selection
-        else:
-            if surface_selection == 0:
-                mesh_values["surface_selection"] = surface_selection
-            if point_selection == 0:
-                mesh_values["point_selection"] = point_selection
+        elif point_selection == 0:
+            mesh_values["point_selection"] = point_selection
 
         needs_geometry_handle = any(
             value not in (None, 0)
@@ -320,6 +325,17 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
             else:
                 method = "geometry_mesh"
         mesh_kwargs = render_kwargs(item_cls, mesh_values, 4)
+        assign_whole_surface = (
+            surface_selection == 0 and method == "mesh" and item_type == "mesh"
+            and not moves_tag_zero and 0 not in boundary_ids
+            and all(isinstance(g.get("surface_selection"), int) for g in geometry)
+            and sum(g["surface_selection"] == 0 for g in geometry) == 1
+        )
+        unused_obstacle_tag = method in ("obstacle_mesh", "obstacle_mesh_array") and not moves_tag_zero
+        if surface_selection == 0 and not (assign_whole_surface or unused_obstacle_tag):
+            mesh_kwargs.append(("surface_selection", "0"))
+        if volume_id in volume_body_by_id and item_type == "mesh":
+            mesh_kwargs.append(("same_volume_as", volume_body_by_id[volume_id]))
         if is_obstacle or not has_volume_handle:
             call = render_method_call(
                 "model",
@@ -329,9 +345,12 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
                 0,
             )
             if is_obstacle and isinstance(surface_selection, int) and surface_selection > 0:
-                handle_var = f"{body_var}_surface_{surface_selection}"
-                selection_handle_by_id.setdefault(surface_selection, handle_var)
-                lines.extend(assign_code(handle_var, call))
+                handle_var = f"obstacle_{index}"
+                if surface_selection in boundary_ids:
+                    selection_handle_by_id.setdefault(surface_selection, []).append(handle_var)
+                    lines.extend(assign_code(handle_var, call))
+                else:
+                    lines.extend((call + ".surface_all()").splitlines())
             elif not is_obstacle and needs_geometry_handle:
                 lines.extend(assign_code(body_var, call))
             else:
@@ -349,7 +368,9 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
                     ),
                 )
             )
-            volume_body_by_id[volume_id] = body_var
+            if assign_whole_surface:
+                lines.append(f"{body_var}.surface_all()")
+            volume_body_by_id.setdefault(volume_id, body_var)
 
             if volume_id in material_by_id:
                 material_var = material_by_id[volume_id]["variable"]
@@ -360,6 +381,24 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
             selection_owner = None
 
         if selection_owner is not None:
+            if isinstance(surface_selection, dict) and "file" in surface_selection:
+                # The first column of a PolyFEM sideset contains the boundary tags.
+                path = Path(surface_selection["file"])
+                if not has_volume_handle or not path.is_file():
+                    return None
+                if set(surface_selection) != {"file"}:
+                    return None
+                tags = {int(row.split()[0]) for row in path.read_text().splitlines() if row.strip()}
+                used_tags = sorted(tags & boundary_ids)
+                if not used_tags:
+                    return None
+                for tag in used_tags:
+                    args = [data_string_expression(str(path))]
+                    if len(tags) > 1:
+                        args.append(f"tag={tag}")
+                    handle = f"{body_var}.surface_from_file({', '.join(args)})"
+                    selection_handle_by_id.setdefault(tag, []).append(handle)
+                surface_selection = None
             for selection_kind, selection_value in (
                 ("surface", surface_selection),
                 ("point", point_selection),
@@ -505,7 +544,7 @@ def render_space_bindings(
 
 def render_boundary_bindings(
     boundary_conditions: Any,
-    selection_handle_by_id: dict[int, str],
+    selection_handle_by_id: dict[int, list[str]],
 ) -> tuple[list[str] | None, Any, set[str]]:
     if boundary_conditions is None:
         return [], None, set()
@@ -519,17 +558,11 @@ def render_boundary_bindings(
         for item in items:
             if not isinstance(item, dict) or item.get("id") not in selection_handle_by_id:
                 return None, None, set()
-            selection_var = selection_handle_by_id[item["id"]]
             item_values = without_key(item, "id")
-            lines.extend(
-                render_method_call(
-                    selection_var,
-                    method,
-                    [],
-                    render_kwargs(item_cls, item_values, 4),
-                    0,
-                ).splitlines()
-            )
+            for selection_var in selection_handle_by_id[item["id"]]:
+                lines.extend(render_method_call(
+                    selection_var, method, [], render_kwargs(item_cls, item_values, 4), 0,
+                ).splitlines())
 
     handled = {"rhs", *BOUNDARY_ITEM_CLASSES}
     if any(key not in handled for key in boundary_conditions):
@@ -543,25 +576,27 @@ def render_selection_setup(
     body_var: str,
     selection_kind: str,
     selection_value: Any,
-    selection_handle_by_id: dict[int, str],
+    selection_handle_by_id: dict[int, list[str]],
 ) -> list[str] | None:
     if selection_value is None:
         return []
     if isinstance(selection_value, int):
         if selection_value <= 0:
             return []
-        handle_var = f"{body_var}_{selection_kind}_{selection_value}"
+        handle_var = f"{body_var}_{selection_kind}"
         method = "surface_all" if selection_kind == "surface" else None
         if method is None:
             return None
-        selection_handle_by_id.setdefault(selection_value, handle_var)
+        handles = selection_handle_by_id.setdefault(selection_value, [])
+        kwargs = [("same_as", handles[0])] if handles else []
+        handles.append(handle_var)
         return assign_code(
             handle_var,
             render_method_call(
                 body_var,
                 method,
                 [],
-                [("id", render_literal(selection_value, 4))],
+                kwargs,
                 0,
             ),
         )
@@ -569,7 +604,7 @@ def render_selection_setup(
     is_single_object = isinstance(selection_value, dict)
     items = selection_value if isinstance(selection_value, list) else [selection_value]
     lines: list[str] = []
-    for item in items:
+    for index, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             return None
         selection_id = item.get("id")
@@ -578,12 +613,15 @@ def render_selection_setup(
         method = selection_helper_method(selection_kind, item)
         if method is None:
             return None
-        handle_var = f"{body_var}_{selection_kind}_{selection_id}"
-        selection_handle_by_id.setdefault(selection_id, handle_var)
+        handle_var = f"{body_var}_{selection_kind}_{index}"
+        handles = selection_handle_by_id.setdefault(selection_id, [])
         kwargs = [
             (keyword_name(key), render_literal(value, 4))
-            for key, value in item.items()
+            for key, value in item.items() if key != "id"
         ]
+        if handles and selection_kind == "surface":
+            kwargs.append(("same_as", handles[0]))
+        handles.append(handle_var)
         if is_single_object:
             kwargs.append(("append", "False"))
         lines.extend(

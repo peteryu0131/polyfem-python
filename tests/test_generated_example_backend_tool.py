@@ -167,6 +167,24 @@ def test_backend_tool_applies_polyfem_verify_run_linear_solver_patch(tmp_path):
     assert navier_payload["solver"]["linear"]["solver"] == "Eigen::SparseLU"
 
 
+def test_generated_run_isolates_output_from_example(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from polyfempy import runtime
+
+    tool = _load_tool_module()
+    cfg = {"output": {"directory": "results/sample", "log": {"path": "sample.log"}}}
+    monkeypatch.setattr(tool, "_import_example", lambda path: SimpleNamespace(polyfem_config=cfg))
+    captured = {}
+    monkeypatch.setattr(runtime, "solve", lambda *, cfg: captured.update(cfg))
+    workspace = tool.run_generated_example(
+        Path("sample.py"), Path("sample.json"), tmp_path, test_time_steps="static", keep_visual_output=True
+    )
+    assert captured["output"] == {
+        "directory": str(workspace), "json": "sim.json", "log": {"path": str(workspace / "polyfem.log")}
+    }
+    assert cfg == {"output": {"directory": "results/sample", "log": {"path": "sample.log"}}}
+
+
 def test_backend_tool_restores_generated_payload_semantics_before_backend_run(tmp_path):
     tool = _load_tool_module()
 

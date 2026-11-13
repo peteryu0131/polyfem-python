@@ -264,7 +264,7 @@ def _config_payload_for_backend_run(cfg: Any) -> dict[str, Any]:
         return prepare_generated_backend_payload(payload)
 
     raise TypeError(
-        "generated example config_for_workspace() must return a dict or object "
+        "polyfem_config must be a dict or object "
         f"with as_dict(), got {type(cfg).__name__}"
     )
 
@@ -372,16 +372,14 @@ def run_generated_example(
     from polyfempy.runtime import solve
 
     module = _import_example(example_path)
-    config_for_workspace = getattr(module, "config_for_workspace", None)
-    if not callable(config_for_workspace):
-        raise RuntimeError(
-            f"{example_path} must expose config_for_workspace(workspace)"
-        )
-
     workspace = _generated_workspace(output_root, example_path)
     workspace.mkdir(parents=True, exist_ok=True)
-    cfg = config_for_workspace(workspace)
-    payload = _config_payload_for_backend_run(cfg)
+    payload = _config_payload_for_backend_run(module.polyfem_config)
+    output = payload.setdefault("output", {})
+    output["directory"] = str(workspace)
+    output.setdefault("json", "sim.json")
+    if isinstance(output.get("log"), dict):
+        output["log"]["path"] = str(workspace / "polyfem.log")
     payload = apply_test_time_steps(payload, test_time_steps)
     apply_verify_run_linear_solver(payload, source_json)
     solve(cfg=payload)
