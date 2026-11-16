@@ -15,7 +15,11 @@ cd polyfem-python
 ```
 
 For an existing checkout, select the intended revision first, then run
-`git submodule update --init --recursive` from its root.
+`git submodule update --init --recursive` from its root. This checks out the
+commits recorded by the parent repository. Do not add `--remote` when reproducing
+a release: it follows remote branches instead of the recorded commits.
+Maintainers should review dependency updates and commit the new submodule
+pointers explicitly.
 
 Use an environment with Python 3.10 or later, CMake 3.25 or later, and a C++ compiler. On Windows, use an x64 Visual Studio development environment. To use an existing conda environment named `polyfem`, activate it with `conda activate polyfem` first.
 
@@ -88,7 +92,10 @@ extraction. A compiler and network access for pinned native dependencies are
 still required. Mesh data and the full example collection are not build inputs.
 
 Use a Git checkout when changing schemas or regenerating the API. The archive
-contains the generated package, not the complete generator development tools.
+contains the generated package, not the complete generator development tools
+or the repository test suite. Run development tests from a Git checkout.
+The archive retains `tools/check_installed_package.py` and the quick-start
+scripts for checking an installed build.
 
 ## Windows compatibility settings
 

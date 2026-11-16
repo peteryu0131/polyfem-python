@@ -14,4 +14,7 @@ include python-from-jse/generator/id_relationships.py
 include python-from-jse/generator/selection_refs.py
 recursive-include polyfempy/generated_api *.py *_manifest.json
 include tools/check_installed_package.py
+
+# Repository tests require development tools and reference data not shipped here.
+prune tests
 global-exclude __pycache__ *.py[cod] .DS_Store

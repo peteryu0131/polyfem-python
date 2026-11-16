@@ -38,7 +38,6 @@ htmlcov/
 
 # Local architecture/discussion notes
 /doc/
-/docs/
 /polyfempy/runtime/README.md
 
 # Local agent/build scratch
@@ -48,23 +47,12 @@ htmlcov/
 /build_log.txt
 /FORWARD_REVIEW.md
 
-# Output files (PolyFEM / Paraview; see end of file for experiment/ override)
-*.vtu
-*.vtm
-*.pvd
-*.csv
-*.npz
-
-# Ignore output contents but keep folder visible (track examples/output/.gitkeep)
-examples/output/*
-!examples/output/.gitkeep
-examples/runs/
-examples/classic_example/2D/2D_examples_outputs/
-
-# Local solve dump at repo root only (avoid matching .../experiment/.../sim.json)
+# Simulation output directories. Meshes and reference data may be tracked elsewhere.
+/results/
+/runs/
+/outputs/
 /sim.json
 /impact_stats.json
-/results/
 
 # Slurm batch logs written at the repo root.
 /slurm_logs/
@@ -104,7 +92,6 @@ venv/
 ENV/
 
 # Temporary files
-*.obj
 *.log
 *.tmp
 *.bak
@@ -118,6 +105,3 @@ Thumbs.db
 
 # Local experiments
 /experiment/
-
-# Forward example outputs when run from this repository root
-/results/

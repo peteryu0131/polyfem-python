@@ -1,6 +1,9 @@
 # Testing the forward API
 
-Run these commands in the repository root after initializing the submodules. See [BUILD.md](BUILD.md) for the native build.
+Run development tests from a Git checkout after initializing its submodules.
+The source archive omits the repository test suite and its development-only
+inputs. It retains the installed-package check and quick-start examples.
+See [BUILD.md](BUILD.md) for the native build.
 
 ## Python and example tests
 
