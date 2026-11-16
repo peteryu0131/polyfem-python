@@ -79,6 +79,7 @@ The Test workflow checks documentation and a fresh source archive on every push.
 | When | What runs |
 | --- | --- |
 | Push or pull request | Python, generated API, and generator unit tests on Windows, macOS and Linux with Python 3.10-3.12 |
+| Push to `jingyaoyu_forward` | Source archive, pip wheels, native conda packages, and installed-package checks across the release matrix |
 | Draft PR, or PR targeting another branch | Linux source archive and wheel build, clean installation, README, cube, and quick-start checks on open, update or reopen |
 | Ready-for-review PR targeting `main` | Clean wheel installation, beam, installation self-check, cube and quick-start checks, then the full contact sweep on open, update, reopen, marking ready or retargeting to `main` |
 | Manual run of Generated Contact Backend, or push to main | The same wheel and simulation checks, then the full contact sweep |
@@ -108,19 +109,15 @@ Python load function, and all three quick-start scripts. Each simulation has a
 five-minute timeout so a stalled native call fails the check.
 Wheel builds use cibuildwheel's dependency repair step before installation.
 
-GitHub requires a manually triggered workflow to exist on the repository's
-default branch before it can be dispatched on another branch. See
-[GitHub's manual-run instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
-Adding this file only to `jingyaoyu_forward` does not enable the Run workflow
-button. To validate a forward revision before that, push its commit to the
-dedicated validation branch:
+Pushing to `jingyaoyu_forward` starts the complete package matrix:
 
 ```sh
-git push origin HEAD:codex/forward-package-check
+git push origin HEAD:jingyaoyu_forward
 ```
 
-This push triggers the same build matrix. It does not publish packages or change
-the default branch. Review every job for the exact revision being released.
+Review every job for the exact revision being released. Manual runs are also
+available once the workflow exists on the repository's default branch; see
+[GitHub's manual-run instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
 Successful jobs produce downloadable artifacts without publishing to package indexes. See
 [INSTALL.md](INSTALL.md) for the verified user installation routes and
 [conda/README.md](conda/README.md) for the native conda recipe.

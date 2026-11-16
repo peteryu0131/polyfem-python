@@ -3,7 +3,7 @@ name: Release Packages
 on:
   workflow_dispatch:
   push:
-    branches: [codex/forward-package-check]
+    branches: [jingyaoyu_forward]
 
 concurrency:
   group: release-packages-${{ github.ref }}

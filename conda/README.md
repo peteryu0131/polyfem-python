@@ -45,7 +45,7 @@ paths. The recipe selects Ninja so the same build commands work across systems.
 
 ## Release workflow
 
-For forward validation, push the intended commit to `codex/forward-package-check`
+For forward validation, push the intended commit to `jingyaoyu_forward`
 as described in [TESTING.md](../TESTING.md#release-package-checks). This triggers
 the package matrix without changing the default branch.
 
