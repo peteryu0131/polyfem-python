@@ -247,6 +247,19 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
         target in (0, "all") or isinstance(target, list) and 0 in target
         for target in obstacle_targets
     )
+    surface_ids = []
+    for item in geometry:
+        for field in ("surface_selection", "point_selection"):
+            selection = item.get(field)
+            if isinstance(selection, int):
+                surface_ids.append(selection)
+            else:
+                for rule in normalize_optional_items(selection):
+                    if isinstance(rule, dict) and "id" in rule:
+                        surface_ids.append(rule["id"])
+    direct_surface_ids = {
+        label for label in boundary_ids if label > 0 and surface_ids.count(label) == 1
+    }
     consumed_top_sections = {"geometry"}
     if len(material_by_id) == len(materials):
         consumed_top_sections.add("materials")
@@ -282,10 +295,10 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
         mesh_values.pop("type", None)
         surface_selection = mesh_values.pop("surface_selection", None)
         point_selection = mesh_values.pop("point_selection", None)
-        is_obstacle = bool(mesh_values.pop("is_obstacle", False))
+        is_obstacle = bool(mesh_values.get("is_obstacle", False))
         volume_id = mesh_values.get("volume_selection")
         has_volume_handle = isinstance(volume_id, int) and volume_id > 0
-        if has_volume_handle and not is_obstacle and item_type == "mesh":
+        if has_volume_handle and not is_obstacle and item_type == "mesh" and volume_id in material_by_id:
             mesh_values.pop("volume_selection")
         if is_obstacle:
             if point_selection not in (None, 0):
@@ -301,37 +314,15 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
             value not in (None, 0)
             for value in (surface_selection, point_selection)
         )
-        if item_type == "mesh_array":
-            if is_obstacle:
-                method = "obstacle_mesh_array"
-            elif has_volume_handle:
-                method = "mesh_array"
-            elif needs_geometry_handle:
-                method = "geometry_mesh_array"
-            else:
-                method = "mesh_array"
-        elif item_type == "mesh_sequence":
-            if is_obstacle:
-                method = "obstacle_mesh_sequence"
-            elif has_volume_handle:
-                return None
-            else:
-                method = "geometry_mesh_sequence"
-        else:
-            if is_obstacle:
-                method = "obstacle_mesh"
-            elif has_volume_handle:
-                method = "mesh"
-            else:
-                method = "geometry_mesh"
+        method = item_type
         mesh_kwargs = render_kwargs(item_cls, mesh_values, 4)
         assign_whole_surface = (
-            surface_selection == 0 and method == "mesh" and item_type == "mesh"
+            surface_selection == 0 and has_volume_handle and not is_obstacle and item_type == "mesh"
             and not moves_tag_zero and 0 not in boundary_ids
             and all(isinstance(g.get("surface_selection"), int) for g in geometry)
             and sum(g["surface_selection"] == 0 for g in geometry) == 1
         )
-        unused_obstacle_tag = method in ("obstacle_mesh", "obstacle_mesh_array") and not moves_tag_zero
+        unused_obstacle_tag = is_obstacle and item_type in ("mesh", "mesh_array") and not moves_tag_zero
         if surface_selection == 0 and not (assign_whole_surface or unused_obstacle_tag):
             mesh_kwargs.append(("surface_selection", "0"))
         if volume_id in volume_body_by_id and item_type == "mesh":
@@ -396,13 +387,21 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
                     args = [data_string_expression(str(path))]
                     if len(tags) > 1:
                         args.append(f"tag={tag}")
-                    handle = f"{body_var}.surface_from_file({', '.join(args)})"
+                    handle = f"{body_var}_surface_file_{tag}"
+                    lines.append(f"{handle} = {body_var}.surface_from_file({', '.join(args)})")
                     selection_handle_by_id.setdefault(tag, []).append(handle)
                 surface_selection = None
             for selection_kind, selection_value in (
                 ("surface", surface_selection),
                 ("point", point_selection),
             ):
+                if (
+                    selection_kind == "surface"
+                    and isinstance(selection_value, int)
+                    and selection_value in direct_surface_ids
+                ):
+                    selection_handle_by_id.setdefault(selection_value, []).append(selection_owner)
+                    continue
                 selection_lines = render_selection_setup(
                     selection_owner,
                     selection_kind,

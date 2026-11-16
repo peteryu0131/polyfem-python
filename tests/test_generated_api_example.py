@@ -371,7 +371,7 @@ def test_obstacle_mesh_classic_example_uses_model_builder():
 def test_model_builder_obstacle_mesh_does_not_create_volume_selection():
     model = polyfem.model()
 
-    obstacle = model.obstacle_mesh(
+    obstacle = model.mesh(is_obstacle=True,
         mesh="obstacle.obj",
         surface_selection=0,
     )
@@ -386,6 +386,103 @@ def test_model_builder_obstacle_mesh_does_not_create_volume_selection():
             "type": "mesh",
         }
     ]
+
+
+@pytest.mark.parametrize("factory", ["mesh", "mesh_array"])
+def test_unified_geometry_can_bind_material_and_obstacle_motion(factory):
+    model = polyfem.model()
+    kwargs = {"mesh": "part.msh"}
+    if factory == "mesh_array":
+        kwargs["array"] = polyfem.array(size=[2, 1], offset=1)
+    body = getattr(model, factory)(**kwargs)
+    obstacle = getattr(model, factory)(**kwargs, is_obstacle=True)
+    assert "volume_selection" not in model.config().as_dict()["geometry"][0]
+    body.material(polyfem.neo_hookean(E=1000, nu=0.3))
+    obstacle.dirichlet(value=[1, 0])
+    cfg = model.config().as_dict()
+    assert cfg["materials"][0]["id"] == cfg["geometry"][0]["volume_selection"]
+    assert "volume_selection" not in cfg["geometry"][1]
+    assert cfg["boundary_conditions"]["dirichlet_boundary"][0]["id"] == cfg["geometry"][1]["surface_selection"]
+
+
+def test_unified_geometry_can_share_a_volume_without_explicit_ids():
+    model = polyfem.model()
+    first = model.mesh(mesh="first.msh")
+    second = model.mesh_array(
+        mesh="second.msh", array=polyfem.array(size=[2, 1], offset=1),
+        same_volume_as=first,
+    )
+    second.material(polyfem.neo_hookean(E=1000, nu=0.3))
+    cfg = model.config().as_dict()
+    assert cfg["geometry"][0]["volume_selection"] == cfg["geometry"][1]["volume_selection"]
+    assert cfg["materials"][0]["id"] == cfg["geometry"][0]["volume_selection"]
+
+
+@pytest.mark.parametrize(
+    "method,value",
+    [("dirichlet", [0, 0]), ("neumann", [1, 0]), ("pressure", 2.0)],
+)
+def test_body_boundary_shortcut_matches_explicit_whole_surface(method, value):
+    direct = polyfem.model()
+    body = direct.mesh(mesh="part.msh")
+    getattr(body, method)(value=value)
+    getattr(body, method)(value=value)
+    explicit = polyfem.model()
+    surface = explicit.mesh(mesh="part.msh").surface_all()
+    getattr(surface, method)(value=value)
+    assert direct.config().as_dict() == explicit.config().as_dict()
+
+
+def test_body_boundary_shortcut_keeps_bodies_and_volume_loads_separate():
+    model = polyfem.model()
+    first = model.mesh(mesh="first.msh")
+    second = model.mesh(mesh="second.msh", surface_selection=1)
+    first.rhs(value=[0, 1])
+    first.dirichlet(value=[0, 0])
+    second.dirichlet(value=[1, 0])
+    cfg = model.config().as_dict()
+    first_id, second_id = [g["surface_selection"] for g in cfg["geometry"]]
+    assert first_id != second_id
+    assert second_id == 1
+    assert cfg["boundary_conditions"]["dirichlet_boundary"] == [
+        {"id": first_id, "value": [0, 0]},
+        {"id": second_id, "value": [1, 0]},
+    ]
+    assert cfg["boundary_conditions"]["rhs"] == [
+        {"id": cfg["geometry"][0]["volume_selection"], "value": [0, 1]}
+    ]
+
+
+@pytest.mark.parametrize("whole_first", [True, False])
+def test_body_boundary_shortcut_rejects_overwriting_partial_selections(whole_first):
+    model = polyfem.model()
+    body = model.mesh(mesh="part.msh")
+    if whole_first:
+        body.dirichlet(value=[0, 0])
+    else:
+        bottom = body.surface_axis(axis=-1, position=-1)
+        bottom.dirichlet(value=[0, 0])
+    before = model.config().as_dict()
+    with pytest.raises(ValueError, match="surface|boundary"):
+        if whole_first:
+            body.surface_axis(axis=1, position=1)
+        else:
+            body.dirichlet(value=[1, 0])
+    assert model.config().as_dict() == before
+
+
+def test_body_boundary_shortcut_requires_mesh_and_preserves_file_selection():
+    model = polyfem.model()
+    with pytest.raises(ValueError, match="body.mesh"):
+        model.body().dirichlet(value=[0, 0])
+    body = model.mesh(
+        mesh="part.msh",
+        surface_selection=polyfem.surface_selection_file(file="sidesets.txt"),
+    )
+    before = model.config().as_dict()
+    with pytest.raises(ValueError, match="file-based"):
+        body.dirichlet(value=[0, 0])
+    assert model.config().as_dict() == before
 
 
 def test_top_level_config_with_model_delegates_to_model_builder():
@@ -523,14 +620,14 @@ def test_global_material_geometry_example_uses_model_builder():
 
     text = example_path.read_text(encoding="utf-8")
     assert "model = polyfem.model()" in text
-    assert "model.geometry_mesh(" in text
+    assert "model.mesh(" in text
     assert "polyfem_config = model.config(" in text
 
 
 def test_model_builder_geometry_mesh_does_not_create_volume_selection():
     model = polyfem.model()
 
-    geometry = model.geometry_mesh(
+    geometry = model.mesh(
         mesh="static-wall.obj",
     )
     surface = geometry.surface_all(id=1)
@@ -580,14 +677,14 @@ def test_mesh_sequence_example_uses_model_builder():
 
     text = example_path.read_text(encoding="utf-8")
     assert "model = polyfem.model()" in text
-    assert "model.obstacle_mesh_sequence(" in text
+    assert "model.mesh_sequence(" in text
     assert "polyfem_config = model.config(" in text
 
 
 def test_model_builder_mesh_sequence_preserves_payload():
     model = polyfem.model()
 
-    obstacle = model.obstacle_mesh_sequence(
+    obstacle = model.mesh_sequence(is_obstacle=True,
         mesh_sequence="kick-sequence/",
         fps=24,
     )
@@ -607,8 +704,8 @@ def test_model_builder_mesh_sequence_preserves_payload():
 
 def test_implicit_obstacle_motion_targets_only_the_bound_obstacle():
     model = polyfem.model()
-    model.obstacle_mesh(mesh="lower.obj")
-    obstacle = model.obstacle_mesh(mesh="upper.obj")
+    model.mesh(is_obstacle=True, mesh="lower.obj")
+    obstacle = model.mesh(is_obstacle=True, mesh="upper.obj")
     obstacle.dirichlet(value=[1, 0, 0])
     moved = model.config().as_dict()
     assert "surface_selection" not in moved["geometry"][0]
@@ -646,7 +743,7 @@ def test_model_builder_mesh_array_without_volume_selection_preserves_payload():
     )
     config = model.config()
 
-    assert mesh_array is None
+    assert callable(mesh_array.material)
     assert config.as_dict()["geometry"] == [
         {
             "mesh": "cube.msh",
@@ -682,7 +779,7 @@ def test_obstacle_displacement_example_uses_model_builder():
 def test_model_builder_can_bind_obstacle_surface_displacement():
     model = polyfem.model()
 
-    surface = model.obstacle_mesh(
+    surface = model.mesh(is_obstacle=True,
         mesh="roller.obj",
         surface_selection=1000,
     )
