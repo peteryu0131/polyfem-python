@@ -62,6 +62,7 @@ jobs:
           - { name: windows-x64, os: windows-2022, arch: AMD64 }
           - { name: linux-x64, os: ubuntu-latest, arch: x86_64 }
           - { name: macos-intel, os: macos-15-intel, arch: x86_64 }
+          - { name: macos-arm64, os: macos-15, arch: arm64 }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -109,6 +110,7 @@ jobs:
           - { name: win-64, os: windows-2022 }
           - { name: linux-64, os: ubuntu-latest }
           - { name: osx-64, os: macos-15-intel }
+          - { name: osx-arm64, os: macos-15 }
     defaults:
       run:
         shell: bash -el {0}

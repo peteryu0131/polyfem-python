@@ -17,11 +17,12 @@ branch or its new model builder.
 
 The new release keeps conda, pip, and source installation as release targets.
 The initial installation checks use CPython 3.11 on Windows x64, Linux x64,
-and Intel macOS. A configured job is not proof that a platform works.
+Intel macOS, and Apple Silicon macOS. A configured job is not proof that a
+platform works.
 
 This branch requires Python 3.10 or later. Python-only tests cover CPython
-3.10-3.12. Native package checks for Python 3.10, Python 3.12, and Apple Silicon
-are deferred until release preparation. The legacy project's Python 3.7/3.8
+3.10-3.12. Native package checks for Python 3.10 and Python 3.12 are deferred
+until release preparation. The legacy project's Python 3.7/3.8
 support does not apply to the current API.
 
 ## Install a reviewed wheel with pip

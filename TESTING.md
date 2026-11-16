@@ -102,10 +102,11 @@ command or its original solver choice.
 
 The **Release Packages** workflow builds one source archive, then uses
 it for pip wheels and native conda packages. The initial installation checks
-use CPython 3.11 on Windows x64, Linux x64, and Intel macOS, preserving the
-legacy conda package's platforms. This is seven jobs: one source archive,
-three wheel builds, and three conda builds.
-Expand and validate the matrix for Python 3.10, Python 3.12, and Apple Silicon
+use CPython 3.11 on Windows x64, Linux x64, Intel macOS, and Apple Silicon
+macOS. This preserves the legacy conda package's platforms and adds native
+support for M-series Macs. There are nine jobs: one source archive,
+four wheel builds, and four conda builds.
+Expand and validate the matrix for Python 3.10 and Python 3.12
 before publishing packages for those targets.
 Each job installs its output and runs the README beam, installation self-check,
 Python load function, and all three quick-start scripts. Each simulation has a
