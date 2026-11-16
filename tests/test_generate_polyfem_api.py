@@ -20,8 +20,8 @@ GENERATED_DIR = ROOT / "python" / "polyfempy" / "generated_api"
 
 def import_workflow(module_name: str = "generate_polyfem_api_for_test"):
     spec = importlib.util.spec_from_file_location(module_name, SCRIPT_PATH)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 

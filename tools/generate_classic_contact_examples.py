@@ -7,7 +7,7 @@ import keyword
 from pathlib import Path
 import re
 import sys
-from typing import Any
+from typing import Any, Literal, overload
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -327,7 +327,7 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
             mesh_kwargs.append(("surface_selection", "0"))
         if volume_id in volume_body_by_id and item_type == "mesh":
             mesh_kwargs.append(("same_volume_as", volume_body_by_id[volume_id]))
-        if is_obstacle or not has_volume_handle:
+        if is_obstacle or not isinstance(volume_id, int) or volume_id <= 0:
             call = render_method_call(
                 "model",
                 method,
@@ -883,15 +883,20 @@ def simple_literal(value: Any) -> str | None:
     if value is None or isinstance(value, (bool, int, float)):
         return repr(value)
     if isinstance(value, list) and is_simple_list(value):
-        return "[" + ", ".join(simple_literal(item) for item in value) + "]"
+        return "[" + ", ".join(render_literal(item, 0) for item in value) + "]"
     return None
 
 
 def is_simple_list(value: list[Any]) -> bool:
     if not value:
         return True
-    rendered = [simple_literal(item) for item in value]
-    return None not in rendered and sum(len(item) for item in rendered) <= 80
+    total_length = 0
+    for item in value:
+        rendered = simple_literal(item)
+        if rendered is None:
+            return False
+        total_length += len(rendered)
+    return total_length <= 80
 
 
 def render_list_literal(value: list[Any], indent: int) -> str:
@@ -974,6 +979,18 @@ def keyword_name(name: str) -> str:
     if not name.isidentifier():
         raise ValueError(f"cannot render {name!r} as a Python keyword argument")
     return name
+
+
+@overload
+def factory_name(cls: type, *, required: Literal[True] = True) -> str: ...
+
+
+@overload
+def factory_name(cls: type, *, required: Literal[False]) -> str | None: ...
+
+
+@overload
+def factory_name(cls: type, *, required: bool) -> str | None: ...
 
 
 def factory_name(cls: type, *, required: bool = True) -> str | None:

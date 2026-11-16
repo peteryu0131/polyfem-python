@@ -78,7 +78,7 @@ def _apply_settings_json(solver, settings_json: str) -> None:
 
 def _configure_json_mode(
     solver,
-    full_json: dict,
+    full_json: Optional[Dict[str, Any]],
     cfg,
     *,
     backend_settings: Optional[Dict[str, Any]] = None,

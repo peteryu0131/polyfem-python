@@ -57,7 +57,7 @@ def workflow_steps(
         "--model-entry",
         "polyfem.model",
     ])
-    steps = [
+    steps: list[tuple[list[str], Path, dict[str, str] | None]] = [
         (
             generator_command,
             REPO_ROOT,
@@ -264,12 +264,11 @@ def main(argv: list[str] | None = None) -> int:
         include_spec_dirs=include_spec_dirs,
     ):
         print("+ " + " ".join(command), flush=True)
-        run_kwargs = {"cwd": cwd}
+        env = None
         if extra_env is not None:
             env = os.environ.copy()
             env.update(extra_env)
-            run_kwargs["env"] = env
-        result = subprocess.run(command, **run_kwargs)
+        result = subprocess.run(command, cwd=cwd, env=env)
         if result.returncode != 0:
             return result.returncode
 

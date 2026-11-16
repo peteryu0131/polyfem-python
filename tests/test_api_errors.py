@@ -36,6 +36,7 @@ def test_bad_arrays_fail_before_backend_creation(monkeypatch, vertices, cells, m
 def test_integer_valued_connectivity_is_preserved():
     source = choose_mesh_source(VERTICES, [[0.0, 1.0, 2.0]], None)
     np.testing.assert_array_equal(source.cells, [[0, 1, 2]])
+    assert source.cells is not None
     assert source.cells.dtype == np.int32
 
 

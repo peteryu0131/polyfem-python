@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import numpy as np
 import pytest
@@ -29,7 +30,7 @@ def test_solve_respects_log_level_for_both_mesh_inputs(monkeypatch, array_mesh, 
             return {"_result_bundle": True, "sol": np.zeros((6, 1))}
 
     monkeypatch.setattr(backend, "build_solver", FakeSolver)
-    config = {"output": {"log": {"level": log_level}}}
+    config: dict[str, Any] = {"output": {"log": {"level": log_level}}}
     if array_mesh:
         solve([[0, 0], [1, 0], [0, 1]], [[0, 1, 2]], cfg=config)
     else:

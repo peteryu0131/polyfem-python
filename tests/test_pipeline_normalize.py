@@ -83,7 +83,7 @@ class NormalizeCfgTests(unittest.TestCase):
 class BuildFullJsonTests(unittest.TestCase):
     def test_returns_full_json_for_backend_dict(self):
         fj = build_full_json(dict(_MINIMAL_FULL))
-        self.assertIsInstance(fj, dict)
+        assert isinstance(fj, dict)
         self.assertEqual(fj["pde"], "LinearElasticity")
         self.assertEqual(fj["geometry"], [{"mesh": "beam.msh"}])
 
@@ -94,6 +94,7 @@ class BuildFullJsonTests(unittest.TestCase):
             "geometry": [{"mesh": "beam.msh"}],
         }
         fj = build_full_json(cfg)
+        assert fj is not None
         self.assertEqual(
             fj["materials"],
             {"type": "LinearElasticity", "E": 20, "nu": 0.3},
@@ -105,6 +106,7 @@ class BuildFullJsonTests(unittest.TestCase):
             "discr_order": 2,
         }
         fj = build_full_json(cfg)
+        assert fj is not None
         self.assertEqual(fj["discr_order"], 2)
         self.assertEqual(fj["geometry"], _MINIMAL_FULL["geometry"])
 
@@ -165,7 +167,9 @@ class ChooseMeshSourceTests(unittest.TestCase):
         mesh_source = choose_mesh_source(V, C, None, dtype=None)
         self.assertIsInstance(mesh_source, MeshSource)
         self.assertEqual(mesh_source.mode, "array")
+        assert mesh_source.vertices is not None
         self.assertEqual(mesh_source.vertices.shape, (3, 2))
+        assert mesh_source.cells is not None
         self.assertEqual(mesh_source.cells.dtype, np.int32)
         self.assertEqual(mesh_source.v_backend, "numpy")
 
@@ -248,6 +252,7 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
 
         self.assertEqual(canonical.mesh_source.mode, "array")
         self.assertEqual(canonical.metadata["mesh_source"], "array")
+        assert canonical.mesh_source.cells is not None
         self.assertEqual(canonical.mesh_source.cells.dtype, np.int32)
         self.assertEqual(canonical.backend_settings["geometry"][0]["type"], "ground")
         self.assertEqual(canonical.backend_settings["materials"][0]["type"], "LinearElasticity")
@@ -357,6 +362,7 @@ class CanonicalSolverSettingsTests(unittest.TestCase):
             dtype=None,
         )
 
+        assert canonical.full_json is not None
         self.assertEqual(canonical.full_json["output"]["log"]["level"], 4)
         self.assertEqual(canonical.backend_settings["output"]["log"]["level"], 4)
 
@@ -399,8 +405,10 @@ class ConfigureSolverContractTests(unittest.TestCase):
             backend_settings=backend_settings,
         )
 
+        assert solver.settings_json is not None
         self.assertNotIn("__array_body__", solver.settings_json)
         self.assertIs(solver.strict_validation, True)
+        assert solver.mesh_args is not None
         self.assertEqual(solver.mesh_args[1].dtype, np.int32)
 
     def test_array_configure_rejects_python_side_mesh_ids_for_varform_runtime(self):

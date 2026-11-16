@@ -61,7 +61,13 @@ include-package-data = true
 "polyfempy.generated_api" = ["*_manifest.json"]
 
 [tool.pyright]
-extraPaths = ["python"]
+include = ["python", "tools", "tests", "setup.py", "python-from-jse/generator", "python-from-jse/tools", "python-from-jse/validators", "python-from-jse/tests", "python-from-jse/examples"]
+exclude = ["python/polyfempy/generated_api", "**/__pycache__", "**/*.egg-info"]
+extraPaths = ["python", "examples/classic_example"]
+executionEnvironments = [
+    { root = "python-from-jse", extraPaths = ["python-from-jse", "python-from-jse/generator", "python-from-jse/tests"] },
+    { root = ".", extraPaths = ["python", "examples/classic_example"] },
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

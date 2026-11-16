@@ -11,7 +11,7 @@ import copy
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, overload
 
 import numpy as np
 
@@ -520,7 +520,15 @@ def choose_mesh_source(
     )
 
 
-def clean_json_for_cpp(obj: Any):
+@overload
+def clean_json_for_cpp(obj: Dict[str, Any]) -> Dict[str, Any]: ...
+
+
+@overload
+def clean_json_for_cpp(obj: Any) -> Any: ...
+
+
+def clean_json_for_cpp(obj: Any) -> Any:
     if isinstance(obj, dict):
         cleaned = {}
         for key, value in obj.items():

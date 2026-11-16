@@ -804,16 +804,16 @@ def test_model_builder_can_bind_obstacle_surface_displacement():
 
 def _import_example(example_path: Path) -> Any:
     spec = importlib.util.spec_from_file_location(example_path.stem, example_path)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 
 
 def _import_module(module_path: Path, module_name: str) -> Any:
     spec = importlib.util.spec_from_file_location(module_name, module_path)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     sys.modules[module_name] = module
     try:
         spec.loader.exec_module(module)

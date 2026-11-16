@@ -16,8 +16,8 @@ def _load_tool_module():
         "check_generated_example_backend_for_test",
         TOOL_PATH,
     )
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     sys.modules[spec.name] = module
     try:
         spec.loader.exec_module(module)
@@ -31,8 +31,8 @@ def _load_batch_tool_module():
         "run_generated_contact_backend_checks_for_test",
         BATCH_TOOL_PATH,
     )
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     sys.modules[spec.name] = module
     try:
         spec.loader.exec_module(module)

@@ -347,8 +347,9 @@ def _import_example(example_path: Path):
     if str(example_path.parent) not in sys.path:
         sys.path.insert(0, str(example_path.parent))
     spec = importlib.util.spec_from_file_location(example_path.stem, example_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load example module from {example_path}")
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 
