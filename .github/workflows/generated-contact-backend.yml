@@ -59,6 +59,7 @@ jobs:
           "$RUNNER_TEMP/wheel-test/bin/python" -m pip install dist/*.whl
           "$RUNNER_TEMP/wheel-test/bin/python" tools/check_installed_package.py \
             --readme README.md --reference polyfem-data/units/neohookean.json \
+            --example examples/quickstart/beam.py \
             --example examples/quickstart/static_elasticity.py \
             --example examples/quickstart/transient_elasticity.py
 

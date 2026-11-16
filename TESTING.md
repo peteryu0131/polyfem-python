@@ -27,16 +27,18 @@ runs the parent API/example checks, not that standalone suite.
 
 ## Native solver
 
-With a wheel installed in a clean environment, run the README example and the
-Neo-Hookean cube reference check:
+With a wheel installed in a clean environment, run the README beam,
+installation self-check, and Neo-Hookean cube reference check:
 
 ```sh
-python tools/check_installed_package.py --readme README.md --reference polyfem-data/units/neohookean.json --example examples/quickstart/static_elasticity.py --example examples/quickstart/transient_elasticity.py
+python tools/check_installed_package.py --readme README.md --reference polyfem-data/units/neohookean.json --example examples/quickstart/beam.py --example examples/quickstart/static_elasticity.py --example examples/quickstart/transient_elasticity.py
 ```
 
 This check runs outside the checkout and fails if the backend cannot load.
-It checks the README value and all six reference metrics, then runs both short
-examples. An editable install is not accepted as a wheel validation.
+It checks the README beam and the small square in `INSTALL.md` against their
+expected results, checks all six cube metrics, then runs the three quick-start
+scripts. The beam mesh is copied from `examples/quickstart/beam.obj`; the check
+does not download it. An editable install is not accepted as a wheel validation.
 
 For a development install, `python -m pytest tests/test_backend_smoke.py -q`
 remains available. It may skip when the backend is absent; that is not release
@@ -81,7 +83,8 @@ The manual **Release Packages** workflow builds one source archive, then uses
 it for pip wheels and native conda packages. Both matrices cover CPython
 3.10-3.12 on Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS.
 The first three platforms preserve the legacy conda package's targets.
-Each job installs its output and runs the README and both quick-start examples.
+Each job installs its output and runs the README beam, installation self-check,
+and all three quick-start scripts.
 Wheel builds use cibuildwheel's dependency repair step before installation.
 
 Run this workflow on the release revision and review every required job. It
@@ -95,7 +98,7 @@ This does not establish native wheel support on Windows or macOS. Before
 publishing, validate each intended platform and Python version:
 
 1. Confirm `import polyfem`, `from polyfempy import solve`, and backend loading.
-2. Run the README example and check its finite, nonzero result.
+2. Run the README beam and installation self-check against their expected values.
 3. Run the cube reference check with the pinned data and inspect all six metrics.
 4. Run the required contact sweep on the same release revision.
 5. If publishing a source archive, build a wheel from that extracted archive.

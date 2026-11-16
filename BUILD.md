@@ -65,7 +65,9 @@ python tools/check_installed_package.py --readme README.md --reference polyfem-d
 ```
 
 The check starts isolated Python processes in a temporary directory. It verifies
-the import location, native backend, README result, and six cube error metrics.
+the import location, native backend, README beam, installation self-check, and
+six cube error metrics. Keep `INSTALL.md` and `examples/quickstart/beam.obj`
+alongside the README in the checkout or extracted source archive.
 For the full example sweep, see [TESTING.md](TESTING.md).
 
 Check both `import polyfem` and `python -I -m polyfempy backend-info --require` there.

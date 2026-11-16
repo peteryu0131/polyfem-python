@@ -38,11 +38,13 @@ test:
     - pip
   source_files:
     - README.md
+    - INSTALL.md
     - tools/check_installed_package.py
     - examples/quickstart/*.py
+    - examples/quickstart/*.obj
   commands:
     - python -m pip check
-    - python -I tools/check_installed_package.py --readme README.md --example examples/quickstart/static_elasticity.py --example examples/quickstart/transient_elasticity.py
+    - python -I tools/check_installed_package.py --readme README.md --example examples/quickstart/beam.py --example examples/quickstart/static_elasticity.py --example examples/quickstart/transient_elasticity.py
 
 about:
   home: https://polyfem.github.io/

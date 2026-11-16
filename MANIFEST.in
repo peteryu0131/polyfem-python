@@ -1,6 +1,6 @@
 include CMakeLists.txt BUILD.md INSTALL.md TESTING.md cibuildwheel.toml
 recursive-include conda *.md *.yaml *.sh *.bat
-recursive-include examples/quickstart *.py
+recursive-include examples/quickstart *.py *.obj
 recursive-include cmake *.cmake
 recursive-include src CMakeLists.txt *.cpp *.hpp *.h
 include polyfem/CMakeLists.txt polyfem/LICENSE

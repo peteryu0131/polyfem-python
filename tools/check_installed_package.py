@@ -5,10 +5,18 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+
+def first_python_example(path: Path) -> str:
+    blocks = re.findall(r"```python\n(.*?)```", path.read_text(encoding="utf-8"), re.DOTALL)
+    if not blocks:
+        raise RuntimeError(f"{path} has no Python example.")
+    return blocks[0]
 
 
 def main() -> None:
@@ -17,13 +25,21 @@ def main() -> None:
     parser.add_argument("--reference", type=Path, help="PolyFEM cube reference JSON")
     parser.add_argument("--example", type=Path, action="append", default=[])
     args = parser.parse_args()
-    blocks = re.findall(
-        r"```python\n(.*?)```", args.readme.read_text(encoding="utf-8"), re.DOTALL
-    )
-    if not blocks:
-        raise RuntimeError("The README has no Python example.")
+    readme = args.readme.resolve()
+    examples = [
+        ("README", first_python_example(readme), 0.003648, 5e-7),
+        (
+            "Installation",
+            first_python_example(readme.with_name("INSTALL.md")),
+            0.00011234567901234568,
+            1e-10,
+        ),
+    ]
 
     with TemporaryDirectory(prefix="polyfem-installed-") as folder:
+        shutil.copyfile(
+            readme.parent / "examples/quickstart/beam.obj", Path(folder) / "beam.obj"
+        )
         # -I excludes the checkout, PYTHONPATH, and user site-packages.
         check = """
 import os
@@ -47,14 +63,19 @@ dist = distribution("polyfempy")
 if not any(entry.name == "polyfempy" and entry.value == "polyfempy.cli:main" for entry in dist.entry_points):
     raise RuntimeError("The wheel is missing the polyfempy console entry point.")
 print(f"Installed version: {dist.version}")
-"""
-        check += blocks[0]
-        check += """
 import numpy as np
-np.testing.assert_allclose(abs(result.sol).max(), 0.00011234567901234568, rtol=1e-5, atol=1e-10)
-print("README example passed.")
 """
-        subprocess.run([sys.executable, "-I", "-c", check], cwd=folder, check=True)
+        for label, code, expected, atol in examples:
+            validation = (
+                f"\nnp.testing.assert_allclose(abs(result.sol).max(), {expected!r}, "
+                f"rtol=1e-5, atol={atol!r})\n"
+                f"print({label!r} + ' example passed.')\n"
+            )
+            subprocess.run(
+                [sys.executable, "-I", "-c", check + code + validation],
+                cwd=folder,
+                check=True,
+            )
         subprocess.run(
             [sys.executable, "-I", "-m", "polyfempy", "backend-info", "--require"],
             cwd=folder,

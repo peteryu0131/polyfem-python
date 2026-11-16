@@ -36,8 +36,9 @@ conda build conda/recipe --python 3.11 --no-anaconda-upload --override-channels 
 The source archive includes the generated API, builder runtime, and native
 sources. The native build still downloads pinned third-party sources. The
 recipe installs build tools separately from runtime dependencies and tests the
-installed package in conda-build's test environment. It runs the README and
-both quick-start simulations; an import-only check is not sufficient.
+installed package in conda-build's test environment. It runs the README beam,
+installation self-check, and all three quick-start scripts using the mesh
+included in the source archive; an import-only check is not sufficient.
 
 Windows also needs the Visual Studio 2022 C++ tools. Use short build and cache
 paths. The recipe selects Ninja so the same build commands work across systems.

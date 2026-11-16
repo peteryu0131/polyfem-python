@@ -91,9 +91,40 @@ python -I -c "import polyfem; from polyfempy import solve; print(type(polyfem.mo
 python -I -m polyfempy backend-info --require
 ```
 
-The second command must report `backend_available=True`. Then run the small
-[README simulation](README.md#run-a-forward-simulation), which creates its own
-mesh and needs no example data download.
+The second command must report `backend_available=True`.
+
+Save the following code as `check_install.py` and run `python check_install.py`.
+It creates a small square mesh, fixes its boundary, and applies a downward body
+force. Only the center vertex can move. No example data download is needed.
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import polyfem
+from polyfempy import solve
+
+with TemporaryDirectory() as folder:
+    mesh = Path(folder) / "square.obj"
+    mesh.write_text(
+        "v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nv .5 .5 0\n"
+        "f 1 2 5\nf 2 3 5\nf 3 4 5\nf 4 1 5\n",
+        encoding="utf-8",
+    )
+
+    model = polyfem.model()
+    square = model.mesh(mesh=str(mesh))
+    square.material(polyfem.neo_hookean(E=1000, nu=0.3))
+    square.surface_all().dirichlet(value=[0, 0])
+    model.rhs([0, -1])
+
+    result = solve(cfg=model.config())
+    print(f"Largest displacement component: {abs(result.sol).max():.8f}")
+```
+
+The last line should report a value of about `0.00011235`. This checks that the
+installed package can run a complete simulation. Then try the
+[README cantilever beam](README.md#run-a-forward-simulation) with its supplied mesh.
 
 If pip rejects a wheel, check the Python version and architecture before trying
 another file. If an import fails, check the active interpreter with
