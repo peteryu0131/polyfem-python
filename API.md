@@ -21,6 +21,49 @@ result = solve(cfg=config)
 
 Use vectors with two components for 2D and three for 3D. Choose values consistent with the model's units.
 
+## Run an existing configuration
+
+`solve(cfg=...)` accepts `model.config()`, a configuration dictionary, or a JSON
+file path. For an existing JSON file:
+
+```python
+from polyfempy import solve
+
+result = solve(cfg="simulation.json")
+```
+
+By default, relative mesh paths in that file are resolved from the JSON file's
+directory. Relative paths in a model or dictionary use the working directory
+unless you set `root_path`.
+
+## Use an array mesh
+
+Pass vertex coordinates and zero-based cell indices directly to `solve` when
+the mesh is already in Python. This complete example needs no mesh file:
+
+```python
+import numpy as np
+from polyfempy import solve
+
+vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
+cells = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
+config = {
+    "materials": {"type": "NeoHookean", "E": 1000, "nu": 0.3},
+    "boundary_conditions": {
+        "dirichlet_boundary": [{"id": "all", "value": [0, 0]}],
+        "rhs": [0, -1],
+    },
+    "solver": {"linear": {"solver": "Eigen::SimplicialLDLT"}},
+}
+
+result = solve(vertices, cells, cfg=config)
+print(f"Largest displacement component: {abs(result.sol).max():.8g}")
+```
+
+The result is about `0.00011234568`. Each vertex row contains two coordinates
+for 2D or three for 3D; each cell row contains its vertex indices. Supply both
+arrays together. They take precedence over mesh files in `cfg`.
+
 ## Geometry
 
 | Method | Purpose |
@@ -137,7 +180,17 @@ A relative output directory is resolved from the working directory. `result.sol`
 is the raw finite-element solution array; its rows are not necessarily mesh
 vertices. Open the saved `.pvd` file in ParaView to view the result on the mesh.
 
+`result.sol` is a NumPy array. For a transient simulation, it contains the final
+state; use the saved output files for earlier time steps. `result.meta` contains
+backend metadata, whose keys may depend on the solve.
+
 Configuration sections can also be set with `model.time(...)`, `model.output(...)` and other generated section methods. Use one configuration style for each section. Passing a section to `model.config(...)` after setting it on the model raises an error.
+
+To show only errors in the terminal, set
+`model.output(log=polyfem.output_log(level="error"))`. For a dictionary, use
+`config["output"] = {"log": {"level": "error"}}`. Log levels apply to both
+file meshes and array meshes. Add the log settings to the existing output
+section if you also want to save results.
 
 ## Input errors
 

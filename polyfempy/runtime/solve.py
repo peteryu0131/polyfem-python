@@ -74,7 +74,7 @@ def run_pipeline(
         canonical.mesh_source,
         backend_settings=canonical.backend_settings,
     )
-    ret = _backend.run_solver_stage(solver, canonical.full_json)
+    ret = _backend.run_solver_stage(solver, canonical.backend_settings)
     return _result_from_backend_return(ret)
 
 

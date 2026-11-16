@@ -1,5 +1,45 @@
 from __future__ import annotations
 
+import json
+
+import numpy as np
+import pytest
+
+
+@pytest.mark.parametrize("array_mesh", [False, True])
+@pytest.mark.parametrize("log_level,expected", [(4, 4), ("off", 6)])
+def test_solve_respects_log_level_for_both_mesh_inputs(monkeypatch, array_mesh, log_level, expected):
+    from polyfempy import solve
+    from polyfempy.runtime import _solve_backend as backend
+
+    calls = {}
+
+    class FakeSolver:
+        def set_settings(self, settings, strict_validation):
+            calls["settings"] = json.loads(settings)
+
+        def load_mesh_from_settings(self):
+            calls["mesh"] = "file"
+
+        def set_mesh(self, vertices, cells):
+            calls["mesh"] = "array"
+
+        def solve(self, log_level):
+            calls["log_level"] = log_level
+            return {"_result_bundle": True, "sol": np.zeros((6, 1))}
+
+    monkeypatch.setattr(backend, "build_solver", FakeSolver)
+    config = {"output": {"log": {"level": log_level}}}
+    if array_mesh:
+        solve([[0, 0], [1, 0], [0, 1]], [[0, 1, 2]], cfg=config)
+    else:
+        config["geometry"] = [{"mesh": "triangle.obj"}]
+        solve(cfg=config)
+
+    assert calls["mesh"] == ("array" if array_mesh else "file")
+    assert calls["settings"]["output"]["log"]["level"] == log_level
+    assert calls["log_level"] == expected
+
 
 def test_backend_adapter_exports_pipeline_runtime_helpers():
     from polyfempy.runtime import _solve_backend as backend
