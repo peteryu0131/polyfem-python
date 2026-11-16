@@ -60,6 +60,19 @@ python -m ruff check polyfempy python/polyfem setup.py tools tests
 These checks cover syntax, undefined names, and unused imports in handwritten
 Python code. Generated output and external submodules are excluded.
 
+Check documentation links, Python snippet syntax, and built archive contents:
+
+```sh
+python tools/check_docs.py --online
+python tools/check_distribution.py "dist/*.tar.gz" "dist/*.whl"
+```
+
+Omit `--online` to check local links without network access. The documentation
+check rejects relative links that cross a Git submodule boundary, even when the
+file exists locally. Archive checks require runtime files and reject repository
+tests, build output, and caches. Use only the archive patterns you have built.
+The Test workflow checks documentation and a fresh source archive on every push.
+
 ## GitHub Actions
 
 | When | What runs |

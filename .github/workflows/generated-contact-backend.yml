@@ -53,6 +53,9 @@ jobs:
         # The default build creates the wheel from the unpacked source archive.
         run: python -m build --no-isolation
 
+      - name: Check distribution contents
+        run: python tools/check_distribution.py "dist/*.tar.gz" "dist/*.whl"
+
       - name: Install wheel in a clean environment
         run: |
           python -m venv "$RUNNER_TEMP/wheel-test"
