@@ -3,7 +3,8 @@
 This recipe builds a native conda package from the same source archive used for
 the wheels. It does not wrap a prebuilt wheel. The existing conda-forge release
 supports `win-64`, `linux-64`, and `osx-64`; those remain required targets.
-`osx-arm64` is an additional target in the new release workflow.
+The initial installation checks use Python 3.11 on these three platforms.
+Other Python versions and `osx-arm64` need validation before publishing.
 
 The recipe is prepared for local and CI validation. It has not been published
 to conda-forge. Keep its version aligned with `project.version` in

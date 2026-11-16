@@ -101,9 +101,12 @@ command or its original solver choice.
 ## Release-package checks
 
 The **Release Packages** workflow builds one source archive, then uses
-it for pip wheels and native conda packages. Both matrices cover CPython
-3.10-3.12 on Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS.
-The first three platforms preserve the legacy conda package's targets.
+it for pip wheels and native conda packages. The initial installation checks
+use CPython 3.11 on Windows x64, Linux x64, and Intel macOS, preserving the
+legacy conda package's platforms. This is seven jobs: one source archive,
+three wheel builds, and three conda builds.
+Expand and validate the matrix for Python 3.10, Python 3.12, and Apple Silicon
+before publishing packages for those targets.
 Each job installs its output and runs the README beam, installation self-check,
 Python load function, and all three quick-start scripts. Each simulation has a
 five-minute timeout so a stalled native call fails the check.

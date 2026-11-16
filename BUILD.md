@@ -64,6 +64,10 @@ is at most two workers. Visual Studio builds one project at a time and assigns
 the worker limit to its compiler, so parallel settings do not multiply. Release builds enable
 PolyFEM's portable CPU settings.
 
+macOS builds use Apple Accelerate and Eigen solvers on both Intel and Apple
+Silicon. MKL is disabled on macOS. The examples select
+`Eigen::SimplicialLDLT`, which is available on all supported platforms.
+
 In a separate environment with a compatible Python version and architecture,
 install the resulting wheel by its full path. Run the installed-package check
 from the checkout:
@@ -73,11 +77,12 @@ python tools/check_installed_package.py --readme README.md --reference polyfem-d
 ```
 
 The check starts isolated Python processes in a temporary directory. It verifies
-the import location, native backend, README beam, installation self-check, and
-six cube error metrics. Run from the checkout root so the check can find `INSTALL.md`,
-`examples/quickstart/beam.obj`, and the cube reference in `polyfem-data`.
+the import location, native backend, README beam, installation self-check, Python
+load function, and six cube error metrics. Run from the checkout root so the
+check can find `INSTALL.md`, `examples/quickstart/beam.obj`, and the cube reference
+in `polyfem-data`.
 The cube data is not included in the source archive; omit `--reference` there
-to check only the beam and installation self-check.
+to check the beam, installation self-check, and Python load function.
 For the full example sweep, see [TESTING.md](TESTING.md).
 
 Check both `import polyfem` and `python -I -m polyfempy backend-info --require` there.

@@ -1,4 +1,4 @@
-"""Check an installed wheel from a directory outside the source checkout."""
+"""Check an installed package from a directory outside the source checkout."""
 
 from __future__ import annotations
 
@@ -77,14 +77,14 @@ if (sys.stdout, sys.stderr) != streams or os.environ.get("KMP_DUPLICATE_LIB_OK")
 for module in (polyfem, polyfempy):
     path = pathlib.Path(module.__file__).resolve()
     if not path.is_relative_to(pathlib.Path(sys.prefix).resolve()):
-        raise RuntimeError(f"Expected an installed wheel, imported {path}")
+        raise RuntimeError(f"Expected an installed package, imported {path}")
     print(f"{module.__name__}: {path}")
 if not polyfempy.cpp_backend_available():
     raise RuntimeError(f"Native backend is unavailable: {polyfempy.cpp_backend_error()}")
 from importlib.metadata import distribution
 dist = distribution("polyfempy")
 if not any(entry.name == "polyfempy" and entry.value == "polyfempy.cli:main" for entry in dist.entry_points):
-    raise RuntimeError("The wheel is missing the polyfempy console entry point.")
+    raise RuntimeError("The package is missing the polyfempy console entry point.")
 print(f"Installed version: {dist.version}")
 import numpy as np
 """

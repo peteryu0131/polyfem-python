@@ -122,6 +122,10 @@ class CMakeBuild(build_ext):
 
         build_env = os.environ.copy()
         build_workers = n_threads
+        if platform.system() == "Darwin":
+            cmake_args.extend(
+                ["-DPOLYSOLVE_WITH_MKL=OFF", "-DPOLYSOLVE_WITH_ACCELERATE=ON"]
+            )
         if platform.system() == "Windows":
             cmake_args.extend(
                 [

@@ -1,5 +1,5 @@
 [tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-*"
+build = "cp311-*"
 skip = "*-musllinux_*"
 build-frontend = "build"
 environment = { N_THREADS = "1" }
