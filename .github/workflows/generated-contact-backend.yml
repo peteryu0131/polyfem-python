@@ -2,6 +2,7 @@ name: Generated Contact Backend
 
 on:
   pull_request:
+    branches: [main]
     types: [opened, synchronize, reopened, ready_for_review, edited]
   push:
     branches:
@@ -20,14 +21,19 @@ on:
         type: string
 
 env:
-  RUN_FULL_SWEEP: ${{ github.event_name != 'pull_request' || (github.base_ref == 'main' && github.event.pull_request.draft == false) }}
   GENERATED_SOURCE_TOLERANCE: ${{ github.event.inputs.generated_source_tolerance || '1e-5' }}
   MAX_THREADS: ${{ github.event.inputs.max_threads || '1' }}
 
 jobs:
   generated-contact-backend:
     runs-on: ubuntu-latest
-    if: github.event.action != 'edited' || github.event.changes.base != null
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+       (github.event.action != 'edited' || github.event.changes.base != null))
+    concurrency:
+      group: forward-solver-${{ github.ref }}
+      cancel-in-progress: true
     name: Forward solver checks (Ubuntu, Python 3.11)
     timeout-minutes: 360
 
@@ -80,7 +86,6 @@ jobs:
         run: python -I -m polyfempy backend-info --require
 
       - name: Run active generated contact backend sweep
-        if: env.RUN_FULL_SWEEP == 'true'
         run: |
           python tools/run_generated_contact_backend_checks.py \
             --output-root build/generated-contact-backend-check-release-candidate \
@@ -89,7 +94,7 @@ jobs:
             --require-tests-match
 
       - name: Upload generated contact backend results
-        if: always() && env.RUN_FULL_SWEEP == 'true'
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: generated-contact-backend-results

@@ -198,7 +198,7 @@ def test_github_actions_include_python_backend_and_release_workflows():
     } <= workflow_names
 
 
-def test_backend_workflow_runs_smoke_and_reviews_main_with_full_sweep():
+def test_backend_workflow_checks_main_and_ready_main_pull_requests():
     workflow = (
         ROOT / ".github" / "workflows" / "generated-contact-backend.yml"
     ).read_text(encoding="utf-8")
@@ -207,7 +207,8 @@ def test_backend_workflow_runs_smoke_and_reviews_main_with_full_sweep():
     assert "branches:" in workflow
     assert "- main" in workflow
     assert "- jingyao" not in workflow
-    assert "pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, edited]" in workflow
+    assert "pull_request:\n    branches: [main]" in workflow
+    assert "types: [opened, synchronize, reopened, ready_for_review, edited]" in workflow
     assert "workflow_dispatch:" in workflow
     assert "GENERATED_SOURCE_TOLERANCE" in workflow
     assert "github.event.inputs.generated_source_tolerance || '1e-5'" in workflow
@@ -221,10 +222,9 @@ def test_backend_workflow_runs_smoke_and_reviews_main_with_full_sweep():
     smoke, sweep = workflow.split("- name: Run active generated contact backend sweep")
     assert "tools/check_installed_package.py" in smoke
     assert "--readme README.md --reference polyfem-data/units/neohookean.json" in smoke
-    assert "github.event_name != 'pull_request' || (github.base_ref == 'main' && github.event.pull_request.draft == false)" in workflow
-    assert "if: github.event.action != 'edited' || github.event.changes.base != null" in workflow
-    assert "if: env.RUN_FULL_SWEEP == 'true'" in sweep
-    assert "if: always() && env.RUN_FULL_SWEEP == 'true'" in sweep
+    assert "github.event.pull_request.draft == false" in workflow
+    assert "github.event.action != 'edited' || github.event.changes.base != null" in workflow
+    assert "if: always()" in sweep
     assert "tools/run_generated_contact_backend_checks.py" in sweep
     assert "--require-tests-match" in workflow
     assert "tools/generated_contact_expected_failures.json" in workflow

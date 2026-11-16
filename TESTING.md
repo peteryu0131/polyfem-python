@@ -79,8 +79,8 @@ The Test workflow checks documentation and a fresh source archive on every push.
 | When | What runs |
 | --- | --- |
 | Push or pull request | Python, generated API, and generator unit tests on Windows, macOS and Linux with Python 3.10-3.12 |
-| Explicit release-package check | Source archive, pip wheels, native conda packages, and installed-package checks across the release matrix |
-| Draft PR, or PR targeting another branch | Linux source archive and wheel build, clean installation, README, cube, and quick-start checks on open, update or reopen |
+| Manual release-package check before publishing | Source archive, pip wheels, native conda packages, and installed-package checks across the release matrix |
+| Draft PR, or PR targeting another branch | Fast Python and documentation checks only |
 | Ready-for-review PR targeting `main` | Clean wheel installation, beam, installation self-check, cube and quick-start checks, then the full contact sweep on open, update, reopen, marking ready or retargeting to `main` |
 | Manual run of Generated Contact Backend, or push to main | The same wheel and simulation checks, then the full contact sweep |
 
@@ -113,15 +113,15 @@ Python load function, and all three quick-start scripts. Each simulation has a
 five-minute timeout so a stalled native call fails the check.
 Wheel builds use cibuildwheel's dependency repair step before installation.
 
-Ordinary pushes do not run the package matrix. Use **Actions -> Release Packages
+Pushes and pull requests do not run the package matrix. Use **Actions -> Release Packages
 -> Run workflow** when checking installation packages before a release. Manual
 runs become available once the workflow exists on the repository's default
 branch; see
 [GitHub's manual-run instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
 
-Until then, include `[package-check]` in a commit message pushed to
-`jingyaoyu_forward` to request this check explicitly. No separate branch is
-needed. Review every job for the exact revision being released.
+Before that workflow reaches the default branch, use the local build and
+installation commands above. No separate validation branch is needed.
+Review every job for the exact revision being released.
 Successful jobs produce downloadable artifacts without publishing to package indexes. See
 [INSTALL.md](INSTALL.md) for the verified user installation routes and
 [conda/README.md](conda/README.md) for the native conda recipe.
