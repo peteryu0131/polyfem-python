@@ -42,3 +42,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/python
         run: python -m pytest tests -q
+
+      - name: Test the API generator
+        working-directory: python-from-jse
+        run: python -m pytest tests -q

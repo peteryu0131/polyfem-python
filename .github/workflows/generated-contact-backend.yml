@@ -56,10 +56,9 @@ jobs:
         run: python -m polyfempy backend-info --require
 
       - name: Check forward solve against reference values
-        if: github.event_name == 'pull_request'
         run: |
           test -f polyfem-data/units/neohookean.json
-          python -m pytest tests/test_backend_smoke.py::test_backend_forward_solve_smoke -q
+          python -m pytest tests/test_backend_smoke.py -q
 
       - name: Run active generated contact backend sweep
         if: env.RUN_FULL_SWEEP == 'true'

@@ -17,7 +17,7 @@ python -m pip install -e . --no-build-isolation
 python -m polyfempy backend-info --require
 ```
 
-Regenerate the API after updating the schemas, generator or generator configuration. Generation writes to `polyfempy/generated_api/` and may download the linked solver schemas. The first native build also needs access to the pinned third-party dependencies.
+Regenerate the API after updating the schemas, generator or generator configuration. Generation writes to `polyfempy/generated_api/` and may download the linked solver schemas. PolySolve schemas are cached under `build/polysolve-json-specs/<revision>/`, using the revision in the pinned PolyFEM source. Switching that revision selects a separate cache. The first native build also needs access to the pinned third-party dependencies.
 
 ## Build and check a wheel
 

@@ -39,3 +39,20 @@ repository root, regenerate with:
 ```powershell
 conda run -n polyfem python tools/generate_polyfem_api.py
 ```
+
+
+## Geometry and ID binding
+
+Geometry factories also generate model methods such as `model.mesh(...)`,
+`model.mesh_array(...)` and `model.mesh_sequence(...)`. Use
+`is_obstacle=True` to mark an obstacle.
+
+Shared builder logic registers geometry and binds IDs. Body-level consumers
+such as `body.material(...)` use volume relationships. Direct boundary
+conditions such as `body.dirichlet(...)` use the configured surface
+relationships and select the whole boundary. Partial selections retain their
+own handles.
+
+See [API.md](../API.md) for user-facing examples. New geometry types use the
+same generated dispatch. New relationships must be described in
+`id_relationships.json` and tested against the backend configuration.

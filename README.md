@@ -23,14 +23,16 @@ with TemporaryDirectory() as folder:
     model = polyfem.model()
     square = model.mesh(mesh=str(mesh))
     square.material(polyfem.neo_hookean(E=1000, nu=0.3))
-    square.surface_all().dirichlet(value=[0, 0])
-    model.rhs([0, -1])
+    square.dirichlet(value=[0, 0])
 
-    result = solve(cfg=model.config())
+    config = model.config(rhs=[0, -1])
+    result = solve(cfg=config)
     print(abs(result.sol).max())
 ```
 
-The largest absolute displacement component is about `0.00011235`. For larger models, see the [classic examples](https://github.com/polyfem/python_data/tree/89773e1c485a223b230fe372ca2032122cd0a7cd/classic_example).
+The largest absolute displacement component is about `0.00011235`. For larger models, see the [classic examples](https://github.com/polyfem/python_data/tree/2e533c8357d9f8f0cca4e5baeba391575b2d2f2b/classic_example).
+
+See the [API guide](API.md) for mesh arrays, obstacles, partial boundaries, body loads and output settings.
 
 ## Source layout
 
@@ -42,4 +44,4 @@ The largest absolute displacement component is about `0.00011235`. For larger mo
 
 ## Forward solver validation
 
-On a ready-for-review pull request targeting `main`, GitHub Actions builds the C++ backend, checks a Neo-Hookean cube against reference values, and runs the 75 active contact cases from the pinned PolyFEM test lists. Open the **Generated Contact Backend** run and download **generated-contact-backend-results** for the per-case results. See [testing](TESTING.md) for the commands and triggers.
+On a ready-for-review pull request targeting `main`, GitHub Actions builds the C++ backend, runs the README example, checks a Neo-Hookean cube against reference values, and runs the 75 active contact cases from the pinned PolyFEM test lists. Open the **Generated Contact Backend** run and download **generated-contact-backend-results** for the per-case results. See [testing](TESTING.md) for the commands and triggers.

@@ -224,8 +224,7 @@ def test_backend_workflow_runs_smoke_and_reviews_main_with_full_sweep():
     assert "python -m pip install -e . --no-build-isolation -vv" in workflow
     assert "python -m polyfempy backend-info --require" in workflow
     smoke, sweep = workflow.split("- name: Run active generated contact backend sweep")
-    assert "if: github.event_name == 'pull_request'" in smoke
-    assert "tests/test_backend_smoke.py::test_backend_forward_solve_smoke" in smoke
+    assert "python -m pytest tests/test_backend_smoke.py -q" in smoke
     assert "github.event_name != 'pull_request' || (github.base_ref == 'main' && github.event.pull_request.draft == false)" in workflow
     assert "if: github.event.action != 'edited' || github.event.changes.base != null" in workflow
     assert "if: env.RUN_FULL_SWEEP == 'true'" in sweep

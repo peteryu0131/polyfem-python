@@ -112,3 +112,6 @@ Thumbs.db
 
 # Local experiments
 /experiment/
+
+# Forward example outputs when run from this repository root
+/results/

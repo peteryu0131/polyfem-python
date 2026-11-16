@@ -1,5 +1,7 @@
 from pathlib import Path
 import json
+import os
+import re
 import subprocess
 import sys
 
@@ -36,7 +38,8 @@ def _load_actual_error_metrics(output_dir: Path) -> dict[str, float]:
     }
 
 
-def test_backend_forward_solve_smoke(tmp_path):
+@pytest.fixture
+def backend_root():
     root = Path(__file__).resolve().parents[1]
 
     backend_info = subprocess.run(
@@ -52,6 +55,11 @@ def test_backend_forward_solve_smoke(tmp_path):
             + (backend_info.stderr.strip() or backend_info.stdout.strip())
         )
 
+    return root
+
+
+def test_backend_forward_solve_smoke(tmp_path, backend_root):
+    root = backend_root
     config_path = root / "polyfem-data" / "units" / "neohookean.json"
     if not config_path.exists():
         pytest.skip(f"backend smoke config is missing: {config_path}")
@@ -86,3 +94,30 @@ def test_backend_forward_solve_smoke(tmp_path):
     for key, expected_value in expected_metrics.items():
         assert key in actual_metrics
         assert abs(actual_metrics[key] - expected_value) <= margin
+
+
+def test_readme_forward_example(tmp_path, backend_root):
+    readme = (backend_root / "README.md").read_text(encoding="utf-8")
+    snippets = re.findall(r"```python\n(.*?)```", readme, re.DOTALL)
+    assert len(snippets) == 1, "Expected one runnable README example"
+    script = tmp_path / "readme_example.py"
+    script.write_text(
+        snippets[0]
+        + "\nimport math\n"
+        + "assert math.isfinite(float(abs(result.sol).max()))\n"
+        + "assert math.isclose(float(abs(result.sol).max()), 0.00011235, rel_tol=5e-4)\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([
+        str(backend_root / "python"), str(backend_root),
+    ])
+    completed = subprocess.run(
+        [sys.executable, str(script)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
