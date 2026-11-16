@@ -139,6 +139,14 @@ vertices. Open the saved `.pvd` file in ParaView to view the result on the mesh.
 
 Configuration sections can also be set with `model.time(...)`, `model.output(...)` and other generated section methods. Use one configuration style for each section. Passing a section to `model.config(...)` after setting it on the model raises an error.
 
+## Input errors
+
+`solve` checks array meshes before calling the native solver. Vertex coordinates
+must be finite, and cell indices must be integers starting at zero and smaller
+than the number of vertices. JSON configuration errors include the file path
+and line number. If the backend rejects an incomplete `LinearElasticity` or
+`NeoHookean` material, the exception identifies the required parameter pairs.
+
 ## Generation and maintenance
 
 Configuration factories and geometry entry points are generated from the pinned specs. Shared builder code manages scene objects and IDs. `generator-config/id_relationships.json` defines how bodies and selections connect to materials, loads and boundary conditions.

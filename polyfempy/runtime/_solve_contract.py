@@ -336,8 +336,18 @@ def cfg_array_mesh_payload(cfg: Any) -> Optional[Dict[str, Any]]:
 
 def _load_json_payload(path: str | Path) -> Dict[str, Any]:
     json_path = Path(path).resolve()
-    with json_path.open("r", encoding="utf-8") as f:
-        payload = json.load(f)
+    try:
+        with json_path.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"Configuration file not found: {json_path}. "
+            "Check the path or pass cfg=model.config()."
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid JSON in {json_path}, line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
     if not isinstance(payload, dict):
         raise TypeError(f"JSON config must contain an object, got {type(payload).__name__}")
     payload.setdefault("root_path", str(json_path))
@@ -389,6 +399,26 @@ def validate_config(cfg: Any) -> None:
 
 def _ensure_i32(cells: np.ndarray) -> np.ndarray:
     return cells.astype(np.int32, copy=False) if cells.dtype != np.int32 else cells
+
+
+def _validate_mesh_arrays(vertices: np.ndarray, cells: np.ndarray) -> None:
+    if vertices.ndim != 2 or vertices.shape[1] not in (2, 3) or not len(vertices):
+        raise ValueError("vertices must be a non-empty array with shape (n, 2) or (n, 3).")
+    if vertices.dtype.kind not in "iuf" or not np.isfinite(vertices).all():
+        raise ValueError("vertices must contain finite real coordinates; remove NaN and infinity.")
+    if cells.ndim != 2 or not cells.size:
+        raise ValueError("cells must be a non-empty 2D array, with one element per row.")
+    if cells.dtype.kind not in "iuf" or not np.isfinite(cells).all():
+        raise ValueError("cells must contain finite integer vertex indices.")
+    if cells.dtype.kind == "f" and not np.equal(cells, np.floor(cells)).all():
+        raise ValueError("cells must contain integer vertex indices; fractional indices are invalid.")
+    if cells.min() < 0 or cells.max() >= len(vertices):
+        raise ValueError(
+            f"cells contains a vertex index outside 0..{len(vertices) - 1}. "
+            "Use zero-based indices into vertices."
+        )
+    if cells.max() > np.iinfo(np.int32).max:
+        raise ValueError("cells indices exceed the int32 range supported by the backend.")
 
 
 def _promote_materials_to_list(payload: Dict[str, Any], *, infer_type_from_pde: bool = False) -> None:
@@ -464,7 +494,8 @@ def choose_mesh_source(
 
     if vertices is not None and cells is not None:
         V_np, v_backend = T.as_numpy(vertices, dtype=dtype)
-        C_np, _ = T.as_numpy(cells, dtype=np.int32)
+        C_np, _ = T.as_numpy(cells)
+        _validate_mesh_arrays(V_np, C_np)
         body_ids_np = None
         boundary_ids_np = None
         if used_cfg_array_payload and array_payload is not None:

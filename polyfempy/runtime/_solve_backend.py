@@ -55,7 +55,25 @@ def build_solver():
 def _apply_settings_json(solver, settings_json: str) -> None:
     if not hasattr(solver, "set_settings"):
         raise RuntimeError("Compiled VarForm Solver is missing set_settings(...).")
-    solver.set_settings(settings_json, strict_validation=True)
+    try:
+        solver.set_settings(settings_json, strict_validation=True)
+    except RuntimeError as exc:
+        # Add a focused hint only after the backend rejects the settings.
+        materials = json.loads(settings_json).get("materials", [])
+        materials = [materials] if isinstance(materials, dict) else materials
+        if isinstance(materials, list):
+            for index, material in enumerate(materials):
+                if not isinstance(material, dict):
+                    continue
+                if material.get("type") not in ("LinearElasticity", "NeoHookean"):
+                    continue
+                if not ({"E", "nu"} <= material.keys() or {"lambda", "mu"} <= material.keys()):
+                    raise RuntimeError(
+                        f"{exc}. materials[{index}] ({material['type']}) requires "
+                        "both E and nu, or both lambda and mu. "
+                        "For example, set E=1000 and nu=0.3."
+                    ) from exc
+        raise
 
 
 def _configure_json_mode(
