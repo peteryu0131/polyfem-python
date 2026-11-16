@@ -15,7 +15,7 @@ SCRIPT_PATH = ROOT / "tools" / "generate_polyfem_api.py"
 GENERATOR_SCRIPT = ROOT / "python-from-jse" / "tools" / "generate_with_overrides.py"
 POLYFEM_SOURCE_DIR = ROOT / "polyfem"
 POLYFEM_SCHEMA_FILE = POLYFEM_SOURCE_DIR / "json-specs" / "input-spec.json"
-GENERATED_DIR = ROOT / "polyfempy" / "generated_api"
+GENERATED_DIR = ROOT / "python" / "polyfempy" / "generated_api"
 
 
 def import_workflow(module_name: str = "generate_polyfem_api_for_test"):

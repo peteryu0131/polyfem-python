@@ -36,8 +36,9 @@ def _load_actual_error_metrics(output_dir: Path) -> dict[str, float]:
     }
 
 
-def test_backend_forward_solve_smoke(tmp_path):
+def test_backend_forward_solve_smoke(tmp_path, monkeypatch):
     root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("PYTHONPATH", str(root / "python"))
 
     backend_info = subprocess.run(
         [sys.executable, "-m", "polyfempy", "backend-info", "--require"],

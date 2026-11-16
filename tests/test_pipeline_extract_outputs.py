@@ -12,8 +12,8 @@ from unittest.mock import patch
 import numpy as np
 
 _REPO = Path(__file__).resolve().parents[1]
-if str(_REPO) not in sys.path:
-    sys.path.insert(0, str(_REPO))
+if str(_REPO / "python") not in sys.path:
+    sys.path.insert(0, str(_REPO / "python"))
 
 from polyfempy.runtime import _solve_backend as backend_module  # noqa: E402
 from polyfempy.runtime import _solve_contract as contract_module  # noqa: E402

@@ -55,7 +55,7 @@ evidence.
 
 ```sh
 python -m pip install "ruff>=0.17.5,<0.18"
-python -m ruff check polyfempy python/polyfem setup.py tools tests
+python -m ruff check python setup.py tools tests
 ```
 
 These checks cover syntax, undefined names, and unused imports in handwritten

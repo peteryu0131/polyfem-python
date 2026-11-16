@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def test_removed_output_adapter_module_is_absent():
-    package_dir = Path(__file__).resolve().parents[1] / "polyfempy"
+    package_dir = Path(__file__).resolve().parents[1] / "python" / "polyfempy"
 
     assert not (package_dir / "runtime" / "_solve_outputs.py").exists()
 

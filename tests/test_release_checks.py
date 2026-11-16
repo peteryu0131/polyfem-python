@@ -36,7 +36,7 @@ def test_repeated_headings_and_code_examples():
 
 
 def source_files():
-    return PACKAGE_FILES | SOURCE_FILES | {f"python-from-jse/generator/{n}" for n in BUILDER_FILES}
+    return {f"python/{name}" for name in PACKAGE_FILES} | SOURCE_FILES | {f"python-from-jse/generator/{n}" for n in BUILDER_FILES}
 
 
 def test_source_archive_requires_quickstart_mesh_and_builder():
@@ -73,3 +73,11 @@ def test_repository_ignore_rules_preserve_source_data(path, ignored):
         cwd=Path(__file__).resolve().parents[1], check=False,
     )
     assert result.returncode == (0 if ignored else 1)
+
+
+def test_source_archive_requires_python_source_layout():
+    names = source_files()
+    names.difference_update(f"python/{name}" for name in PACKAGE_FILES)
+    names.update(PACKAGE_FILES)
+    with pytest.raises(ValueError, match="Missing distribution files"):
+        check_files(names, wheel=False)

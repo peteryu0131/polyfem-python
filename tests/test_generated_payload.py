@@ -14,8 +14,8 @@ import unittest
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
-if str(_REPO) not in sys.path:
-    sys.path.insert(0, str(_REPO))
+if str(_REPO / "python") not in sys.path:
+    sys.path.insert(0, str(_REPO / "python"))
 
 from polyfempy.runtime._solve_contract import (  # noqa: E402
     generated_payload_from_config,
@@ -29,7 +29,7 @@ def _canonical_path_text(path: Path) -> str:
 
 class GeneratedPayloadTests(unittest.TestCase):
     def test_generated_payload_helpers_live_in_solve_contract(self):
-        self.assertFalse((_REPO / "polyfempy" / "api" / "_generated_payload.py").exists())
+        self.assertFalse((_REPO / "python" / "polyfempy" / "api" / "_generated_payload.py").exists())
 
     def test_generated_payload_from_config_requires_dict(self):
         class BadGeneratedConfig:

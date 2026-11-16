@@ -142,7 +142,7 @@ def test_apply_sidesets_rejects_legacy_mesh_mutation_path():
 def test_backend_adapter_source_has_no_legacy_solver_fallbacks():
     from pathlib import Path
 
-    source = Path("polyfempy/runtime/_solve_backend.py").read_text(encoding="utf-8")
+    source = Path("python/polyfempy/runtime/_solve_backend.py").read_text(encoding="utf-8")
 
     assert '"State"' not in source
     assert '"run"' not in source

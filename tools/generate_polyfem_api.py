@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_ROOT = REPO_ROOT / "python-from-jse"
 GENERATOR_CONFIG_DIR = REPO_ROOT / "generator-config"
 DEFAULT_POLYFEM_SOURCE_DIR = REPO_ROOT / "polyfem"
-POLYFEMPY_PACKAGE_DIR = REPO_ROOT / "polyfempy"
+POLYFEMPY_PACKAGE_DIR = REPO_ROOT / "python" / "polyfempy"
 GENERATED_DIR = POLYFEMPY_PACKAGE_DIR / "generated_api"
 POLYSOLVE_SPEC_CACHE_DIR = REPO_ROOT / "build" / "polysolve-json-specs"
 LINKED_SOLVER_SPEC_FILES = (
@@ -180,7 +180,7 @@ def resolve_include_spec_dirs(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate polyfempy/generated_api from python-from-jse and "
+            "Generate python/polyfempy/generated_api from python-from-jse and "
             "generator-config."
         ),
     )

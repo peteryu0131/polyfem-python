@@ -132,7 +132,8 @@ def test_solve_dispatches_yaml_config_to_backend(monkeypatch, tmp_path):
     ]
 
 
-def test_python_module_help_works_without_backend():
+def test_python_module_help_works_without_backend(monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", str(ROOT / "python"))
     result = subprocess.run(
         [sys.executable, "-m", "polyfempy", "--help"],
         cwd=ROOT,

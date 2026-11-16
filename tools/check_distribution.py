@@ -10,7 +10,7 @@ import zipfile
 
 
 PACKAGE_FILES = {
-    "polyfempy/__init__.py", "polyfempy/cli.py", "polyfempy/runtime/solve.py",
+    "polyfempy/__init__.py", "polyfempy/__main__.py", "polyfempy/cli.py", "polyfempy/runtime/solve.py",
     "polyfempy/runtime/result.py", "polyfempy/runtime/_solve_contract.py",
     "polyfempy/runtime/__init__.py", "polyfempy/runtime/_solve_backend.py",
     "polyfempy/runtime/_runtime.py", "polyfempy/runtime/tensor.py",
@@ -42,7 +42,8 @@ def check_files(names: set[str], *, wheel: bool) -> None:
         if path.parts[0] in {"tests", "build", "dist", "results"}:
             raise ValueError(f"Development or output file in distribution: {name}")
     builder = "polyfempy/generated_api/generator" if wheel else "python-from-jse/generator"
-    required = PACKAGE_FILES | {f"{builder}/{name}" for name in BUILDER_FILES}
+    package_files = PACKAGE_FILES if wheel else {f"python/{name}" for name in PACKAGE_FILES}
+    required = package_files | {f"{builder}/{name}" for name in BUILDER_FILES}
     required |= {"polyfem/__init__.py"} if wheel else SOURCE_FILES
     missing = required - names
     if missing:

@@ -20,12 +20,12 @@ BUILDER_MODULES = {"__init__", "model_builder", "id_relationships", "selection_r
 def check_package_sources():
     """Fail before packaging if the generated API or builder is missing."""
     required = [
-        "polyfempy/generated_api/__init__.py",
-        "polyfempy/generated_api/generated_api.py",
-        "polyfempy/generated_api/generated_class.py",
-        "polyfempy/generated_api/builder_api_manifest.json",
-        "polyfempy/generated_api/class_tree_manifest.json",
-        "polyfempy/generated_api/generated_api_manifest.json",
+        "python/polyfempy/generated_api/__init__.py",
+        "python/polyfempy/generated_api/generated_api.py",
+        "python/polyfempy/generated_api/generated_class.py",
+        "python/polyfempy/generated_api/builder_api_manifest.json",
+        "python/polyfempy/generated_api/class_tree_manifest.json",
+        "python/polyfempy/generated_api/generated_api_manifest.json",
         *[f"python-from-jse/generator/{name}.py" for name in sorted(BUILDER_MODULES)],
     ]
     missing = [name for name in required if not (ROOT / name).is_file()]
@@ -69,6 +69,16 @@ class CMakeExtension(Extension):
 
 
 class CMakeBuild(build_ext):
+    def get_output_mapping(self):
+        """Keep shared runtimes beside the extension in strict editable installs."""
+        mapping = super().get_output_mapping()
+        for output, source in list(mapping.items()):
+            for pattern in ("*.dll", "*.so", "*.so.*", "*.dylib"):
+                for library in Path(source).parent.glob(pattern):
+                    if library.is_file():
+                        mapping[str(Path(output).parent / library.name)] = str(library)
+        return mapping
+
     def run(self):
         try:
             output = subprocess.check_output(["cmake", "--version"], text=True)
@@ -98,6 +108,7 @@ class CMakeBuild(build_ext):
             f"-DPYTHON_EXECUTABLE={python_executable}",
             f"-DPython_EXECUTABLE={python_executable}",
             f"-DPython3_EXECUTABLE={python_executable}",
+            f"-DPython_EXTENSION_MODULE_SUFFIX={sysconfig.get_config_var('EXT_SUFFIX')}",
             f"-DPYTHON_INCLUDE_DIR={sysconfig.get_path('include')}",
             "-DPOLYSOLVE_WITH_SPECTRA=OFF",
             "-DPOLYSOLVE_WITH_AMGCL=OFF",
@@ -189,10 +200,10 @@ setup(
         "sdist": SourceDistribution,
     },
     options={"editable_wheel": {"mode": "strict"}},
-    packages=find_packages(include=["polyfempy*"])
-    + ["polyfem", "polyfempy.generated_api.generator"],
+    packages=find_packages(where="python", include=["polyfem", "polyfempy", "polyfempy.*"])
+    + ["polyfempy.generated_api.generator"],
     package_dir={
-        "polyfem": "python/polyfem",
+        "": "python",
         "polyfempy.generated_api.generator": "python-from-jse/generator",
     },
 )

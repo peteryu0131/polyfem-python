@@ -9,6 +9,7 @@ import sys
 def test_import_does_not_change_host_streams_or_environment():
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "python")
     env.pop("POLYFEMPY_WINDOWS_AUTOCONFIG", None)
     env.pop("POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG", None)
     env.pop("KMP_DUPLICATE_LIB_OK", None)
@@ -81,7 +82,7 @@ def test_runtime_recommended_surface_is_small():
 def test_legacy_api_and_generated_packages_are_removed():
     from pathlib import Path
 
-    package_dir = Path(__file__).resolve().parents[1] / "polyfempy"
+    package_dir = Path(__file__).resolve().parents[1] / "python" / "polyfempy"
 
     assert not (package_dir / "api").exists()
     assert not (package_dir / "generated").exists()

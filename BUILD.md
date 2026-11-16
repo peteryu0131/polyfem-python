@@ -35,7 +35,10 @@ python -m pip install -e . --no-build-isolation
 python -m polyfempy backend-info --require
 ```
 
-Regenerate the API after updating the schemas, generator or generator configuration. Generation writes to `polyfempy/generated_api/` and may download the linked solver schemas. PolySolve schemas are cached under `build/polysolve-json-specs/<revision>/`, using the revision in the pinned PolyFEM source. Switching that revision selects a separate cache. The first native build also needs access to the pinned third-party dependencies.
+Both Python packages live under `python/`. After moving from an older checkout
+layout, repeat the development install above to refresh editable-install paths.
+
+Regenerate the API after updating the schemas, generator or generator configuration. Generation writes to `python/polyfempy/generated_api/` and may download the linked solver schemas. PolySolve schemas are cached under `build/polysolve-json-specs/<revision>/`, using the revision in the pinned PolyFEM source. Switching that revision selects a separate cache. The first native build also needs access to the pinned third-party dependencies.
 
 Generation is currently an explicit prerequisite, not an automatic installation
 step. Run it before building or installing from source. Installed wheel users
@@ -115,7 +118,7 @@ Use this option only for an application that needs those settings.
 | Component | Role |
 | --- | --- |
 | `python-from-jse` | Generates Python configuration classes and model-building helpers from schemas. |
-| `polyfempy/runtime/` | Prepares solve inputs and wraps the native result as `Result`. |
+| `python/polyfempy/runtime/` | Prepares solve inputs and wraps the native result as `Result`. |
 | nanobind | Exposes the C++ solver and its methods to Python and converts supported argument and result types. |
 | CMake and a C++ compiler | Build PolyFEM and the Python extension. |
 | pip and conda | Install packages into the selected Python environment. |

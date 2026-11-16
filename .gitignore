@@ -33,12 +33,12 @@ __pycache__/
 htmlcov/
 
 # Generated Python API artifacts
-/polyfempy/generated_api/
+/python/polyfempy/generated_api/
 /python-from-jse/generated/
 
 # Local architecture/discussion notes
 /doc/
-/polyfempy/runtime/README.md
+/python/polyfempy/runtime/README.md
 
 # Local agent/build scratch
 .codex
@@ -82,7 +82,7 @@ htmlcov/
 *.exp
 *.lib
 *.a
-# Note: nanobind.dll and TracyClient.dll in polyfempy/ are build artifacts
+# Note: nanobind.dll and TracyClient.dll in python/polyfempy/ are build artifacts
 
 # Cache
 .cache/

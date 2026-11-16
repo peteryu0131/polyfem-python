@@ -51,9 +51,9 @@ jobs:
           python -m pip install numpy pytest "setuptools>=77" "ruff>=0.17.5,<0.18"
 
       - name: Check handwritten Python code
-        run: python -m ruff check polyfempy python/polyfem setup.py tools tests
+        run: python -m ruff check python setup.py tools tests
 
-      # polyfempy/generated_api is intentionally ignored in git, so CI must
+      # python/polyfempy/generated_api is intentionally ignored in git, so CI must
       # regenerate it before importing the public generated API.
       - name: Generate packaged API
         run: python tools/generate_polyfem_api.py

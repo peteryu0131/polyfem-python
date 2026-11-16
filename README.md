@@ -71,7 +71,7 @@ also shows time settings and an output directory.
 ## Source layout
 
 - `python/polyfem/` exposes the model builder and generated configuration helpers.
-- `polyfempy/runtime/` implements `solve` and returns the solution in `result.sol`.
+- `python/polyfempy/runtime/` implements `solve` and returns the solution in `result.sol`.
 - `src/` binds the Python runtime to the C++ solver in the `polyfem/` submodule.
 - `python-from-jse/` generates the configuration API from PolyFEM schemas and the rules in `generator-config/`.
 - `polyfem-data/` supplies the official meshes, input configurations, and reference values.
