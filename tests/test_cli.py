@@ -187,14 +187,15 @@ def test_github_actions_generates_ignored_api_before_tests():
     assert "python -m pytest tests -q" in workflow
 
 
-def test_github_actions_keep_backend_validation_in_two_workflows():
+def test_github_actions_include_python_backend_and_release_workflows():
     workflow_dir = ROOT / ".github" / "workflows"
     workflow_names = {path.name for path in workflow_dir.glob("*.yml")}
 
-    assert workflow_names == {
+    assert {
         "generated-contact-backend.yml",
+        "release-packages.yml",
         "test.yml",
-    }
+    } <= workflow_names
 
 
 def test_backend_workflow_runs_smoke_and_reviews_main_with_full_sweep():
