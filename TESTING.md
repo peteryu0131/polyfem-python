@@ -22,8 +22,11 @@ also skips the tests for the non-Windows runtime branch. Check the reasons with
 `-rs`; a skipped native test does not establish that the solver works.
 
 The generator has its own standalone suite. From `python-from-jse/`, run
-`python tools/regenerate_and_test.py`. The parent wrapper's `--check` option
-runs the parent API/example checks, not that standalone suite.
+`python tools/regenerate_and_test.py`. CI uses this same command to generate
+the generic test files before compiling and testing them. Generating the parent
+package API does not create these files in `python-from-jse/generated/`.
+The parent wrapper's `--check` option runs the parent API/example checks,
+not that standalone suite.
 
 ## Native solver
 

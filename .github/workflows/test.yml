@@ -46,6 +46,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/python
         run: python -m pytest tests -q
 
+      # Generator tests need their own generic artifacts, separate from the packaged API.
       - name: Test the API generator
         working-directory: python-from-jse
-        run: python -m pytest tests -q
+        run: python tools/regenerate_and_test.py
