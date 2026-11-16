@@ -82,8 +82,8 @@ def _print_backend_info(pf, *, require: bool) -> int:
     print(f"backend_error={error}")
     if require and not available:
         print(
-            "C++ backend not loaded. Build with: "
-            "python -m pip install -e . --no-build-isolation",
+            "C++ backend not loaded. Install a wheel for your Python version "
+            "and platform, or follow BUILD.md to build from source.",
             file=sys.stderr,
         )
         return 1

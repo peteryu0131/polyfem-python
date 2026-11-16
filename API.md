@@ -59,7 +59,8 @@ body.dirichlet(value=[0, 0])
 For a partial boundary, select it first and then apply the condition.
 
 ```python
-boundary = body.surface_axis(axis=-1, position=-1)
+# Select the left side of the mesh bounding box.
+boundary = body.surface_axis(axis="-x", position=0.0)
 boundary.dirichlet(value=[0, 0])
 ```
 

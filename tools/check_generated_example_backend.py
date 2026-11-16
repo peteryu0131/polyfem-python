@@ -403,6 +403,7 @@ def run_source_json(
     workspace.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
+        "-I",
         "-m",
         "polyfempy",
         "solve",

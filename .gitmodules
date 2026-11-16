@@ -1,6 +1,6 @@
 [submodule "polyfem"]
 	path = polyfem
-	url = https://github.com/polyfem/polyfem.git
+	url = https://github.com/peteryu0131/polyfem.git
 [submodule "examples"]
 	path = examples
 	url = https://github.com/polyfem/python_data.git

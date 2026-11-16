@@ -44,21 +44,37 @@ jobs:
       - name: Install build and test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install setuptools wheel cmake nanobind numpy pytest
+          python -m pip install "setuptools>=77" wheel build cmake nanobind numpy pytest
 
       - name: Generate packaged API
         run: python tools/generate_polyfem_api.py
 
-      - name: Build editable backend
-        run: python -m pip install -e . --no-build-isolation -vv
+      - name: Build source archive and wheel
+        # The default build creates the wheel from the unpacked source archive.
+        run: python -m build --no-isolation
+
+      - name: Install wheel in a clean environment
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-test"
+          "$RUNNER_TEMP/wheel-test/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/wheel-test/bin/python" tools/check_installed_package.py \
+            --readme README.md --reference polyfem-data/units/neohookean.json \
+            --example examples/quickstart/beam.py \
+            --example examples/quickstart/static_elasticity.py \
+            --example examples/quickstart/transient_elasticity.py
+
+      - name: Install wheel for the full example sweep
+        run: python -m pip install --force-reinstall --no-deps dist/*.whl
+
+      - name: Upload checked distributions
+        uses: actions/upload-artifact@v7
+        with:
+          name: polyfempy-ubuntu-py311
+          retention-days: 14
+          path: dist/*
 
       - name: Check compiled backend
-        run: python -m polyfempy backend-info --require
-
-      - name: Check forward solve against reference values
-        run: |
-          test -f polyfem-data/units/neohookean.json
-          python -m pytest tests/test_backend_smoke.py -q
+        run: python -I -m polyfempy backend-info --require
 
       - name: Run active generated contact backend sweep
         if: env.RUN_FULL_SWEEP == 'true'

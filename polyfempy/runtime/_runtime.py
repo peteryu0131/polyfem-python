@@ -1,21 +1,9 @@
-"""Optional runtime tweaks used at ``polyfempy.runtime`` import time.
+"""Optional Windows console and OpenMP compatibility settings.
 
-Historically the package ``__init__`` silently rewrapped ``sys.stdout`` /
-``sys.stderr``, ran ``chcp 65001`` and set ``KMP_DUPLICATE_LIB_OK=TRUE`` on
-Windows. Useful behavior for interactive users, but bad library hygiene: a
-mere ``import polyfempy`` was mutating the host process's environment.
-
-This module isolates that behavior behind:
-
-    - a named, idempotent, explicitly-callable function
-      ``configure_windows_runtime()`` — so advanced callers can skip it, call
-      it later, or audit what it touched; and
-    - an environment-variable opt-out
-      (``POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG=1``) — so CI / library embedders
-      can prevent the auto-call at import without editing code.
-
-On non-Windows platforms the function is a no-op, so none of this affects
-Linux / macOS callers (the previous behavior also guarded on ``sys.platform``).
+Importing the package leaves the host process unchanged by default. Set
+POLYFEMPY_WINDOWS_AUTOCONFIG=1 before import to enable the legacy settings,
+or call configure_windows_runtime() explicitly. The older opt-out variable
+POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG takes precedence when both are set.
 """
 
 from __future__ import annotations
@@ -32,14 +20,10 @@ _TRUTHY = {"1", "true", "yes", "on", "y", "t"}
 
 
 def should_auto_configure_windows() -> bool:
-    """Return True iff the package should auto-apply Windows runtime tweaks
-    during ``polyfempy.runtime`` import.
-
-    Returns False when ``POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG`` is set to a
-    truthy value (``1``, ``true``, ``yes``, ``on``, ``y``, ``t``; any casing).
-    """
-    raw = os.environ.get("POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG", "").strip().lower()
-    return raw not in _TRUTHY
+    """Return whether the caller explicitly enabled the Windows settings."""
+    skip = os.environ.get("POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG", "").strip().lower()
+    enable = os.environ.get("POLYFEMPY_WINDOWS_AUTOCONFIG", "").strip().lower()
+    return enable in _TRUTHY and skip not in _TRUTHY
 
 
 def configure_windows_runtime(*, force: bool = False) -> Dict[str, List[str]]:

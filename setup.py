@@ -1,255 +1,194 @@
+"""Build the Python package and its native extension."""
+
 import os
+import platform
 import re
+import subprocess
 import sys
 import sysconfig
-import platform
-import subprocess
+from pathlib import Path
 
-# NOTE:
-# `setup.py` is a build script. Some editors/type checkers (e.g. Pylance/Pyright)
-# may analyze it with an interpreter that doesn't have build-time deps installed
-# (setuptools/nanobind/cmake), producing false-positive import diagnostics.
-#
-# We prefer a setuptools-provided distutils shim to avoid stdlib `distutils`
-# removal in newer Python versions.
-#
-from setuptools._distutils.version import LooseVersion
-from setuptools import setup, Extension, find_packages
+from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
+from setuptools.command.sdist import sdist
+
+ROOT = Path(__file__).resolve().parent
+BUILDER_MODULES = {"__init__", "model_builder", "id_relationships", "selection_refs"}
+
+
+def check_package_sources():
+    """Fail before packaging if the generated API or builder is missing."""
+    required = [
+        "polyfempy/generated_api/__init__.py",
+        "polyfempy/generated_api/generated_api.py",
+        "polyfempy/generated_api/generated_class.py",
+        "polyfempy/generated_api/builder_api_manifest.json",
+        "polyfempy/generated_api/class_tree_manifest.json",
+        "polyfempy/generated_api/generated_api_manifest.json",
+        *[f"python-from-jse/generator/{name}.py" for name in sorted(BUILDER_MODULES)],
+    ]
+    missing = [name for name in required if not (ROOT / name).is_file()]
+    if missing:
+        raise RuntimeError(
+            "Package sources are missing: " + ", ".join(missing) + ".\n"
+            "Initialize the submodules and run: python tools/generate_polyfem_api.py"
+        )
 
 
 class BuildPython(build_py):
-    """Ship the generated model builder's runtime without the code generator."""
+    """Ship the generated API and the small runtime used by its builder."""
+
+    def run(self):
+        check_package_sources()
+        super().run()
 
     def find_package_modules(self, package, package_dir):
         modules = super().find_package_modules(package, package_dir)
         if package == "polyfempy.generated_api.generator":
-            runtime = {"__init__", "model_builder", "id_relationships", "selection_refs"}
-            return [module for module in modules if module[1] in runtime]
+            return [module for module in modules if module[1] in BUILDER_MODULES]
         return modules
 
 
+class SourceDistribution(sdist):
+    """Require native sources as well as the generated Python package."""
+
+    def run(self):
+        check_package_sources()
+        if not (ROOT / "polyfem/CMakeLists.txt").is_file():
+            raise RuntimeError(
+                "PolyFEM sources are missing. Run: git submodule update --init --recursive"
+            )
+        super().run()
+
+
 class CMakeExtension(Extension):
-    def __init__(self, name, sourcedir=''):
-        Extension.__init__(self, name, sources=[])
+    def __init__(self, name, sourcedir=""):
+        super().__init__(name, sources=[])
         self.sourcedir = os.path.abspath(sourcedir)
 
 
 class CMakeBuild(build_ext):
     def run(self):
-        # Always rebuild (skip check removed per user request)
-        # Check CMake
         try:
-            out = subprocess.check_output(['cmake', '--version'])
-        except OSError:
+            output = subprocess.check_output(["cmake", "--version"], text=True)
+        except OSError as exc:
             raise RuntimeError(
-                "CMake must be installed to build the following extensions: , ".join(e.name for e in self.extensions))
-
-        # self.debug = True
-
-        cmake_version = LooseVersion(
-            re.search(r'version\s*([\d.]+)', out.decode()).group(1))
-        if cmake_version < '3.25.0':
-            raise RuntimeError("CMake >= 3.25.0 is required")
-
+                "CMake 3.25 or later is required to build polyfempy."
+            ) from exc
+        match = re.search(r"version\s+(\d+)\.(\d+)\.(\d+)", output)
+        if match is None or tuple(map(int, match.groups())) < (3, 25, 0):
+            raise RuntimeError("CMake 3.25 or later is required to build polyfempy.")
         for ext in self.extensions:
             self.build_extension(ext)
 
     def build_extension(self, ext):
-        # IMPORTANT:
-        # Build the C++ extension as a *package submodule* so it can coexist with
-        # the pure-Python package `polyfempy/`.
-        #
-        # The extension name is `polyfempy.polyfempy`, and its output directory
-        # must be the directory that contains the extension file returned by
-        # `get_ext_fullpath(ext.name)`, i.e. `<build_lib>/polyfempy/`.
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
-        
-        # Get number of threads for parallel compilation
-        # Conservative default for 16GB RAM systems
-        n_threads_str = os.environ.get("N_THREADS", "")
-        if n_threads_str:
-            n_threads = int(n_threads_str)
-        else:
-            # Auto-detect CPU cores, but cap at 6 threads for 16GB RAM systems
-            # Large C++ projects can consume significant memory per thread
-            cpu_count = os.cpu_count() or 4
-            n_threads = min(cpu_count, 6)  # Conservative cap for 16GB RAM
-            print(f"Auto-detected {cpu_count} CPU cores, using {n_threads} parallel compilation threads (conservative for 16GB RAM)")
+        try:
+            n_threads = int(os.environ.get("N_THREADS") or min(os.cpu_count() or 1, 2))
+        except ValueError as exc:
+            raise RuntimeError("N_THREADS must be a positive integer.") from exc
+        if n_threads < 1:
+            raise RuntimeError("N_THREADS must be a positive integer.")
 
-        # Use sys.executable to ensure we get the correct Python path (conda environment)
-        # This is more reliable than get_python_inc() which might use wrong Python
         python_executable = os.path.abspath(sys.executable)
-        # Get include directory from the same Python installation
-        python_include_directory = os.path.abspath(sysconfig.get_path('include'))
-        
-        # Accept either conda envs or a user-managed virtualenv. The important
-        # part is to keep CMake pointed at the currently active interpreter.
-        if 'env' in python_executable.lower() and 'envs' not in python_executable.lower():
-            print(
-                "Warning: building from a virtual environment interpreter:\n"
-                f"  {python_executable}\n"
-                "Proceeding with the active Python because venv-based builds are"
-                " supported on Linux."
-            )
-
         cmake_args = [
-                      '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=' + extdir,
-                      # On Windows, the actual extension binary may be treated as a RUNTIME artifact
-                      # (DLL/PYD), so also set the runtime output directory.
-                      '-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=' + extdir,
-                      '-DPYTHON_EXECUTABLE=' + python_executable,
-                      '-DPython_EXECUTABLE=' + python_executable,
-                      '-DPYTHON_INCLUDE_DIR=' + python_include_directory,
-                      '-DPOLYSOLVE_WITH_SPECTRA=OFF',
-                      '-DPOLYSOLVE_WITH_AMGCL=OFF',
-                      '-DPOLYSOLVE_WITH_UMFPACK=OFF',
-                      # PolySolve's MPI-enabled CPUHybrid solver requires HYPRE.
-                      '-DPOLYSOLVE_WITH_MPI=OFF',
-                      '-DPOLYSOLVE_WITH_HYPRE=OFF',
-                      '-DPOLYFEM_WITH_MISO=OFF',
-                      '-DCMAKE_POLICY_VERSION_MINIMUM=3.5']
-        
-        # Use nanobind for Python bindings (pybind11 support removed)
-        cmake_args.append('-DUSE_NANOBIND=ON')
-        try:
-            import nanobind
-            import pathlib
-            nb_dir = pathlib.Path(nanobind.__file__).resolve().parent / "cmake"
-            cmake_args.append(f"-Dnanobind_DIR={nb_dir.as_posix()}")
-            print(f"nanobind_DIR={nb_dir}")
-        except Exception as e:
-            print(f"Warning: could not resolve nanobind_DIR: {e}")
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}",
+            f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={extdir}",
+            f"-DPYTHON_EXECUTABLE={python_executable}",
+            f"-DPython_EXECUTABLE={python_executable}",
+            f"-DPython3_EXECUTABLE={python_executable}",
+            f"-DPYTHON_INCLUDE_DIR={sysconfig.get_path('include')}",
+            "-DPOLYSOLVE_WITH_SPECTRA=OFF",
+            "-DPOLYSOLVE_WITH_AMGCL=OFF",
+            "-DPOLYSOLVE_WITH_UMFPACK=OFF",
+            "-DPOLYSOLVE_WITH_MPI=OFF",
+            "-DPOLYSOLVE_WITH_HYPRE=OFF",
+            "-DPOLYFEM_WITH_MISO=OFF",
+            "-DPOLYFEM_PORTABLE_BUILD=ON",
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+            "-DUSE_NANOBIND=ON",
+            "-DCMAKE_BUILD_TYPE=Release",
+        ]
+        import nanobind
 
-        # Ensure CMake can find conda-installed C++ packages when building from
-        # an activated conda environment with --no-build-isolation.
-        conda_prefix = os.environ.get('CONDA_PREFIX')
+        cmake_args.append(
+            f"-Dnanobind_DIR={(Path(nanobind.__file__).parent / 'cmake').as_posix()}"
+        )
+        conda_prefix = os.environ.get("CONDA_PREFIX")
         if conda_prefix:
-            cmake_prefix_path = os.environ.get('CMAKE_PREFIX_PATH', '')
-            if cmake_prefix_path:
-                cmake_prefix_path = f"{conda_prefix};{cmake_prefix_path}"
-            else:
-                cmake_prefix_path = conda_prefix
-            cmake_args.append(f'-DCMAKE_PREFIX_PATH={cmake_prefix_path}')
-            print(f"CMAKE_PREFIX_PATH={cmake_prefix_path}")
+            prefixes = [conda_prefix, os.environ.get("CMAKE_PREFIX_PATH", "")]
+            cmake_args.append("-DCMAKE_PREFIX_PATH=" + ";".join(filter(None, prefixes)))
 
-        print("Building with nanobind binding library")
-
-        # Always ship the extension as Release. Debug CMake builds produce a different
-        # binary profile (asserts, no inlining, .pdb beside .pyd) and are easy to mix
-        # with Release VC++ runtimes — a common source of "worked until I tried a debug build".
-        cfg = "Release"
-        build_args = ["--config", cfg, "--target", "polyfempy"]
-        cmake_args += [f"-DCMAKE_BUILD_TYPE={cfg}"]
-
+        build_env = os.environ.copy()
+        build_workers = n_threads
         if platform.system() == "Windows":
-            cmake_args += [
-                '-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_{}={}'.format(cfg.upper(), extdir),
-                '-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_{}={}'.format(cfg.upper(), extdir),
-            ]
-            if os.environ.get('CMAKE_GENERATOR') != "NMake Makefiles":
-                if sys.maxsize > 2**32:
-                    cmake_args += ['-A', 'x64']
-                # Enable parallel compilation on Windows (MSVC /m flag)
-                # n_threads defaults to 4 if N_THREADS not specified
-                build_args += ['--', f'/m:{n_threads}']
-                print(f"Windows: Using {n_threads} parallel compilation threads (/m:{n_threads})")
-        else:
-            build_args += ['--', '-j{}'.format(n_threads)]
-
-        env = os.environ.copy()
-        # Enable CMake parallel build (for faster incremental compilation)
-        env['CMAKE_BUILD_PARALLEL_LEVEL'] = str(n_threads)
-        if not os.path.exists(self.build_temp):
-            os.makedirs(self.build_temp)
-        
-        # Configure CMake (preserve existing build cache for incremental compilation)
-        try:
-            subprocess.check_call(['cmake', ext.sourcedir] +
-                                  cmake_args, cwd=self.build_temp, env=env)
-        except subprocess.CalledProcessError as e:
-            print("\n" + "="*80)
-            print("CMake configuration failed!")
-            print("="*80)
-            raise
-        
-        # Build with verbose output
-        try:
-            # Add verbose flag to see detailed errors
-            verbose_build_args = build_args.copy()
-            if platform.system() != "Windows":
-                # `build_args` on Unix already contains the generator separator
-                # `--`, so append the make-style verbose flag directly.
-                verbose_build_args += ['VERBOSE=1']
-            else:
-                # Windows: use --verbose or capture output
-                verbose_build_args = ['--verbose'] + build_args
-            
-            subprocess.check_call(['cmake', '--build', '.'] +
-                                  verbose_build_args, cwd=self.build_temp, env=env)
-        except subprocess.CalledProcessError as e:
-            print("\n" + "="*80)
-            print("CMake build failed! Trying to capture error output...")
-            print("="*80)
-            
-            # Try to get more detailed error info
-            try:
-                result = subprocess.run(['cmake', '--build', '.'] + build_args,
-                                       cwd=self.build_temp, env=env,
-                                       capture_output=True, text=True)
-                if result.stderr:
-                    print("\nSTDERR:")
-                    print(result.stderr)
-                if result.stdout:
-                    # Print last 100 lines of output
-                    lines = result.stdout.split('\n')
-                    print("\nLast 100 lines of build output:")
-                    print("\n".join(lines[-100:]))
-            except Exception:
-                pass
-            
-            raise RuntimeError(
-                f"CMake build failed with exit code {e.returncode}.\n"
-                f"Check the output above for details, or run:\n"
-                f"  cd {self.build_temp}\n"
-                f"  cmake --build . --config {cfg} --verbose"
+            cmake_args.extend(
+                [
+                    f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE={extdir}",
+                    f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE={extdir}",
+                ]
             )
+            generator = os.environ.get("CMAKE_GENERATOR", "")
+            cache = Path(self.build_temp) / "CMakeCache.txt"
+            if not generator and cache.is_file():
+                match = re.search(
+                    r"^CMAKE_GENERATOR:INTERNAL=(.+)$",
+                    cache.read_text(encoding="utf-8"),
+                    re.MULTILINE,
+                )
+                if match:
+                    generator = match.group(1).strip()
+            if (
+                not generator or generator.startswith("Visual Studio")
+            ) and sys.maxsize > 2**32:
+                cmake_args.extend(["-A", "x64"])
+            if not generator or generator.startswith("Visual Studio"):
+                # Build one project at a time to keep cl workers within N_THREADS.
+                build_workers = 1
+                build_env["_CL_"] = (
+                    build_env.get("_CL_", "") + f" /MP{n_threads}"
+                ).strip()
 
-        print()  # Add an empty line for cleaner output
-
-
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+        build_command = [
+            "cmake",
+            "--build",
+            ".",
+            "--config",
+            "Release",
+            "--target",
+            "polyfempy",
+            "--parallel",
+            str(build_workers),
+            "--verbose",
+        ]
+        Path(self.build_temp).mkdir(parents=True, exist_ok=True)
+        for stage, command in (
+            ("configuration", ["cmake", ext.sourcedir, *cmake_args]),
+            ("build", build_command),
+        ):
+            try:
+                # Stream the original output so a failed build keeps its diagnostics.
+                subprocess.check_call(command, cwd=self.build_temp, env=build_env)
+            except subprocess.CalledProcessError as exc:
+                raise RuntimeError(
+                    f"CMake {stage} failed with exit code {exc.returncode}. "
+                    f"See the output above. Build directory: {self.build_temp}"
+                ) from exc
 
 
 setup(
-    name="polyfempy",
-    version="0.8",
-    description="PolyFEM Python bindings",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://polyfem.github.io/",
-    # Build as `polyfempy.polyfempy` (a submodule inside the Python package).
-    ext_modules=[CMakeExtension('polyfempy.polyfempy')],
-    cmdclass=dict(build_ext=CMakeBuild, build_py=BuildPython),
-    # Put a real package on sys.path ahead of the upstream namespace directory.
+    ext_modules=[CMakeExtension("polyfempy.polyfempy")],
+    cmdclass={
+        "build_ext": CMakeBuild,
+        "build_py": BuildPython,
+        "sdist": SourceDistribution,
+    },
     options={"editable_wheel": {"mode": "strict"}},
-    packages=find_packages(include=["polyfempy*"]) + ["polyfem", "polyfempy.generated_api.generator"],
+    packages=find_packages(include=["polyfempy*"])
+    + ["polyfem", "polyfempy.generated_api.generator"],
     package_dir={
         "polyfem": "python/polyfem",
         "polyfempy.generated_api.generator": "python-from-jse/generator",
     },
-    entry_points={
-        "console_scripts": [
-            "polyfempy=polyfempy.cli:main",
-        ],
-    },
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-    ],
-    python_requires=">=3.10",
 )

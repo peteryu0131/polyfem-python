@@ -221,12 +221,13 @@ def run_case(
     )
 
     status = "PASS" if result.returncode == 0 else "FAIL"
+    log_path = log_file.relative_to(ROOT) if log_file.is_relative_to(ROOT) else log_file
     return CaseResult(
         source_rel=case.source_rel,
         generated_example=str(Path(case.generated_example).relative_to(ROOT)),
         status=status,
         returncode=result.returncode,
-        log_file=str(log_file.relative_to(ROOT)),
+        log_file=str(log_path),
         raw_status=status,
     )
 

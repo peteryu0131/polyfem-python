@@ -306,6 +306,38 @@ def test_batch_backend_tool_reads_polyfem_active_contact_lists():
     )
 
 
+def test_batch_backend_tool_writes_logs_outside_checkout(tmp_path, monkeypatch):
+    tool = _load_batch_tool_module()
+    case = tool.ContactCase(
+        list_file="contact_2d.txt",
+        line_number=1,
+        source_rel="contact/examples/2D/example.json",
+        source_json=str(tmp_path / "source.json"),
+        generated_example=str(ROOT / "examples" / "example.py"),
+    )
+    completed = tool.subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="Reference metrics passed.", stderr=""
+    )
+    monkeypatch.setattr(tool.subprocess, "run", lambda *args, **kwargs: completed)
+
+    result = tool.run_case(
+        case,
+        tmp_path,
+        generated_source_tolerance=1e-5,
+        require_tests_match=True,
+        keep_visual_output=False,
+        log_level=2,
+        max_threads=1,
+    )
+    log_file = Path(result.log_file)
+    assert log_file.is_absolute()
+    assert "Reference metrics passed." in log_file.read_text(encoding="utf-8")
+    tool.write_summaries(tmp_path, [case], [result])
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert summary["passed"] == 1
+    assert summary["failed"] == 0
+
+
 def test_batch_backend_tool_loads_expected_failure_config(tmp_path):
     tool = _load_batch_tool_module()
 

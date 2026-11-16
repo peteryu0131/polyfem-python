@@ -154,13 +154,6 @@ def test_pyproject_declares_console_script():
     assert "cmake>=3.25" in pyproject
 
 
-def test_setup_py_keeps_console_script_for_legacy_build_metadata():
-    setup_py = (ROOT / "setup.py").read_text(encoding="utf-8")
-
-    assert "console_scripts" in setup_py
-    assert "polyfempy=polyfempy.cli:main" in setup_py
-
-
 def test_setup_py_always_passes_conda_prefix_to_cmake():
     setup_py = (ROOT / "setup.py").read_text(encoding="utf-8")
 
@@ -173,11 +166,11 @@ def test_setup_py_always_passes_conda_prefix_to_cmake():
 def test_setup_py_disables_heavy_optional_polysolve_dependencies():
     setup_py = (ROOT / "setup.py").read_text(encoding="utf-8")
 
-    assert "'-DPOLYSOLVE_WITH_SPECTRA=OFF'" in setup_py
-    assert "'-DPOLYSOLVE_WITH_AMGCL=OFF'" in setup_py
-    assert "'-DPOLYSOLVE_WITH_UMFPACK=OFF'" in setup_py
-    assert "'-DPOLYSOLVE_WITH_MPI=OFF'" in setup_py
-    assert "'-DPOLYSOLVE_WITH_HYPRE=OFF'" in setup_py
+    assert "-DPOLYSOLVE_WITH_SPECTRA=OFF" in setup_py
+    assert "-DPOLYSOLVE_WITH_AMGCL=OFF" in setup_py
+    assert "-DPOLYSOLVE_WITH_UMFPACK=OFF" in setup_py
+    assert "-DPOLYSOLVE_WITH_MPI=OFF" in setup_py
+    assert "-DPOLYSOLVE_WITH_HYPRE=OFF" in setup_py
 
 
 def test_github_actions_generates_ignored_api_before_tests():
@@ -194,14 +187,15 @@ def test_github_actions_generates_ignored_api_before_tests():
     assert "python -m pytest tests -q" in workflow
 
 
-def test_github_actions_keep_backend_validation_in_two_workflows():
+def test_github_actions_include_python_backend_and_release_workflows():
     workflow_dir = ROOT / ".github" / "workflows"
     workflow_names = {path.name for path in workflow_dir.glob("*.yml")}
 
-    assert workflow_names == {
+    assert {
         "generated-contact-backend.yml",
+        "release-packages.yml",
         "test.yml",
-    }
+    } <= workflow_names
 
 
 def test_backend_workflow_runs_smoke_and_reviews_main_with_full_sweep():
@@ -221,10 +215,12 @@ def test_backend_workflow_runs_smoke_and_reviews_main_with_full_sweep():
     assert "github.event.inputs.max_threads || '1'" in workflow
     assert "submodules: recursive" in workflow
     assert "python tools/generate_polyfem_api.py" in workflow
-    assert "python -m pip install -e . --no-build-isolation -vv" in workflow
-    assert "python -m polyfempy backend-info --require" in workflow
+    assert "python -m build --no-isolation" in workflow
+    assert "python -m pip install --force-reinstall --no-deps dist/*.whl" in workflow
+    assert "python -I -m polyfempy backend-info --require" in workflow
     smoke, sweep = workflow.split("- name: Run active generated contact backend sweep")
-    assert "python -m pytest tests/test_backend_smoke.py -q" in smoke
+    assert "tools/check_installed_package.py" in smoke
+    assert "--readme README.md --reference polyfem-data/units/neohookean.json" in smoke
     assert "github.event_name != 'pull_request' || (github.base_ref == 'main' && github.event.pull_request.draft == false)" in workflow
     assert "if: github.event.action != 'edited' || github.event.changes.base != null" in workflow
     assert "if: env.RUN_FULL_SWEEP == 'true'" in sweep
