@@ -1,26 +1,4 @@
-"""Unit tests for the Windows-runtime shim in ``polyfempy.runtime._runtime``.
-
-Before T7 the ``polyfempy.api`` package ``__init__`` silently mutated
-``sys.stdout`` / ``sys.stderr``, set ``KMP_DUPLICATE_LIB_OK=TRUE`` and ran
-``chcp 65001`` as a side effect of ``import polyfempy`` — on Windows only.
-That is legitimate behavior to want in an interactive session, but bad
-library hygiene for anything else (CI, library embedders).
-
-T7 pulls the logic into an explicit, idempotent ``configure_windows_runtime()``
-helper and gates the auto-call behind an env-var opt-out. These tests lock
-the new contract:
-
-    - ``configure_windows_runtime()`` remains explicitly importable from
-      ``polyfempy.runtime._runtime`` for advanced callers, and no-ops on
-      non-Windows platforms.
-    - ``should_auto_configure_windows()`` honors the env-var opt-out and
-      tolerates casing / whitespace.
-    - The helper is idempotent (safe to call twice).
-    - The KMP env var is never overwritten without ``force=True``.
-
-Chcp / stdout rewrapping only run on Windows; we cover the Windows branches
-via ``sys.platform`` patching so the tests run on Linux and macOS too.
-"""
+"""Check that Windows compatibility settings require explicit opt-in."""
 
 from __future__ import annotations
 
@@ -95,28 +73,42 @@ class OptOutEnvVarTests(unittest.TestCase):
 
     def setUp(self):
         self._saved = os.environ.get("POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG")
+        self._enabled = os.environ.pop("POLYFEMPY_WINDOWS_AUTOCONFIG", None)
 
     def tearDown(self):
         self._set_env(self._saved)
+        if self._enabled is None:
+            os.environ.pop("POLYFEMPY_WINDOWS_AUTOCONFIG", None)
+        else:
+            os.environ["POLYFEMPY_WINDOWS_AUTOCONFIG"] = self._enabled
 
-    def test_default_is_auto_configure_enabled(self):
+    def test_default_does_not_auto_configure(self):
         self._set_env(None)
-        self.assertTrue(should_auto_configure_windows())
+        self.assertFalse(should_auto_configure_windows())
 
     def test_empty_string_is_treated_as_unset(self):
         self._set_env("")
-        self.assertTrue(should_auto_configure_windows())
+        self.assertFalse(should_auto_configure_windows())
 
     def test_truthy_values_disable_auto_configure(self):
+        os.environ["POLYFEMPY_WINDOWS_AUTOCONFIG"] = "1"
         for v in ("1", "true", "TRUE", "Yes", "on", "  yes  "):
             with self.subTest(value=v):
                 self._set_env(v)
                 self.assertFalse(should_auto_configure_windows())
 
     def test_falsy_values_keep_auto_configure_enabled(self):
+        os.environ["POLYFEMPY_WINDOWS_AUTOCONFIG"] = "1"
         for v in ("0", "false", "no", "off", "nope", "anything-else"):
             with self.subTest(value=v):
                 self._set_env(v)
+                self.assertTrue(should_auto_configure_windows())
+
+    def test_opt_in_accepts_truthy_values(self):
+        self._set_env(None)
+        for value in ("1", "true", "TRUE", "Yes", "on", "  yes  "):
+            with self.subTest(value=value):
+                os.environ["POLYFEMPY_WINDOWS_AUTOCONFIG"] = value
                 self.assertTrue(should_auto_configure_windows())
 
 
@@ -166,10 +158,6 @@ class WindowsBranchTests(unittest.TestCase):
     def test_stdout_already_utf8_is_skipped(self):
         """If ``sys.stdout`` is already a UTF-8 TextIOWrapper, the helper
         must not re-wrap it (would double-buffer and lose writes)."""
-        class _FakeBuffer:
-            def write(self, *_a, **_k):
-                return 0
-
         utf8_stream = io.TextIOWrapper(
             io.BytesIO(), encoding="utf-8", errors="replace"
         )
@@ -178,10 +166,9 @@ class WindowsBranchTests(unittest.TestCase):
                 unittest.mock.patch.object(sys, "stderr", utf8_stream), \
                 unittest.mock.patch("os.system", return_value=0):
             result = configure_windows_runtime()
+            self.assertIs(sys.stdout, utf8_stream)
         self.assertIn("stdout_already_utf8", result["skipped"])
         self.assertIn("stderr_already_utf8", result["skipped"])
-        # And the stream must not have been replaced.
-        self.assertIs(sys.stdout, sys.stdout)  # sanity
 
     def test_idempotency_second_call_applies_nothing_new(self):
         """Calling the function twice in a row must not keep re-wrapping
@@ -204,10 +191,10 @@ class WindowsBranchTests(unittest.TestCase):
         # First call applies the full set of actions.
         self.assertIn("kmp_duplicate_lib_ok", first["applied"])
         self.assertIn("stdout_utf8", first["applied"])
-        # Second call re-wraps because sys.stdout was mocked back and the
-        # first wrap is still the current stream; the KMP flag is now set so
-        # it must land in ``skipped``.
+        # The second call keeps the configured streams and environment value.
         self.assertIn("kmp_already_set", second["skipped"])
+        self.assertIn("stdout_already_utf8", second["skipped"])
+        self.assertIn("stderr_already_utf8", second["skipped"])
 
 
 if __name__ == "__main__":

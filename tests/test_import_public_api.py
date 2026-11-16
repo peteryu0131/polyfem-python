@@ -1,5 +1,39 @@
 """Smoke tests for the current public import surface."""
 
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+def test_import_does_not_change_host_streams_or_environment():
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env.pop("POLYFEMPY_WINDOWS_AUTOCONFIG", None)
+    env.pop("POLYFEMPY_SKIP_WINDOWS_AUTOCONFIG", None)
+    env.pop("KMP_DUPLICATE_LIB_OK", None)
+    env["PYTHONIOENCODING"] = "cp1252"
+    code = '''
+import os, sys
+from unittest.mock import patch
+before = (sys.stdout, sys.stderr)
+with patch("os.system") as shell:
+    import polyfempy
+assert sys.stdout is before[0]
+assert sys.stderr is before[1]
+assert "KMP_DUPLICATE_LIB_OK" not in os.environ
+shell.assert_not_called()
+'''
+    subprocess.run([sys.executable, "-c", code], cwd=root, env=env, check=True)
+
+
+def test_unsupported_callback_fails_before_loading_backend():
+    import pytest
+    from polyfempy import solve
+
+    with pytest.raises(NotImplementedError, match="sidesets_func"):
+        solve(sidesets_func=lambda *_: 1)
+
 
 def test_public_api_imports():
     from polyfempy.runtime import Result, solve

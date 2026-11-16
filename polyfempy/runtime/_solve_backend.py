@@ -29,9 +29,9 @@ def build_solver():
     if not getattr(pf, "cpp_backend_available", lambda: False)():
         err = getattr(pf, "cpp_backend_error", lambda: None)()
         raise RuntimeError(
-            "C++ backend not loaded. JSON/array mode requires the compiled "
-            "VarForm extension. "
-            f"Error: {err}. Build with: pip install -e . --no-build-isolation"
+            "C++ backend not loaded. Install a wheel for your Python version "
+            "and platform, or follow BUILD.md to build from source. "
+            f"Import error: {err}"
         )
 
     core = importlib.import_module("polyfempy.polyfempy")

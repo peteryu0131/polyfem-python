@@ -4,32 +4,60 @@ Run these commands in the repository root after initializing the submodules. See
 
 ## Python and example tests
 
-Generate the Python API before running the tests. For a checkout without an installed package, add the public package directory to the search path. In PowerShell:
+Generate the Python API before running the tests:
 
-```powershell
-python -m pip install numpy pytest
+```sh
+python -m pip install numpy pytest "setuptools>=77"
 python tools/generate_polyfem_api.py
-$env:PYTHONPATH = (Resolve-Path python).Path
-python -m pytest tests -q
+python -m pytest -q -rs
 ```
 
-On Linux or macOS, use `PYTHONPATH="$PWD/python" python -m pytest tests -q`. The suite includes comparisons between classic example configurations and official JSON inputs.
+The pytest configuration selects `tests/` and adds the public package directory
+to the import path. Submodule tests run separately.
+The suite includes comparisons between classic example configurations and
+official JSON inputs. This forward branch does not require PyTorch.
+
+On a backend-free machine, the native smoke test is expected to skip. Windows
+also skips the tests for the non-Windows runtime branch. Check the reasons with
+`-rs`; a skipped native test does not establish that the solver works.
+
+The generator has its own standalone suite. From `python-from-jse/`, run
+`python tools/regenerate_and_test.py`. The parent wrapper's `--check` option
+runs the parent API/example checks, not that standalone suite.
 
 ## Native solver
 
-With the compiled package installed, check that the backend loads, then solve the Neo-Hookean cube and compare its six error metrics with the official reference.
+With a wheel installed in a clean environment, run the README example and the
+Neo-Hookean cube reference check:
 
 ```sh
-python -m polyfempy backend-info --require
-python -m pytest tests/test_backend_smoke.py -q
+python tools/check_installed_package.py --readme README.md --reference polyfem-data/units/neohookean.json --example examples/quickstart/static_elasticity.py --example examples/quickstart/transient_elasticity.py
 ```
+
+This check runs outside the checkout and fails if the backend cannot load.
+It checks the README value and all six reference metrics, then runs both short
+examples. An editable install is not accepted as a wheel validation.
+
+For a development install, `python -m pytest tests/test_backend_smoke.py -q`
+remains available. It may skip when the backend is absent; that is not release
+evidence.
+
+## Code checks
+
+```sh
+python -m pip install "ruff>=0.17.5,<0.18"
+python -m ruff check polyfempy python/polyfem setup.py tools tests
+```
+
+These checks cover syntax, undefined names, and unused imports in handwritten
+Python code. Generated output and external submodules are excluded.
 
 ## GitHub Actions
 
 | When | What runs |
 | --- | --- |
 | Push or pull request | Python and generated API tests on Windows, macOS and Linux with Python 3.10–3.12 |
-| Draft PR, or PR targeting another branch | Linux C++ build and the cube reference check on open, update or reopen |
+| Draft PR, or PR targeting another branch | Linux source archive and wheel build, clean installation, README, cube, and quick-start checks on open, update or reopen |
 | Ready-for-review PR targeting `main` | Cube check followed by the full contact sweep on open, update, reopen, marking ready or retargeting to `main` |
 | Manual run of Generated Contact Backend, or push to main | Full contact sweep against the pinned official data |
 
@@ -40,3 +68,38 @@ python tools/run_generated_contact_backend_checks.py --output-root build/contact
 ```
 
 Read `build/contact-check/summary.txt` for the outcome and the per-case logs for failures. In GitHub Actions, download the **generated-contact-backend-results** artifact from the workflow run to inspect those files.
+
+The sweep follows each reference input's `tests.time_steps`; a transient case
+without that field is reduced to one step. It also selects a portable linear
+solver for both runs, generally `Eigen::SimplicialLDLT`. Passing the sweep checks
+these regression configurations, not every example's original full-duration
+command or its original solver choice.
+
+## Release-package checks
+
+The manual **Release Packages** workflow builds one source archive, then uses
+it for pip wheels and native conda packages. Both matrices cover CPython
+3.10-3.12 on Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS.
+The first three platforms preserve the legacy conda package's targets.
+Each job installs its output and runs the README and both quick-start examples.
+Wheel builds use cibuildwheel's dependency repair step before installation.
+
+Run this workflow on the release revision and review every required job. It
+produces downloadable artifacts without publishing to package indexes. See
+[INSTALL.md](INSTALL.md) for the verified user installation routes and
+[conda/README.md](conda/README.md) for the native conda recipe.
+
+The separate contact-backend workflow builds a source archive and wheel on Linux. It
+installs the wheel in a fresh environment and checks it outside the checkout.
+This does not establish native wheel support on Windows or macOS. Before
+publishing, validate each intended platform and Python version:
+
+1. Confirm `import polyfem`, `from polyfempy import solve`, and backend loading.
+2. Run the README example and check its finite, nonzero result.
+3. Run the cube reference check with the pinned data and inspect all six metrics.
+4. Run the required contact sweep on the same release revision.
+5. If publishing a source archive, build a wheel from that extracted archive.
+   See [BUILD.md](BUILD.md#source-archives) for the archive contents.
+
+A configured GitHub workflow is a test plan; review a successful run for the
+actual release commit before treating it as release evidence.

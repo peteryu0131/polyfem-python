@@ -2,20 +2,13 @@
 requires = ["setuptools>=77", "wheel", "nanobind>=2.0.0", "cmake>=3.25"]
 build-backend = "setuptools.build_meta"
 
-# Note: nanobind is used for Python bindings (pybind11 support removed).
-# 
-# Usage:
-#   python -m pip install -e . --no-build-isolation
-# 
-# Note: Use --no-build-isolation to ensure CMake can find conda-installed
-#       C++ dependencies (e.g., tsl-robin-map).
-
 [project]
 name = "polyfempy"
 version = "0.8"
 description = "PolyFEM Python bindings"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE", "polyfem/LICENSE", "python-from-jse/LICENSE"]
 authors = [
   { name = "Zizhou Huang", email = "zizhou@nyu.edu" },
 ]
@@ -39,9 +32,13 @@ visualization = [
 ]
 dev = [
     "pytest>=7.0",
+    "setuptools>=77",
+    "build>=1",
+    "ruff>=0.17.5,<0.18",
 ]
 test = [
     "pytest>=7.0",
+    "setuptools>=77",
 ]
 all = [
     "matplotlib>=3.5",
@@ -52,6 +49,11 @@ all = [
 [project.scripts]
 polyfempy = "polyfempy.cli:main"
 
+[project.urls]
+Homepage = "https://polyfem.github.io/"
+Source = "https://github.com/polyfem/polyfem-python"
+Issues = "https://github.com/polyfem/polyfem-python/issues"
+
 [tool.setuptools]
 include-package-data = true
 
@@ -60,3 +62,7 @@ include-package-data = true
 
 [tool.pyright]
 extraPaths = ["python"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["python"]

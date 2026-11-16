@@ -2,9 +2,16 @@
 
 Build a finite element model with `import polyfem` and run it with `from polyfempy import solve`. The Python API configures the simulation and the compiled PolyFEM backend computes the solution.
 
+## Installation
+
+See the [installation guide](INSTALL.md) for pip, conda, and platform status.
+The public package indexes still carry older releases; use a reviewed forward
+build for the API below. For a development install, see [BUILD.md](BUILD.md).
+
 ## Run a forward simulation
 
-Install the bindings from this checkout using the [build instructions](BUILD.md), or install a wheel built from it. This example creates a square mesh with four triangles, fixes its boundary, and applies a uniform body load. Only the center vertex can move.
+After installation, run this example to create a square mesh with four triangles,
+fix its boundary, and apply a uniform body load. Only the center vertex can move.
 
 ```python
 from pathlib import Path
@@ -30,7 +37,21 @@ with TemporaryDirectory() as folder:
     print(abs(result.sol).max())
 ```
 
-The largest absolute displacement component is about `0.00011235`. For larger models, see the [classic examples](https://github.com/polyfem/python_data/tree/89773e1c485a223b230fe372ca2032122cd0a7cd/classic_example).
+The largest absolute displacement component is about `0.00011235`.
+`result.sol` is the raw finite-element solution; do not assume that each row
+corresponds to a mesh vertex. The example creates its own mesh and does not need
+the data or examples repositories at runtime once the package is installed.
+
+For larger models, see the [classic example guide](examples/README.md) and the
+[pinned example sources](https://github.com/polyfem/python_data/tree/2e533c8357d9f8f0cca4e5baeba391575b2d2f2b/classic_example).
+These reference examples require their mesh data and may select linear solvers
+that are not enabled in every backend build.
+
+For two short examples that use only the installed package, start with
+[static elasticity](examples/quickstart/static_elasticity.py) and
+[transient elasticity](examples/quickstart/transient_elasticity.py).
+Both create their own mesh and use `Eigen::SimplicialLDLT`. The transient example
+also shows time settings and an output directory.
 
 ## Source layout
 

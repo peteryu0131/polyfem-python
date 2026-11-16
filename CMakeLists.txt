@@ -35,7 +35,7 @@ include(PrependCurrentPath)
 # Extra warnings
 include(Warnings)
 
-# Use C++11/14
+# Enable compiler features required by dependencies.
 include(CXXFeatures)
 
 # Sort projects inside the solution
@@ -78,32 +78,29 @@ if(TARGET jse_embed_spec_tool)
         RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_BINARY_DIR}/tools/Release")
 endif()
 
-    # Explicitly disable static library mode BEFORE including nanobind
-    # This prevents nanobind from trying to build static library (which requires tsl::robin_map)
-    # Must be set before find_package(nanobind) is called
+    # Use a shared nanobind runtime alongside the extension.
     set(NB_STATIC_LIB OFF CACHE BOOL "Disable nanobind static library" FORCE)
     
     message(STATUS "Using nanobind for Python bindings")
     include(nanobind)
 
-#for testing purpose
-include(polyfem_data)
+# Mesh data is only needed for examples and numerical tests.
+if(INPUT_POLYFEMPY_DATA_ROOT)
+    include(polyfem_data)
+endif()
 
 ################################################################################
 # Subdirectories
 ################################################################################
 
-    # Use nanobind to create module
-    # nanobind provides nanobind_add_module() function
-    # Explicitly use NB_SHARED to avoid static library (which requires tsl::robin_map)
-    # nanobind defaults to NB_STATIC, so we must explicitly request shared mode
+    # Place the shared runtime and the extension in the same package.
     nanobind_add_module(polyfempy NB_SHARED)
     
     # Verify no static library target was created (safety check)
     if(TARGET nanobind-static)
         message(FATAL_ERROR 
-            "nanobind-static target was created. This requires tsl::robin_map.\n"
-            "Please ensure NB_STATIC_LIB is OFF and nanobind is used in header-only mode."
+            "Unexpected static nanobind target.\n"
+            "Keep NB_STATIC_LIB disabled and use NB_SHARED for this extension."
         )
     endif()
     

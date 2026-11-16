@@ -7,6 +7,8 @@ bin_rel/
 lib/
 out/
 dist/
+/wheelhouse/
+/conda-out/
 CMakeFiles/
 CPM_modules/
 _deps/
@@ -25,6 +27,8 @@ __pycache__/
 *.egg-info/
 .eggs/
 .pytest_cache/
+.ruff_cache/
+.venv/
 .coverage
 htmlcov/
 
@@ -42,6 +46,7 @@ htmlcov/
 .codex_tmp/
 /Class-Generation-From-Json-main/
 /build_log.txt
+/FORWARD_REVIEW.md
 
 # Output files (PolyFEM / Paraview; see end of file for experiment/ override)
 *.vtu
@@ -59,6 +64,7 @@ examples/classic_example/2D/2D_examples_outputs/
 # Local solve dump at repo root only (avoid matching .../experiment/.../sim.json)
 /sim.json
 /impact_stats.json
+/results/
 
 # Slurm batch logs written at the repo root.
 /slurm_logs/

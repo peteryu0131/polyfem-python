@@ -37,5 +37,5 @@ Maintain this behavior in `python-from-jse/generator/JsonToTreeClass.py` and
 repository root, regenerate with:
 
 ```powershell
-conda run -n polyfem python tools/generate_polyfem_api.py
+python tools/generate_polyfem_api.py
 ```
