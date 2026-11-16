@@ -6,7 +6,8 @@ on:
     branches: [jingyaoyu_forward]
 
 concurrency:
-  group: release-packages-${{ github.ref }}
+  # Ordinary pushes must not cancel an explicitly requested package check.
+  group: release-packages-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[package-check]') }}
   cancel-in-progress: true
 
 permissions:
@@ -14,6 +15,7 @@ permissions:
 
 jobs:
   source:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[package-check]')
     runs-on: ubuntu-latest
     outputs:
       filename: ${{ steps.archive.outputs.filename }}
