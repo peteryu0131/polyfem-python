@@ -69,6 +69,8 @@ include(CPM)
 endif()
 
 # dependencies
+set(POLYFEM_PYTHON_MODULE ON CACHE BOOL "Use Python support inside a Python extension" FORCE)
+set(POLYFEM_WITH_TESTS OFF CACHE BOOL "Build PolyFEM tests")
 include(polyfem)
 
 # This executable embeds schemas at build time. Only runtime binaries belong in the wheel.

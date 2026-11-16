@@ -11,7 +11,7 @@ to conda-forge. Keep its version aligned with `project.version` in
 
 ## Local build
 
-Use a separate conda environment containing `conda-build`. Prepare a source
+Activate a separate conda environment containing `conda-build`. Prepare a source
 archive using [BUILD.md](../BUILD.md), then set its URL and SHA-256 checksum.
 For the current version, in PowerShell:
 
@@ -21,7 +21,7 @@ $env:POLYFEMPY_SDIST_URL = ([Uri]$archive.FullName).AbsoluteUri
 $env:POLYFEMPY_SDIST_SHA256 = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
 $env:CONDA_BLD_PATH = "C:/pf-cb"
 $env:CPM_SOURCE_CACHE = "C:/pf-cpm"
-conda build conda/recipe --python 3.11 --no-anaconda-upload --override-channels -c conda-forge --output-folder conda-out
+conda-build conda/recipe --python 3.11 --no-anaconda-upload --override-channels -c conda-forge --output-folder conda-out
 ```
 
 On Linux or macOS:
@@ -30,7 +30,7 @@ On Linux or macOS:
 export CPM_SOURCE_CACHE="$PWD/.cache/CPM"
 export POLYFEMPY_SDIST_URL="$(python -c 'from pathlib import Path; print(Path("dist/polyfempy-0.8.tar.gz").resolve().as_uri())')"
 export POLYFEMPY_SDIST_SHA256="$(python -c 'import hashlib; from pathlib import Path; print(hashlib.sha256(Path("dist/polyfempy-0.8.tar.gz").read_bytes()).hexdigest())')"
-conda build conda/recipe --python 3.11 --no-anaconda-upload --override-channels -c conda-forge --output-folder conda-out
+conda-build conda/recipe --python 3.11 --no-anaconda-upload --override-channels -c conda-forge --output-folder conda-out
 ```
 
 The source archive includes the generated API, builder runtime, and native

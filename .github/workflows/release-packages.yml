@@ -154,7 +154,7 @@ jobs:
           "CPM_SOURCE_CACHE=C:/pf-cpm" >> $env:GITHUB_ENV
       - name: Build and test the native conda package
         run: >-
-          conda build conda/recipe --python "${{ matrix.python }}"
+          conda-build conda/recipe --python "${{ matrix.python }}"
           --no-anaconda-upload --override-channels --channel conda-forge
           --output-folder conda-out
       - uses: actions/upload-artifact@v7

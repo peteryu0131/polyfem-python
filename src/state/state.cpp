@@ -117,13 +117,17 @@ public:
     set_log_level(log_level);
 
     Eigen::MatrixXd sol;
-    state_.solve(sol);
-
-    if (state_.variational_formulation)
     {
-      state_.variational_formulation->compute_errors(sol);
-      state_.variational_formulation->save_json(sol);
-      state_.variational_formulation->export_data(sol);
+      // Worker threads must be able to call Python expressions.
+      py::gil_scoped_release release;
+      state_.solve(sol);
+
+      if (state_.variational_formulation)
+      {
+        state_.variational_formulation->compute_errors(sol);
+        state_.variational_formulation->save_json(sol);
+        state_.variational_formulation->export_data(sol);
+      }
     }
 
     py::dict meta;
@@ -175,13 +179,16 @@ void run_polyfem_command(
       std::max(0, std::min(6, log_level))));
 
   Eigen::MatrixXd sol;
-  state.solve(sol);
-
-  if (state.variational_formulation)
   {
-    state.variational_formulation->compute_errors(sol);
-    state.variational_formulation->save_json(sol);
-    state.variational_formulation->export_data(sol);
+    py::gil_scoped_release release;
+    state.solve(sol);
+
+    if (state.variational_formulation)
+    {
+      state.variational_formulation->compute_errors(sol);
+      state.variational_formulation->save_json(sol);
+      state.variational_formulation->export_data(sol);
+    }
   }
 }
 

@@ -34,6 +34,29 @@ def main() -> None:
             0.00011234567901234568,
             1e-10,
         ),
+        (
+            "Python expression",
+            '''
+from pathlib import Path
+from polyfempy import solve
+
+load = Path("body_load.py").resolve()
+load.write_text("def value(x, y, z, t, index):\\n    return -1.0\\n", encoding="utf-8")
+vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5]])
+cells = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]])
+config = {
+    "materials": {"type": "NeoHookean", "E": 1000, "nu": 0.3},
+    "boundary_conditions": {
+        "dirichlet_boundary": [{"id": "all", "value": [0, 0]}],
+        "rhs": [0, {"file_name": str(load), "function_name": "value"}],
+    },
+    "solver": {"linear": {"solver": "Eigen::SimplicialLDLT"}},
+}
+result = solve(vertices, cells, cfg=config)
+''',
+            0.00011234567901234568,
+            1e-10,
+        ),
     ]
 
     with TemporaryDirectory(prefix="polyfem-installed-") as folder:
@@ -75,11 +98,13 @@ import numpy as np
                 [sys.executable, "-I", "-c", check + code + validation],
                 cwd=folder,
                 check=True,
+                timeout=300,
             )
         subprocess.run(
             [sys.executable, "-I", "-m", "polyfempy", "backend-info", "--require"],
             cwd=folder,
             check=True,
+            timeout=300,
         )
         if args.reference is not None:
             reference = args.reference.resolve()
@@ -102,6 +127,7 @@ import numpy as np
                 ],
                 cwd=folder,
                 check=True,
+                timeout=300,
             )
             actual = json.loads((output / "sim.json").read_text(encoding="utf-8"))
             metrics = {
@@ -127,6 +153,7 @@ import numpy as np
                 ],
                 cwd=folder,
                 check=True,
+                timeout=300,
             )
             print(f"Example passed: {example.name}")
 

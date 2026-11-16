@@ -42,7 +42,8 @@ python tools/check_installed_package.py --readme README.md --reference polyfem-d
 
 This check runs outside the checkout and fails if the backend cannot load.
 It checks the README beam and the small square in `INSTALL.md` against their
-expected results, checks all six cube metrics, then runs the three quick-start
+expected results, repeats the square with a Python load function, checks all six
+cube metrics, then runs the three quick-start
 scripts. The beam mesh is copied from `examples/quickstart/beam.obj`; the check
 does not download it. An editable install is not accepted as a wheel validation.
 
@@ -103,7 +104,8 @@ it for pip wheels and native conda packages. Both matrices cover CPython
 3.10-3.12 on Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS.
 The first three platforms preserve the legacy conda package's targets.
 Each job installs its output and runs the README beam, installation self-check,
-and all three quick-start scripts.
+Python load function, and all three quick-start scripts. Each simulation has a
+five-minute timeout so a stalled native call fails the check.
 Wheel builds use cibuildwheel's dependency repair step before installation.
 
 GitHub requires a manually triggered workflow to exist on the repository's
