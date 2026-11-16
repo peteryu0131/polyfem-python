@@ -98,7 +98,7 @@ command or its original solver choice.
 
 ## Release-package checks
 
-The manual **Release Packages** workflow builds one source archive, then uses
+The **Release Packages** workflow builds one source archive, then uses
 it for pip wheels and native conda packages. Both matrices cover CPython
 3.10-3.12 on Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS.
 The first three platforms preserve the legacy conda package's targets.
@@ -110,8 +110,16 @@ GitHub requires a manually triggered workflow to exist on the repository's
 default branch before it can be dispatched on another branch. See
 [GitHub's manual-run instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
 Adding this file only to `jingyaoyu_forward` does not enable the Run workflow
-button. Once enabled, run it on the release revision and review every job. It
-produces downloadable artifacts without publishing to package indexes. See
+button. To validate a forward revision before that, push its commit to the
+dedicated validation branch:
+
+```sh
+git push origin HEAD:codex/forward-package-check
+```
+
+This push triggers the same build matrix. It does not publish packages or change
+the default branch. Review every job for the exact revision being released.
+Successful jobs produce downloadable artifacts without publishing to package indexes. See
 [INSTALL.md](INSTALL.md) for the verified user installation routes and
 [conda/README.md](conda/README.md) for the native conda recipe.
 

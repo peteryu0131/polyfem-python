@@ -45,8 +45,12 @@ paths. The recipe selects Ninja so the same build commands work across systems.
 
 ## Release workflow
 
-First make the workflow available on the repository's default branch; GitHub
-requires this for manual dispatch. Then use
+For forward validation, push the intended commit to `codex/forward-package-check`
+as described in [TESTING.md](../TESTING.md#release-package-checks). This triggers
+the package matrix without changing the default branch.
+
+For manual dispatch, first make the workflow available on the repository's
+default branch. Then use
 **Actions -> Release Packages -> Run workflow** and select the release branch.
 See [TESTING.md](../TESTING.md#release-package-checks) for the prerequisite.
 Each native conda job builds for one platform and Python version, runs the

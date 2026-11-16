@@ -2,6 +2,12 @@ name: Release Packages
 
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/forward-package-check]
+
+concurrency:
+  group: release-packages-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -23,6 +29,7 @@ jobs:
           python -m pip install build numpy
           python tools/generate_polyfem_api.py
           python -m build --sdist
+          python tools/check_distribution.py "dist/*.tar.gz"
       - name: Locate source archive
         id: archive
         shell: python
@@ -80,6 +87,8 @@ jobs:
         env:
           CIBW_BUILD: cp${{ matrix.python }}-*
           CIBW_ARCHS: ${{ matrix.target.arch }}
+      - name: Check wheel contents
+        run: python tools/check_distribution.py "wheelhouse/*.whl"
       - uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.target.name }}-cp${{ matrix.python }}
