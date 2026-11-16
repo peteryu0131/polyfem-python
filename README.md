@@ -4,9 +4,10 @@ Build a finite element model with `import polyfem` and run it with `from polyfem
 
 ## Installation
 
-See the [installation guide](INSTALL.md) for pip, conda, and platform status.
-The public package indexes still carry older releases; use a reviewed forward
-build for the API below. For a development install, see [BUILD.md](BUILD.md).
+This forward API is not yet published on PyPI or conda-forge.
+[Build this branch from source](BUILD.md), or install a tested wheel supplied
+by a maintainer. See the [installation guide](INSTALL.md) for commands and
+platform status.
 
 ## Run a forward simulation
 
@@ -56,14 +57,14 @@ also works when run from another directory, using the mesh beside it.
 corresponds to a mesh vertex. For a small check that creates its own mesh,
 run the [installation self-check](INSTALL.md#check-the-installation).
 
-For larger models, see the [classic example guide](examples/README.md) and the
-[pinned example sources](https://github.com/polyfem/python_data/tree/2e533c8357d9f8f0cca4e5baeba391575b2d2f2b/classic_example).
+For larger models, see the [classic example guide](https://github.com/polyfem/python_data/blob/ffd670690bf20021e1c380d68b0afe845fb275fd/README.md) and the
+[pinned example sources](https://github.com/polyfem/python_data/tree/ffd670690bf20021e1c380d68b0afe845fb275fd/classic_example).
 These reference examples require their mesh data and may select linear solvers
 that are not enabled in every backend build.
 
-For two more short examples that use only the installed package, see
-[static elasticity](examples/quickstart/static_elasticity.py) and
-[transient elasticity](examples/quickstart/transient_elasticity.py).
+Download either of these scripts and run it with Python in the same environment:
+[static elasticity](https://github.com/polyfem/python_data/blob/ffd670690bf20021e1c380d68b0afe845fb275fd/quickstart/static_elasticity.py) and
+[transient elasticity](https://github.com/polyfem/python_data/blob/ffd670690bf20021e1c380d68b0afe845fb275fd/quickstart/transient_elasticity.py).
 Both create their own mesh and use `Eigen::SimplicialLDLT`. The transient example
 also shows time settings and an output directory.
 
@@ -77,6 +78,10 @@ also shows time settings and an output directory.
 
 ## Forward solver validation
 
-On a ready-for-review pull request targeting `main`, GitHub Actions builds the C++ backend, checks a Neo-Hookean cube against reference values, and runs the 75 active contact cases from the pinned PolyFEM test lists. Open the **Generated Contact Backend** run and download **generated-contact-backend-results** for the per-case results. See [testing](TESTING.md) for the commands and triggers.
+Push checks run Python and API tests on Windows, Linux, and macOS. Native builds
+and simulation checks run in separate workflows. On a ready-for-review pull
+request targeting `main`, **Generated Contact Backend** builds and installs a
+wheel, runs the short examples and cube reference check, then runs the 75 active
+contact cases. See [TESTING.md](TESTING.md) for triggers, commands, and artifacts.
 
 See the [API guide](API.md) for geometry, materials, boundary conditions and loads.

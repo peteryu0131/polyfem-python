@@ -1,6 +1,9 @@
 # Forward API
 
-Start with the runnable example in [README.md](README.md). The snippets below use mesh paths that you supply.
+For a complete example with a supplied mesh, use the [README beam](README.md#run-a-forward-simulation).
+This guide shows API patterns. Supply your own mesh paths; `part.msh` below
+must be a 2D mesh. Later snippets are alternatives, not one script to run in
+sequence. They assume `import polyfem` and a fresh `model` with the named bodies.
 
 ```python
 import polyfem
@@ -11,6 +14,7 @@ body = model.mesh(mesh="part.msh")
 body.material(polyfem.neo_hookean(E=1000, nu=0.3))
 body.dirichlet(value=[0, 0])
 
+model.solver(linear=polyfem.linear(solver="Eigen::SimplicialLDLT"))
 config = model.config(rhs=[0, -1])
 result = solve(cfg=config)
 ```
@@ -36,7 +40,7 @@ obstacles = model.mesh_array(
 obstacles.dirichlet(value=[0, 0])
 ```
 
-The former `obstacle_mesh*` and `geometry_mesh*` methods have been replaced by these geometry methods.
+Use these geometry methods for both deformable meshes and obstacles.
 
 ## Materials and body settings
 
@@ -56,14 +60,17 @@ Apply a condition directly to the body to select its entire outer boundary.
 body.dirichlet(value=[0, 0])
 ```
 
-For a partial boundary, select it first and then apply the condition.
+Alternatively, select part of the boundary before applying the condition:
 
 ```python
 # Select the left side of the mesh bounding box.
-boundary = body.surface_axis(axis="-x", position=0.0)
+boundary = body.surface_axis(axis="-x", position=0.0, relative=True)
 boundary.dirichlet(value=[0, 0])
 ```
 
+With `relative=True`, position 0 is the minimum and position 1 is the maximum
+of the bounding box along that axis. `"-x"` selects the side at or below the
+chosen x position. With `relative=False`, position uses mesh coordinates.
 The selection parameters follow the PolyFEM spec. The API assigns the boundary ID and connects the condition to it. The same binding mechanism supports `neumann`, `normal_aligned_neumann` and `pressure`.
 
 A direct whole-boundary condition and a partial or file-based surface selection on the same body are rejected when they would overwrite each other's selection. Apply conditions to explicit selections when a body has multiple boundary regions.
@@ -85,7 +92,8 @@ second_surface = second.surface_all(same_as=first_surface)
 first_surface.dirichlet(value=[0, 0])
 ```
 
-Here both surfaces share one backend label, so the condition applies to both.
+Here `first` and `second` are bodies in the same model. Both surfaces share
+one boundary ID, so the condition applies to both.
 
 ## Body loads
 
@@ -95,7 +103,7 @@ For a uniform load across the model:
 config = model.config(rhs=[0, -1])
 ```
 
-For different loads on different bodies:
+For two bodies named `first` and `second` in the same model:
 
 ```python
 first.rhs(value=[0, -1])
@@ -106,6 +114,11 @@ config = model.config()
 Choose one of these load scopes per model. Supplying both a global RHS and body-specific RHS raises an error.
 
 ## Time, contact and output
+
+Add these settings to a model with geometry, materials, loads, and constraints
+already configured. A transient elastic model also needs material density.
+For a complete transient example, use the
+[transient square](https://github.com/polyfem/python_data/blob/ffd670690bf20021e1c380d68b0afe845fb275fd/quickstart/transient_elasticity.py).
 
 ```python
 config = model.config(
@@ -120,7 +133,9 @@ config = model.config(
 result = solve(cfg=config)
 ```
 
-A relative output directory is resolved from the working directory. `result.sol` holds the solver's solution array. Classic examples explicitly retain their source JSON settings, including defaults.
+A relative output directory is resolved from the working directory. `result.sol`
+is the raw finite-element solution array; its rows are not necessarily mesh
+vertices. Open the saved `.pvd` file in ParaView to view the result on the mesh.
 
 Configuration sections can also be set with `model.time(...)`, `model.output(...)` and other generated section methods. Use one configuration style for each section. Passing a section to `model.config(...)` after setting it on the model raises an error.
 

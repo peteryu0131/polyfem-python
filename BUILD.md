@@ -3,15 +3,19 @@
 For an installed binary package, start with [INSTALL.md](INSTALL.md).
 This guide covers building and changing the library.
 
-From the repository root, initialize the pinned PolyFEM sources, data, examples and generator:
-
 Use a Git checkout of the intended release branch. GitHub's **Download ZIP** does
 not include submodule contents. Keep the recorded submodule revisions together;
 updating each dependency to its latest branch is not the same configuration.
 
+Clone the forward branch (use a short parent directory on Windows):
+
 ```sh
-git submodule update --init --recursive
+git clone --branch jingyaoyu_forward --recurse-submodules https://github.com/peteryu0131/polyfem-python.git
+cd polyfem-python
 ```
+
+For an existing checkout, select the intended revision first, then run
+`git submodule update --init --recursive` from its root.
 
 Use an environment with Python 3.10 or later, CMake 3.25 or later, and a C++ compiler. On Windows, use an x64 Visual Studio development environment. To use an existing conda environment named `polyfem`, activate it with `conda activate polyfem` first.
 
@@ -66,8 +70,10 @@ python tools/check_installed_package.py --readme README.md --reference polyfem-d
 
 The check starts isolated Python processes in a temporary directory. It verifies
 the import location, native backend, README beam, installation self-check, and
-six cube error metrics. Keep `INSTALL.md` and `examples/quickstart/beam.obj`
-alongside the README in the checkout or extracted source archive.
+six cube error metrics. Run from the checkout root so the check can find `INSTALL.md`,
+`examples/quickstart/beam.obj`, and the cube reference in `polyfem-data`.
+The cube data is not included in the source archive; omit `--reference` there
+to check only the beam and installation self-check.
 For the full example sweep, see [TESTING.md](TESTING.md).
 
 Check both `import polyfem` and `python -I -m polyfempy backend-info --require` there.

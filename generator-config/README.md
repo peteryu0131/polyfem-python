@@ -40,7 +40,6 @@ repository root, regenerate with:
 python tools/generate_polyfem_api.py
 ```
 
-
 ## Geometry and ID binding
 
 Geometry factories also generate model methods such as `model.mesh(...)`,

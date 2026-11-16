@@ -58,12 +58,12 @@ Python code. Generated output and external submodules are excluded.
 
 | When | What runs |
 | --- | --- |
-| Push or pull request | Python and generated API tests on Windows, macOS and Linux with Python 3.10–3.12 |
+| Push or pull request | Python, generated API, and generator unit tests on Windows, macOS and Linux with Python 3.10-3.12 |
 | Draft PR, or PR targeting another branch | Linux source archive and wheel build, clean installation, README, cube, and quick-start checks on open, update or reopen |
-| Ready-for-review PR targeting `main` | Cube check followed by the full contact sweep on open, update, reopen, marking ready or retargeting to `main` |
-| Manual run of Generated Contact Backend, or push to main | Full contact sweep against the pinned official data |
+| Ready-for-review PR targeting `main` | Clean wheel installation, beam, installation self-check, cube and quick-start checks, then the full contact sweep on open, update, reopen, marking ready or retargeting to `main` |
+| Manual run of Generated Contact Backend, or push to main | The same wheel and simulation checks, then the full contact sweep |
 
-Before merging, check **Forward solver checks (Ubuntu, Python 3.11)** on the latest PR revision. The full sweep runs the 75 active cases and compares the generated configurations with the official inputs and their reference metrics. For an on-demand check, open **Actions → Generated Contact Backend → Run workflow** and select the branch. To run the same check locally:
+Before merging, check **Forward solver checks (Ubuntu, Python 3.11)** on the latest PR revision. The full sweep runs the 75 active cases and compares the generated configurations with the official inputs and their reference metrics. For an on-demand check, open **Actions -> Generated Contact Backend -> Run workflow** and select the branch. To run the same check locally:
 
 ```sh
 python tools/run_generated_contact_backend_checks.py --output-root build/contact-check --generated-source-tolerance 1e-5 --max-threads 1 --require-tests-match
@@ -87,7 +87,11 @@ Each job installs its output and runs the README beam, installation self-check,
 and all three quick-start scripts.
 Wheel builds use cibuildwheel's dependency repair step before installation.
 
-Run this workflow on the release revision and review every required job. It
+GitHub requires a manually triggered workflow to exist on the repository's
+default branch before it can be dispatched on another branch. See
+[GitHub's manual-run instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
+Adding this file only to `jingyaoyu_forward` does not enable the Run workflow
+button. Once enabled, run it on the release revision and review every job. It
 produces downloadable artifacts without publishing to package indexes. See
 [INSTALL.md](INSTALL.md) for the verified user installation routes and
 [conda/README.md](conda/README.md) for the native conda recipe.

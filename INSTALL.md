@@ -9,7 +9,7 @@ The forward release is being prepared. Its reviewed Windows x64 wheel works
 with CPython 3.11, including in a new conda environment. Linux and macOS native
 packages still need successful release builds and installation checks.
 
-The existing public packages contain older APIs. At the time of this review,
+The existing public packages contain older APIs. As checked on 2026-11-15,
 [conda-forge](https://anaconda.org/conda-forge/polyfempy) provides version 0.5.2
 for Windows x64, Linux x64, and Intel macOS. [PyPI](https://pypi.org/project/polyfempy/)
 provides a 0.2.3 source archive. Installing either does not install this forward
@@ -25,7 +25,10 @@ to the current API. Other Python versions and architectures are not yet verified
 
 ## Install a reviewed wheel with pip
 
-Get a wheel for your operating system, CPU architecture, and Python version.
+This section assumes a maintainer has supplied a tested `.whl` file.
+There is no published forward release to download from the package indexes.
+If you do not have a wheel, follow [BUILD.md](BUILD.md).
+Choose a wheel for your operating system, CPU architecture, and Python version.
 A Windows wheel cannot be used on Linux or macOS. Intel and Apple Silicon Macs
 also need matching binaries.
 
@@ -117,6 +120,7 @@ with TemporaryDirectory() as folder:
     square.material(polyfem.neo_hookean(E=1000, nu=0.3))
     square.surface_all().dirichlet(value=[0, 0])
     model.rhs([0, -1])
+    model.solver(linear=polyfem.linear(solver="Eigen::SimplicialLDLT"))
 
     result = solve(cfg=model.config())
     print(f"Largest displacement component: {abs(result.sol).max():.8f}")

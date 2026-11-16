@@ -45,7 +45,10 @@ paths. The recipe selects Ninja so the same build commands work across systems.
 
 ## Release workflow
 
-Run **Actions -> Release Packages -> Run workflow** on the intended revision.
+First make the workflow available on the repository's default branch; GitHub
+requires this for manual dispatch. Then use
+**Actions -> Release Packages -> Run workflow** and select the release branch.
+See [TESTING.md](../TESTING.md#release-package-checks) for the prerequisite.
 Each native conda job builds for one platform and Python version, runs the
 installed-package checks, and uploads the resulting package as an artifact.
 The workflow does not upload to Anaconda.org or PyPI.
