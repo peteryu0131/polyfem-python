@@ -560,19 +560,6 @@ def test_top_level_body_mesh_and_model_rhs_match_legacy_builder_payload():
     assert canonical.backend_settings == legacy_canonical.backend_settings
 
 
-def test_model_rhs_rejects_duplicate_rhs_sources():
-    model = polyfem.model()
-    model.rhs([10, 100, 0])
-
-    with pytest.raises(TypeError, match="rhs"):
-        polyfem.config(model=model, rhs=[0, 0, 0])
-    with pytest.raises(TypeError, match="rhs"):
-        polyfem.config(
-            model=model,
-            boundary_conditions=polyfem.boundary_conditions(rhs=[0, 0, 0]),
-        )
-
-
 def test_body_rhs_preserves_each_body_selection_and_rejects_conflicts():
     model = polyfem.model()
     first = model.mesh(mesh="first.obj")
@@ -1096,22 +1083,14 @@ def test_source_parity_rejects_stale_boundary_id():
         _assert_source_parity(actual, source)
 
 
-@pytest.mark.parametrize("case", EXAMPLE_CASES, ids=_case_id)
-def test_classic_generated_example_matches_polyfem_data_source(case: tuple[Path, Path]):
-    example_path, source_path = case
+@pytest.mark.parametrize(
+    "example_path",
+    [pytest.param(path, id=path.stem) for path in _generated_example_files()],
+)
+def test_classic_generated_example_matches_polyfem_data_source(example_path: Path):
     example = _import_example(example_path)
-
+    source_path = Path(example.SOURCE_JSON).resolve()
     _assert_source_parity(example.polyfem_config.as_dict(), _expected_config_from_source(source_path))
-
-
-def test_all_classic_generated_examples_match_polyfem_data_sources():
-    for example_path, source_path in _all_example_cases():
-        example = _import_example(example_path)
-        try:
-            _assert_source_parity(example.polyfem_config.as_dict(), _expected_config_from_source(source_path))
-        except AssertionError as error:
-            raise AssertionError(str(source_path)) from error
-
 
 
 @pytest.mark.parametrize("case", DOLPHIN_MATERIAL_SHAPE_CASES, ids=_case_id)

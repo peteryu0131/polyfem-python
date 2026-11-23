@@ -1,5 +1,7 @@
 """Model settings must survive export without changing existing config calls."""
 
+from functools import partial
+
 import pytest
 
 import polyfem
@@ -177,6 +179,24 @@ def test_explicit_config_is_still_a_one_time_override():
     assert model.config().as_dict() == before
     model.config(rhs=[0, -1])
     assert model.config().as_dict() == before
+
+
+@pytest.mark.parametrize("via_factory", [False, True], ids=["model.config", "polyfem.config"])
+def test_config_rejects_duplicate_global_rhs(via_factory):
+    model = polyfem.model()
+    export = partial(polyfem.config, model=model) if via_factory else model.config
+    boundary = {"rhs": [1, 0]}
+
+    with pytest.raises(TypeError, match="rhs"):
+        export(rhs=[0, -1], boundary_conditions=boundary)
+
+    model.rhs([0, -1])
+    with pytest.raises(TypeError, match="rhs"):
+        export(rhs=[1, 0])
+    with pytest.raises(TypeError, match="rhs"):
+        export(boundary_conditions=boundary)
+    with pytest.raises(TypeError, match="rhs"):
+        export(boundary_conditions=polyfem.boundary_conditions(**boundary))
 
 
 def test_uniform_body_rhs_tracks_the_current_deformable_geometry():
