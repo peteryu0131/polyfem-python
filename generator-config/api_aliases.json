@@ -1,4 +1,14 @@
 {
+  "shortcuts": {
+    "time": ["tend", "dt"],
+    "contact": ["enabled", "dhat"]
+  },
+  "field_alias_suffixes": ["_boundary"],
+  "factory_names": {
+    "list_item_suffixes": ["_boundary"],
+    "variant_parent_suffixes": ["_selection"],
+    "prefix_sections": ["Output"]
+  },
   "api_aliases": [
     {
       "main_api_name": "material_models",

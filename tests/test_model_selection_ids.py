@@ -3,6 +3,7 @@
 import pytest
 
 import polyfem
+from polyfempy._model_builder import SelectionHandle
 
 
 def select_left(body):
@@ -32,6 +33,8 @@ def test_repeated_whole_surface_reuses_its_id(direct_first):
     else:
         first = body.surface_all().dirichlet(value=[0, 0])
     second = body.surface_all().neumann(value=[1, 0])
+    assert isinstance(first, SelectionHandle)
+    assert isinstance(second, SelectionHandle)
     assert first.selection_ref.backend_id == second.selection_ref.backend_id
     cfg = model.config().as_dict()
     assert cfg["geometry"][0]["surface_selection"] == first.selection_ref.backend_id
@@ -166,6 +169,7 @@ def test_file_surface_refs_belong_to_the_model_and_reserve_all_tags(tmp_path):
 def test_obstacle_and_body_surface_refs_have_distinct_ids():
     model = polyfem.model()
     obstacle = model.mesh(mesh="wall.obj", is_obstacle=True)
+    assert obstacle is not None
     first = obstacle.dirichlet(value=[0, 0])
     obstacle.surface_all().dirichlet(value=[0, 0])
     second = model.mesh(mesh="part.msh").surface_all().dirichlet(value=[1, 0])

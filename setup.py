@@ -14,7 +14,6 @@ from setuptools.command.build_py import build_py
 from setuptools.command.sdist import sdist
 
 ROOT = Path(__file__).resolve().parent
-BUILDER_MODULES = {"__init__", "model_builder", "id_relationships", "selection_refs"}
 
 
 def check_package_sources():
@@ -26,7 +25,8 @@ def check_package_sources():
         "python/polyfempy/generated_api/builder_api_manifest.json",
         "python/polyfempy/generated_api/class_tree_manifest.json",
         "python/polyfempy/generated_api/generated_api_manifest.json",
-        *[f"python-from-jse/generator/{name}.py" for name in sorted(BUILDER_MODULES)],
+        "python/polyfempy/_model_builder.py",
+        "python/polyfempy/_selection_refs.py",
     ]
     missing = [name for name in required if not (ROOT / name).is_file()]
     if missing:
@@ -42,12 +42,6 @@ class BuildPython(build_py):
     def run(self):
         check_package_sources()
         super().run()
-
-    def find_package_modules(self, package, package_dir):
-        modules = super().find_package_modules(package, package_dir)
-        if package == "polyfempy.generated_api.generator":
-            return [module for module in modules if module[1] in BUILDER_MODULES]
-        return modules
 
 
 class SourceDistribution(sdist):
@@ -121,11 +115,6 @@ class CMakeBuild(build_ext):
             "-DUSE_NANOBIND=ON",
             "-DCMAKE_BUILD_TYPE=Release",
         ]
-        import nanobind
-
-        cmake_args.append(
-            f"-Dnanobind_DIR={(Path(nanobind.__file__).parent / 'cmake').as_posix()}"
-        )
         conda_prefix = os.environ.get("CONDA_PREFIX")
         if conda_prefix:
             prefixes = [conda_prefix, os.environ.get("CMAKE_PREFIX_PATH", "")]
@@ -200,10 +189,8 @@ setup(
         "sdist": SourceDistribution,
     },
     options={"editable_wheel": {"mode": "strict"}},
-    packages=find_packages(where="python", include=["polyfem", "polyfempy", "polyfempy.*"])
-    + ["polyfempy.generated_api.generator"],
+    packages=find_packages(where="python", include=["polyfem", "polyfempy", "polyfempy.*"]),
     package_dir={
         "": "python",
-        "polyfempy.generated_api.generator": "python-from-jse/generator",
     },
 )

@@ -306,9 +306,9 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
         surface_selection = mesh_values.pop("surface_selection", None)
         point_selection = mesh_values.pop("point_selection", None)
         is_obstacle = bool(mesh_values.get("is_obstacle", False))
-        volume_id = mesh_values.get("volume_selection")
-        has_volume_handle = isinstance(volume_id, int) and volume_id > 0
-        if has_volume_handle and not is_obstacle and item_type == "mesh" and volume_id in material_by_id:
+        selection = mesh_values.get("volume_selection")
+        volume_id = selection if isinstance(selection, int) and selection > 0 else None
+        if volume_id is not None and not is_obstacle and item_type == "mesh" and volume_id in material_by_id:
             mesh_values.pop("volume_selection")
         if is_obstacle:
             if point_selection not in (None, 0):
@@ -327,7 +327,7 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
         method = item_type
         mesh_kwargs = render_kwargs(item_cls, mesh_values, 4)
         assign_whole_surface = (
-            surface_selection == 0 and has_volume_handle and not is_obstacle and item_type == "mesh"
+            surface_selection == 0 and volume_id is not None and not is_obstacle and item_type == "mesh"
             and not moves_tag_zero and 0 not in boundary_ids
             and all(isinstance(g.get("surface_selection"), int) for g in geometry)
             and sum(g["surface_selection"] == 0 for g in geometry) == 1
@@ -338,7 +338,7 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
         if volume_id in volume_body_by_id and item_type == "mesh":
             mesh_kwargs.append(("same_volume_as", volume_body_by_id[volume_id]))
         write_body_rhs = use_body_rhs and not is_obstacle and volume_id not in volume_body_by_id
-        if is_obstacle or not has_volume_handle:
+        if is_obstacle or volume_id is None:
             call = render_method_call(
                 "model",
                 method,
@@ -389,7 +389,7 @@ def render_builder_config(payload: dict[str, Any]) -> str | None:
             if isinstance(surface_selection, dict) and "file" in surface_selection:
                 # The first column of a PolyFEM sideset contains the boundary tags.
                 path = Path(surface_selection["file"])
-                if not has_volume_handle or not path.is_file():
+                if volume_id is None or not path.is_file():
                     return None
                 if set(surface_selection) != {"file"}:
                     return None

@@ -6,7 +6,7 @@ import subprocess
 import pytest
 
 from tools.check_docs import check_markdown, headings
-from tools.check_distribution import BUILDER_FILES, PACKAGE_FILES, SOURCE_FILES, check_files
+from tools.check_distribution import PACKAGE_FILES, SOURCE_FILES, check_files
 
 
 def test_submodule_file_exists_but_relative_github_link_is_rejected(tmp_path):
@@ -36,13 +36,13 @@ def test_repeated_headings_and_code_examples():
 
 
 def source_files():
-    return {f"python/{name}" for name in PACKAGE_FILES} | SOURCE_FILES | {f"python-from-jse/generator/{n}" for n in BUILDER_FILES}
+    return {f"python/{name}" for name in PACKAGE_FILES} | SOURCE_FILES
 
 
 def test_source_archive_requires_quickstart_mesh_and_builder():
     names = source_files()
     check_files(names, wheel=False)
-    for name in ["examples/quickstart/beam.obj", "python-from-jse/generator/model_builder.py"]:
+    for name in ["examples/quickstart/beam.obj", "python/polyfempy/_model_builder.py"]:
         with pytest.raises(ValueError, match="Missing distribution files"):
             check_files(names - {name}, wheel=False)
 
@@ -55,7 +55,6 @@ def test_source_archive_rejects_development_files(path):
 
 def test_wheel_must_include_native_extension():
     names = PACKAGE_FILES | {"polyfem/__init__.py", "polyfempy-0.8.dist-info/licenses/LICENSE"}
-    names |= {f"polyfempy/generated_api/generator/{n}" for n in BUILDER_FILES}
     with pytest.raises(ValueError, match="native"):
         check_files(names, wheel=True)
     check_files(names | {"polyfempy/polyfempy.cp311-win_amd64.pyd"}, wheel=True)

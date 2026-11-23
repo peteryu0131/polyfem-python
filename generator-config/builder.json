@@ -1,0 +1,11 @@
+{
+  "exclude_paths": ["/preset_problem", "/tests"],
+  "builder": {
+    "base": "polyfempy._model_builder.ModelBuilder",
+    "source_root": "../python",
+    "helpers": ["body"]
+  },
+  "record_helpers": [
+    {"name": "unit", "fields": ["value", "unit"], "inline_types": [null, "ValueWithUnit"]}
+  ]
+}

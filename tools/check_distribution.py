@@ -14,6 +14,7 @@ PACKAGE_FILES = {
     "polyfempy/runtime/result.py", "polyfempy/runtime/_solve_contract.py",
     "polyfempy/runtime/__init__.py", "polyfempy/runtime/_solve_backend.py",
     "polyfempy/runtime/_runtime.py", "polyfempy/runtime/tensor.py",
+    "polyfempy/_model_builder.py", "polyfempy/_selection_refs.py",
     "polyfempy/generated_api/__init__.py",
     "polyfempy/generated_api/generated_api.py",
     "polyfempy/generated_api/generated_class.py",
@@ -21,7 +22,6 @@ PACKAGE_FILES = {
     "polyfempy/generated_api/class_tree_manifest.json",
     "polyfempy/generated_api/generated_api_manifest.json",
 }
-BUILDER_FILES = {"__init__.py", "model_builder.py", "id_relationships.py", "selection_refs.py"}
 SOURCE_FILES = {
     "pyproject.toml", "setup.py", "CMakeLists.txt", "LICENSE", "README.md", "INSTALL.md", "API.md",
     "src/binding.cpp", "polyfem/CMakeLists.txt", "polyfem/LICENSE",
@@ -41,9 +41,8 @@ def check_files(names: set[str], *, wheel: bool) -> None:
             raise ValueError(f"Cache or repository file in distribution: {name}")
         if path.parts[0] in {"tests", "build", "dist", "results"}:
             raise ValueError(f"Development or output file in distribution: {name}")
-    builder = "polyfempy/generated_api/generator" if wheel else "python-from-jse/generator"
     package_files = PACKAGE_FILES if wheel else {f"python/{name}" for name in PACKAGE_FILES}
-    required = package_files | {f"{builder}/{name}" for name in BUILDER_FILES}
+    required = set(package_files)
     required |= {"polyfem/__init__.py"} if wheel else SOURCE_FILES
     missing = required - names
     if missing:

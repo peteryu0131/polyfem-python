@@ -210,6 +210,7 @@ def test_uniform_body_rhs_keeps_ids_needed_by_other_settings():
         body.rhs(value=[0, -1])
     material = polyfem.neo_hookean(E=1000, nu=0.3)
     second.material(material)
+    assert third.volume_ref is not None
     third_id = third.volume_ref.backend_id
     cfg = model.config(initial_conditions=polyfem.initial_conditions(
         velocity=[{"id": third_id, "value": [1, 0]}]

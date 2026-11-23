@@ -706,6 +706,7 @@ def test_implicit_obstacle_motion_targets_only_the_bound_obstacle():
     model = polyfem.model()
     model.mesh(is_obstacle=True, mesh="lower.obj")
     obstacle = model.mesh(is_obstacle=True, mesh="upper.obj")
+    assert obstacle is not None
     obstacle.dirichlet(value=[1, 0, 0])
     moved = model.config().as_dict()
     assert "surface_selection" not in moved["geometry"][0]
@@ -783,6 +784,7 @@ def test_model_builder_can_bind_obstacle_surface_displacement():
         mesh="roller.obj",
         surface_selection=1000,
     )
+    assert surface is not None
     surface.obstacle_displacement(value=[1, 0, 0])
     config = model.config()
 

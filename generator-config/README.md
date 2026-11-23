@@ -1,9 +1,10 @@
 # PolyFEM generator configuration
 
-The API generator reads two files in this directory:
+The API generator reads these project settings during generation.
 
-- `api_aliases.json` defines public factory names and aliases.
-- `id_relationships.json` connects geometry IDs to materials, boundary conditions and contact settings.
+- `builder.json` selects the PolyFEM builder, its extra helpers and the spec paths to exclude.
+- `api_aliases.json` defines public names, field aliases and configuration shortcuts.
+- `id_relationships.json` connects geometry IDs to materials, boundary conditions and contact settings. Its `id_groups` also defines which selection types share IDs.
 
 The generic generator lives in the `python-from-jse/` submodule.
 
@@ -40,9 +41,10 @@ a setter replaces only its explicit settings. ID assignment remains in the
 shared builder and relationship rules, so users can work with body and selection
 objects. See [Model settings](../API.md#model-settings) for examples and merge rules.
 
-Maintain this behavior in `python-from-jse/generator/JsonToTreeClass.py` and
-`python-from-jse/generator/model_builder.py`, not the generated output. From the
-repository root, regenerate with:
+The generator creates methods from the input spec. PolyFEM implements mesh,
+obstacle and RHS behavior in `python/polyfempy/_model_builder.py`. A removed
+field referenced by a configured shortcut or relationship fails validation
+before the generated files are replaced. Regenerate from the repository root.
 
 ```powershell
 python tools/generate_polyfem_api.py
@@ -59,6 +61,23 @@ such as `body.material(...)` use volume relationships. Direct boundary
 conditions such as `body.dirichlet(...)` use the configured surface
 relationships and select the whole boundary. Partial selections retain their
 own handles.
+
+Selection helper names and fields come from the spec and the relationships.
+For example, the surface relationships identify `geometry[*].surface_selection`
+and its ID, and the selection spec defines the `axis` variant and its arguments.
+Together they generate `surface_axis(...)`. Adding a named selection variant
+with that ID generates its helper on the next run.
+
+Each relationship namespace gets its own ID group by default. The project
+declares that surface and point share a group and must expose matching methods.
+It also reserves curve IDs, which have no corresponding consumer relationship.
+The builder can customize a root section through a private `_section_<name>`
+method. That method is exposed only when the section exists in the spec.
+`builder.source_root` points to the package source relative to `builder.json`,
+so the generator can read the adapter's declared methods and retain their type
+signatures without importing the package during generation.
+A collection handler such as `_item_geometry` receives the generated item
+factory name. The spec supplies the collection and its variants.
 
 See [API.md](../API.md) for user-facing examples. New geometry types use the
 same generated dispatch. New relationships must be described in

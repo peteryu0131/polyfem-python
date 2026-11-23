@@ -50,6 +50,8 @@ def workflow_steps(
         str(GENERATED_DIR / "generated_api.py"),
         "--manifest-dir",
         str(GENERATED_DIR),
+        "--overrides",
+        str(GENERATOR_CONFIG_DIR / "builder.json"),
         "--relationships",
         str(GENERATOR_CONFIG_DIR / "id_relationships.json"),
         "--api-aliases",
@@ -94,6 +96,7 @@ def missing_required_paths(
         GENERATOR_CONFIG_DIR,
         GENERATOR_CONFIG_DIR / "api_aliases.json",
         GENERATOR_CONFIG_DIR / "id_relationships.json",
+        GENERATOR_CONFIG_DIR / "builder.json",
         POLYFEMPY_PACKAGE_DIR,
     ]
     for include_spec_dir in include_spec_dirs:

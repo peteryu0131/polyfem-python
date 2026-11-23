@@ -8,10 +8,6 @@ graft polyfem/cmake
 graft polyfem/src
 graft polyfem/json-specs
 include python-from-jse/LICENSE
-include python-from-jse/generator/__init__.py
-include python-from-jse/generator/model_builder.py
-include python-from-jse/generator/id_relationships.py
-include python-from-jse/generator/selection_refs.py
 recursive-include python/polyfempy/generated_api *.py *_manifest.json
 include tools/check_installed_package.py
 

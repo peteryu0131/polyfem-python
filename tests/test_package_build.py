@@ -5,7 +5,6 @@ import subprocess
 import sys
 import sysconfig
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -52,11 +51,8 @@ def test_build_uses_cmake_parallel_options(
 ):
     monkeypatch.setenv("CMAKE_GENERATOR", generator)
     monkeypatch.setenv("N_THREADS", "2")
-    monkeypatch.setitem(
-        sys.modules,
-        "nanobind",
-        SimpleNamespace(__file__=str(tmp_path / "nanobind/__init__.py")),
-    )
+    # Build dependencies are discovered by CMake using the build interpreter.
+    monkeypatch.setitem(sys.modules, "nanobind", None)
     command = build_script["CMakeBuild"](Distribution())
     command.build_temp = str(tmp_path / "build")
     command.build_lib = str(tmp_path / "lib")
@@ -73,17 +69,13 @@ def test_build_uses_cmake_parallel_options(
     assert build[-3:] == ["--parallel", "1" if visual_studio else "2", "--verbose"]
     assert "--" not in build
     assert "-DPOLYFEM_PORTABLE_BUILD=ON" in configure
+    assert f"-DPython_EXECUTABLE={sys.executable}" in configure
     assert f"-DPython_EXTENSION_MODULE_SUFFIX={sysconfig.get_config_var('EXT_SUFFIX')}" in configure
     if visual_studio:
         assert call.call_args.kwargs["env"]["_CL_"].endswith("/MP2")
 
 
-def test_failed_build_is_not_repeated(build_script, monkeypatch, tmp_path):
-    monkeypatch.setitem(
-        sys.modules,
-        "nanobind",
-        SimpleNamespace(__file__=str(tmp_path / "nanobind/__init__.py")),
-    )
+def test_failed_build_is_not_repeated(build_script, tmp_path):
     command = build_script["CMakeBuild"](Distribution())
     command.build_temp = str(tmp_path / "build")
     command.build_lib = str(tmp_path / "lib")
@@ -103,11 +95,6 @@ def test_existing_ninja_build_does_not_receive_visual_studio_options(
 ):
     monkeypatch.delenv("CMAKE_GENERATOR", raising=False)
     monkeypatch.setenv("N_THREADS", "2")
-    monkeypatch.setitem(
-        sys.modules,
-        "nanobind",
-        SimpleNamespace(__file__=str(tmp_path / "nanobind/__init__.py")),
-    )
     (tmp_path / "CMakeCache.txt").write_text("CMAKE_GENERATOR:INTERNAL=Ninja\n")
     command = build_script["CMakeBuild"](Distribution())
     command.build_temp = str(tmp_path)
@@ -149,9 +136,12 @@ def test_package_discovery_preserves_installed_names():
     assert {"polyfem", "polyfempy", "polyfempy.runtime", "polyfempy.generated_api"} <= set(packages)
     assert not any(name.startswith("python.") for name in packages)
     distribution = Distribution({"packages": packages, "package_dir": options["package_dir"]})
+    distribution.script_name = "setup.py"
     command = distribution.get_command_obj("build_py")
     command.ensure_finalized()
     for package in ("polyfem", "polyfempy", "polyfempy.runtime"):
         assert Path(command.get_package_dir(package)) == Path("python", *package.split("."))
-    assert Path(command.get_package_dir("polyfempy.generated_api.generator")) == Path("python-from-jse/generator")
+    assert "polyfempy.generated_api.generator" not in packages
+    shipped_modules = {name for _, name, _ in command.find_all_modules()}
+    assert {"_model_builder", "_selection_refs"} <= shipped_modules
     assert options["ext_modules"][0].name == "polyfempy.polyfempy"
