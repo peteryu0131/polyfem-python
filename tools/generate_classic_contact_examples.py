@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import json
 import keyword
+from operator import attrgetter
 from pathlib import Path
 import re
 import sys
@@ -1033,17 +1035,12 @@ def factory_name(cls: type, *, required: bool = True) -> str | None:
 
 
 def load_factory_map() -> dict[type, str]:
-    api_path = Path(polyfem.__file__).resolve()
-    text = api_path.read_text(encoding="utf-8")
-    pattern = re.compile(
-        r"^def ([A-Za-z_]\w*)\(\*args, \*\*kwargs\):\n"
-        r"    return _construct\((Root(?:\.[A-Za-z_]\w*)+), \*args, \*\*kwargs\)",
-        re.MULTILINE,
-    )
+    manifest = Path(polyfem.__file__).with_name("generated_api_manifest.json")
     factories: dict[type, str] = {}
-    for name, class_expr in pattern.findall(text):
-        cls = eval(class_expr, {"Root": polyfem.Root})
-        factories.setdefault(cls, name)
+    for entry in json.loads(manifest.read_text(encoding="utf-8")):
+        if entry["exported"]:
+            cls = attrgetter(entry["class_path"])(polyfem)
+            factories.setdefault(cls, entry["api_custom_name"] or entry["api_generated_name"])
     return factories
 
 

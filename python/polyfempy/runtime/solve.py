@@ -33,13 +33,8 @@ def _result_from_backend_return(ret) -> Result:
             "Rebuild the VarForm backend so Solver.solve() returns raw sol."
         )
 
-    required = ("sol",)
-    missing = [key for key in required if key not in ret]
-    if missing:
-        raise RuntimeError(
-            "PolyFEM backend result bundle is missing required keys: "
-            + ", ".join(missing)
-        )
+    if "sol" not in ret:
+        raise RuntimeError("PolyFEM backend result bundle is missing required keys: sol")
 
     meta = {}
     if isinstance(ret.get("meta"), dict):

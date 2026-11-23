@@ -414,15 +414,6 @@ class ModelBuilder:
             append=append,
         )
 
-    def _add_point_selection(self, mesh_uuid, payload):
-        return self._add_geometry_selection(
-            mesh_uuid,
-            namespace="point",
-            geometry_field="point_selection",
-            payload=payload,
-            append=True,
-        )
-
     def _add_geometry_selection(
         self,
         mesh_uuid,

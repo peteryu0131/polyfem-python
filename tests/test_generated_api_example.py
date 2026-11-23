@@ -1123,9 +1123,11 @@ def test_classic_generated_api_fallbacks_are_limited_to_known_schema_gaps():
     assert actual == EXPECTED_GENERATED_API_FALLBACK_SOURCES
 
 
-@pytest.mark.parametrize("case", EXAMPLE_CASES, ids=_case_id)
-def test_classic_generated_example_uses_generated_solve_path(case: tuple[Path, Path]):
-    example_path, _source_path = case
+@pytest.mark.parametrize(
+    "example_path",
+    [pytest.param(path, id=path.stem) for path in _generated_example_files()],
+)
+def test_classic_generated_example_uses_generated_solve_path(example_path: Path):
     example = _import_example(example_path)
 
     canonical = prepare_canonical_solve_input(
@@ -1138,19 +1140,3 @@ def test_classic_generated_example_uses_generated_solve_path(case: tuple[Path, P
     assert canonical.metadata == {"mesh_source": "json", "config_source": "generated"}
     assert canonical.mesh_source.mode == "json"
     assert "geometry" in canonical.backend_settings
-
-
-def test_all_classic_generated_examples_use_generated_solve_path():
-    failures = []
-    for example_path, _source_path in _all_example_cases():
-        example = _import_example(example_path)
-        canonical = prepare_canonical_solve_input(
-            vertices=None,
-            cells=None,
-            cfg=example.polyfem_config,
-            dtype=None,
-        )
-        if canonical.metadata != {"mesh_source": "json", "config_source": "generated"}:
-            failures.append(example_path.relative_to(ROOT).as_posix())
-
-    assert failures == []
