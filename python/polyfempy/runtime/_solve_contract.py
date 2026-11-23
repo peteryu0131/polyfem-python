@@ -72,7 +72,7 @@ def prepare_generated_backend_payload(
     """Prepare a generated ``Root.as_dict()`` payload for the backend."""
     backend = copy.deepcopy(payload)
     resolved_root_path = root_path or backend.get("root_path")
-    if resolved_root_path:
+    if resolved_root_path and not backend.get("common"):
         _resolve_geometry_mesh_paths_in_place(backend, str(resolved_root_path))
         _resolve_collision_mesh_paths_in_place(backend, str(resolved_root_path))
     _normalize_nonlinear_tolerance_names(backend)
@@ -274,9 +274,10 @@ def _resolve_geometry_mesh_paths_in_place(payload: Dict[str, Any], root_path: st
             entry["mesh"] = str(direct)
             continue
 
-        sibling = root_dir.parent / "meshes" / mesh_file.name
-        if sibling.exists():
-            entry["mesh"] = str(sibling)
+        if mesh_path == mesh_file.name:
+            sibling = root_dir.parent / "meshes" / mesh_file.name
+            if sibling.is_file():
+                entry["mesh"] = str(sibling)
 
 
 def _resolve_geometry_selection_files_in_place(entry: Dict[str, Any], root_path: str) -> None:
@@ -366,7 +367,9 @@ def _load_json_payload(path: str | Path) -> Dict[str, Any]:
         ) from exc
     if not isinstance(payload, dict):
         raise TypeError(f"JSON config must contain an object, got {type(payload).__name__}")
-    payload.setdefault("root_path", str(json_path))
+    root_path = payload.get("root_path", "")
+    if isinstance(root_path, str):
+        payload["root_path"] = str((json_path.parent / root_path).resolve() if root_path else json_path)
     return payload
 
 
@@ -474,7 +477,7 @@ def build_full_json(cfg: Any) -> Optional[Dict[str, Any]]:
     if isinstance(extras, dict) and "_full_json_config" in extras:
         return merge_user_cfg_over_full_json(cfg_dict, extras["_full_json_config"])
 
-    if not (isinstance(cfg_dict, dict) and "geometry" in cfg_dict):
+    if "geometry" not in cfg_dict and not cfg_dict.get("common"):
         return None
 
     full_json = cfg_dict
@@ -528,7 +531,7 @@ def choose_mesh_source(
             v_backend=v_backend,
         )
 
-    if full_json is not None and "geometry" in full_json:
+    if full_json is not None and ("geometry" in full_json or full_json.get("common")):
         return MeshSource(mode="json", v_backend="numpy")
 
     raise NoMeshSourceError(
@@ -564,12 +567,12 @@ def clean_json_for_cpp(obj: Any) -> Any:
 
 def process_json_config(full_json: Dict[str, Any]) -> Dict[str, Any]:
     processed = copy.deepcopy(full_json)
-    processed.pop("common", None)
     processed.pop("extras", None)
     processed.pop("_mesh_array_mode", None)
 
     root_path = processed.get("root_path")
-    if root_path:
+    # A common file can supply its own resource root. Let the backend resolve it first.
+    if root_path and not processed.get("common"):
         _resolve_geometry_mesh_paths_in_place(processed, str(root_path))
     return processed
 
@@ -601,6 +604,9 @@ def build_canonical_solver_settings(
             raise ValueError("JSON mesh mode requires full_json settings")
         settings = process_json_config(full_json)
         _normalize_nonlinear_tolerance_names(settings)
+        if settings.get("common"):
+            # JSON Merge Patch uses null to remove a key inherited from the common file.
+            return settings
         return clean_json_for_cpp(settings)
 
     settings = _payload_dict_or_raise(cfg, context="building array-mode backend settings")

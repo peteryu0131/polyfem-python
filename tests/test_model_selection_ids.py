@@ -151,6 +151,23 @@ def test_explicit_shared_ids_remain_supported():
     assert len(cfg["boundary_conditions"]["dirichlet_boundary"]) == 1
 
 
+@pytest.mark.parametrize("volume_selection", [1, [{"id": 1, "axis": "-x", "position": 0.0}]])
+def test_late_explicit_volume_id_cannot_claim_another_bodys_rhs(volume_selection):
+    model = polyfem.model()
+    loaded = model.mesh(mesh="loaded.msh")
+    loaded.rhs(value=[0, -9])
+    before = model.config().as_dict()
+
+    with pytest.raises(ValueError, match="volume.*1.*same_volume_as"):
+        model.mesh(mesh="unloaded.msh", volume_selection=volume_selection)
+    assert model.config().as_dict() == before
+
+    model.mesh(mesh="unloaded.msh", volume_selection=2)
+    cfg = model.config().as_dict()
+    assert [g["volume_selection"] for g in cfg["geometry"]] == [1, 2]
+    assert cfg["boundary_conditions"]["rhs"] == [{"id": 1, "value": [0, -9]}]
+
+
 def test_file_surface_refs_belong_to_the_model_and_reserve_all_tags(tmp_path):
     sideset = tmp_path / "boundary.txt"
     sideset.write_text("1 0\n5 1\n", encoding="utf-8")

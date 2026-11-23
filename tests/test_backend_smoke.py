@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 
+import numpy as np
 import pytest
 
 
@@ -89,6 +90,43 @@ def _load_actual_error_metrics(output_dir: Path) -> dict[str, float]:
         for key, value in payload.items()
         if key.startswith("err_") and isinstance(value, (int, float))
     }
+
+
+@pytest.mark.parametrize(("inherit_geometry", "relative_root"), [(False, None), (True, None), (True, "inputs")])
+def test_solve_json_inherits_common_settings(tmp_path, monkeypatch, inherit_geometry, relative_root):
+    import polyfempy
+
+    if not polyfempy.cpp_backend_available():
+        pytest.skip("Common-file integration requires the native backend")
+    monkeypatch.chdir(tmp_path)
+    beam = Path(__file__).resolve().parents[1] / "examples/quickstart/beam.obj"
+    geometry = [{"mesh": str(beam), "surface_selection": [{"id": 1, "axis": "-x", "position": 0.0}]}]
+    shared = {
+        "geometry": geometry,
+        "boundary_conditions": {"rhs": [0, -1000]},
+    }
+    local = {
+        "materials": {"type": "LinearElasticity", "E": 1e7, "nu": 0.3},
+        "boundary_conditions": {"dirichlet_boundary": [{"id": 1, "value": [0, 0]}]},
+        "solver": {"linear": {"solver": "Eigen::SimplicialLDLT"}},
+    }
+    expected = polyfempy.solve(cfg={
+        **local, "geometry": geometry,
+        "boundary_conditions": {**local["boundary_conditions"], **shared["boundary_conditions"]},
+    }).sol
+    assert np.max(np.abs(expected)) > 1e-6
+
+    case_dir = tmp_path / "case"
+    resources = case_dir / (relative_root or ".")
+    resources.mkdir(parents=True)
+    (resources / "common.json").write_text(json.dumps(shared), encoding="utf-8")
+    if relative_root:
+        local["root_path"] = relative_root
+    if not inherit_geometry:
+        local["geometry"] = geometry
+    case = case_dir / "case.json"
+    case.write_text(json.dumps({"common": "common.json", **local}), encoding="utf-8")
+    np.testing.assert_allclose(polyfempy.solve(cfg=case).sol, expected, rtol=1e-8, atol=1e-12)
 
 
 def test_backend_forward_solve_smoke(tmp_path, pytestconfig):

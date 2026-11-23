@@ -43,6 +43,7 @@ class ModelBuilder:
             selection_helper_rules = manifest.get("selection_rules", {})
         self._selection_helper_rules = dict(selection_helper_rules)
         self._mesh_by_uuid = {}
+        self._automatic_volume_ids = set()
         self._rhs_only_volume_ids = {}
         self._consumer_lists = {}
         self._selection_backend_id_by_signature = {}
@@ -102,7 +103,7 @@ class ModelBuilder:
             values["volume_selection"] = same_volume_as._require_mesh().backend_id
 
         geometry_object = getattr(self._api, factory_name)(**values)
-        self._reserve_geometry_ids(_payload_dict(geometry_object))
+        self._reserve_geometry_ids(_payload_dict(geometry_object), shared_volume=same_volume_as is not None)
         if same_volume_as is not None:
             same_volume_as._bind_volume()
         mesh_uuid = str(uuid.uuid4())
@@ -125,6 +126,8 @@ class ModelBuilder:
         volume_ref = self._allocate_selection(
             "volume", backend_id=volume_selection, mesh_uuid=mesh_uuid,
         )
+        if volume_selection is None:
+            self._automatic_volume_ids.add(volume_ref.backend_id)
         return BodyHandle(self, mesh_uuid, volume_ref)
 
     def _allocate_selection(self, namespace, **kwargs):
@@ -132,15 +135,24 @@ class ModelBuilder:
         self._selection_refs[ref.uuid] = ref
         return ref
 
-    def _reserve_geometry_ids(self, geometry):
+    def _reserve_geometry_ids(self, geometry, *, shared_volume):
         """Keep automatic IDs clear of IDs already present in geometry rules."""
+        reservations = []
         for namespace in ("volume", "surface", "point", "curve"):
             value = geometry.get(namespace + "_selection")
             items = value if isinstance(value, list) else [value]
             for item in items:
                 backend_id = item.get("id") if isinstance(item, dict) else item
-                if isinstance(backend_id, int) and not isinstance(backend_id, bool) and backend_id > 0:
-                    self._allocate_selection(namespace, backend_id=backend_id)
+                if not isinstance(backend_id, int) or isinstance(backend_id, bool) or backend_id < 1:
+                    continue
+                if namespace == "volume" and not shared_volume and backend_id in self._automatic_volume_ids:
+                    raise ValueError(
+                        f"volume ID {backend_id} is already assigned automatically to another body. "
+                        "Choose a different ID or use same_volume_as to share its volume."
+                    )
+                reservations.append((namespace, backend_id))
+        for namespace, backend_id in reservations:
+            self._allocate_selection(namespace, backend_id=backend_id)
 
     def _section_geometry(self):
         geometry = []

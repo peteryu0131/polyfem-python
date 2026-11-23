@@ -2,7 +2,7 @@
 
 Covers:
     - clean_json_for_cpp:    recursively drop None leaves from dicts and lists
-    - process_json_config:   pop `common`, preserve backend output keys,
+    - process_json_config:   preserve common-file references and backend output keys,
                              resolve relative mesh paths via `root_path`
 
 These tests never touch the C++ backend. They only exercise pure Python stages.
@@ -97,7 +97,6 @@ class ProcessJsonConfigTests(unittest.TestCase):
     def _base(self) -> dict:
         return {
             "pde": "LinearElasticity",
-            "common": "legacy-should-be-dropped",
             "output": {
                 "directory": "out",
                 "json": True,
@@ -105,9 +104,9 @@ class ProcessJsonConfigTests(unittest.TestCase):
             "materials": [{"type": "LinearElasticity", "E": 20, "nu": 0.3}],
         }
 
-    def test_pops_common_key(self):
-        processed = process_json_config(self._base())
-        self.assertNotIn("common", processed)
+    def test_keeps_common_reference_for_native_merge(self):
+        processed = process_json_config({**self._base(), "common": "shared/common.json"})
+        self.assertEqual(processed["common"], "shared/common.json")
 
     def test_keeps_backend_output_keys(self):
         processed = process_json_config(self._base())
@@ -186,6 +185,18 @@ class ProcessJsonConfigTests(unittest.TestCase):
         # When the file cannot be located, the original mesh string is kept
         # (the C++ solver will raise its own error later if that's wrong).
         self.assertEqual(processed["geometry"][0]["mesh"], "does_not_exist.msh")
+
+    def test_missing_explicit_mesh_path_does_not_pick_a_sibling_with_the_same_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            case = root / "case"
+            case.mkdir()
+            (root / "meshes").mkdir()
+            (root / "meshes" / "beam.msh").touch()
+            for requested in ("variantB/beam.msh", "./beam.msh"):
+                with self.subTest(requested=requested):
+                    cfg = {"root_path": str(case), "geometry": [{"mesh": requested}]}
+                    self.assertEqual(process_json_config(cfg)["geometry"][0]["mesh"], requested)
 
     def test_handles_geometry_entries_that_are_not_dicts(self):
         d = self._base()
